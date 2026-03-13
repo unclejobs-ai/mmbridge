@@ -12,7 +12,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsdown src/index.ts --format esm --dts",
+    "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {

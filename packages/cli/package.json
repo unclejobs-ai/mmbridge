@@ -15,7 +15,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsdown src/index.ts src/bin/mmbridge.ts --format esm --dts",
+    "build": "tsc -p tsconfig.json",
     "test": "node --test test/*.test.ts",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
