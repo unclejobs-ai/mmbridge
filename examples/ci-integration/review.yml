@@ -1,0 +1,24 @@
+# Example GitHub Actions workflow for mmBridge code review
+name: Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @mmbridge/cli
+      - run: mmbridge review --tool codex --mode base --json > review.json
+      - name: Upload review
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmbridge-review
+          path: review.json

@@ -1,0 +1,33 @@
+{
+  "name": "@mmbridge/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "mmbridge": "dist/bin/mmbridge.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsdown src/index.ts src/bin/mmbridge.ts --format esm --dts",
+    "test": "node --test test/*.test.ts",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@mmbridge/adapters": "workspace:*",
+    "@mmbridge/core": "workspace:*",
+    "@mmbridge/integrations": "workspace:*",
+    "@mmbridge/session-store": "workspace:*",
+    "@mmbridge/tui": "workspace:*",
+    "commander": "^13.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

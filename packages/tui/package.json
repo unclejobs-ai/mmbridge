@@ -1,0 +1,24 @@
+{
+  "name": "@mmbridge/tui",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

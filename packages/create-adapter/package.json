@@ -1,0 +1,18 @@
+{
+  "name": "@mmbridge/create-adapter",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "create-mmbridge-adapter": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "templates"],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

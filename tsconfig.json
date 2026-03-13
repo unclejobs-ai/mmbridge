@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/session-store" },
+    { "path": "packages/adapters" },
+    { "path": "packages/integrations" },
+    { "path": "packages/tui" },
+    { "path": "packages/cli" },
+    { "path": "packages/create-adapter" }
+  ]
+}
