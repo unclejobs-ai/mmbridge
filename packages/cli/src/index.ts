@@ -40,17 +40,6 @@ export interface DoctorOptions {
   setup?: boolean;
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const TOOL_BINARY_MAP: Record<string, string> = {
-  kimi: 'kimi',
-  qwen: 'qwen',
-  codex: 'codex',
-  gemini: 'opencode',
-};
-
-const TOOL_NAMES = Object.keys(TOOL_BINARY_MAP);
-
 // ─── Lazy dependency loaders ──────────────────────────────────────────────────
 // Each dependency is loaded lazily so that `mmbridge --help` remains fast
 // and doesn't fail if optional peer packages are absent.
@@ -95,19 +84,19 @@ async function runReviewCommand(options: ReviewCommandOptions): Promise<void> {
     runBridge,
   } = await importCore();
 
-  const { runReviewAdapter } = await importAdapters();
+  const { defaultRegistry, runReviewAdapter } = await importAdapters();
   const { SessionStore } = await importSessionStore();
   const { renderReviewConsole } = await importTui();
 
   const tool = options.tool ?? 'kimi';
-  const binary = TOOL_BINARY_MAP[tool];
-  if (!binary) {
-    exitWithError(`Unknown tool: ${tool}. Valid tools: ${TOOL_NAMES.join(', ')}`);
+  const adapter = defaultRegistry.get(tool);
+  if (!adapter) {
+    exitWithError(`Unknown tool: ${tool}. Available: ${defaultRegistry.list().join(', ')}`);
   }
-  const isInstalled = await commandExists(binary);
+  const isInstalled = await commandExists(adapter.binary);
   if (!isInstalled) {
     exitWithError(
-      `Binary "${binary}" not found in PATH. Install it to use the "${tool}" adapter.`,
+      `Binary "${adapter.binary}" not found in PATH. Install it to use the "${tool}" adapter.`,
     );
   }
 
@@ -258,15 +247,17 @@ async function runDashboardCommand(options: DashboardOptions): Promise<void> {
   const projectDir = resolveProjectDir(options.project);
 
   const { commandExists } = await importCore();
+  const { defaultRegistry } = await importAdapters();
   const { SessionStore } = await importSessionStore();
   const { renderDashboard } = await importTui();
 
   const sessionStore = new SessionStore(projectDir);
   const sessions = await sessionStore.list({ projectDir });
 
+  const toolNames = defaultRegistry.list();
   const models = await Promise.all(
-    TOOL_NAMES.map(async (tool) => {
-      const binary = TOOL_BINARY_MAP[tool] ?? tool;
+    toolNames.map(async (tool) => {
+      const binary = defaultRegistry.get(tool)?.binary ?? tool;
       const installed = await commandExists(binary);
       const toolSessions = sessions.filter((s: { tool: string }) => s.tool === tool);
       const latest = toolSessions[0] ?? null;
@@ -305,9 +296,11 @@ async function runDashboardCommand(options: DashboardOptions): Promise<void> {
 
 async function runDoctorCommand(options: DoctorOptions): Promise<void> {
   const { commandExists } = await importCore();
+  const { defaultRegistry } = await importAdapters();
   const { renderDoctor, renderSetupWizard } = await importTui();
 
-  const binaries = ['kimi', 'qwen', 'codex', 'opencode', 'claude'];
+  const adapterBinaries = defaultRegistry.list().map((t) => defaultRegistry.get(t)!.binary);
+  const binaries = [...new Set([...adapterBinaries, 'claude'])];
   const checks = await Promise.all(
     binaries.map(async (binary) => ({
       binary,
