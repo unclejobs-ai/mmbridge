@@ -1,10 +1,24 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { resolveProjectDir, importCore, importAdapters } from './helpers.js';
+import type { AdapterRegistry } from '@mmbridge/adapters';
 
 export interface InitCommandOptions {
   project?: string;
   yes?: boolean;
+}
+
+async function detectInstalledAdapters(
+  registry: AdapterRegistry,
+  commandExists: (cmd: string) => Promise<boolean>,
+): Promise<Array<{ name: string; binary: string }>> {
+  const installed: Array<{ name: string; binary: string }> = [];
+  for (const adapter of registry.values()) {
+    if (await commandExists(adapter.binary)) {
+      installed.push({ name: adapter.name, binary: adapter.binary });
+    }
+  }
+  return installed;
 }
 
 export async function runInitCommand(options: InitCommandOptions): Promise<void> {
@@ -22,11 +36,12 @@ export async function runInitCommand(options: InitCommandOptions): Promise<void>
 
   const { commandExists } = await importCore();
   const { defaultRegistry } = await importAdapters();
+  const installedAdapters = await detectInstalledAdapters(defaultRegistry, commandExists);
 
   if (options.yes) {
-    // Non-interactive: generate default config
-    const config = await buildDefaultConfig(defaultRegistry, commandExists);
+    const config = buildConfig(installedAdapters);
     await writeConfig(configPath, config);
+    process.stderr.write(`[mmbridge] Config written to ${configPath}\n`);
     return;
   }
 
@@ -35,18 +50,8 @@ export async function runInitCommand(options: InitCommandOptions): Promise<void>
 
   intro('mmbridge init');
 
-  // Detect installed adapters
-  const adapters = defaultRegistry.values();
-  const installedAdapters: Array<{ name: string; binary: string }> = [];
-  for (const adapter of adapters) {
-    if (await commandExists(adapter.binary)) {
-      installedAdapters.push({ name: adapter.name, binary: adapter.binary });
-    }
-  }
-
   if (installedAdapters.length === 0) {
-    process.stderr.write('[mmbridge] No AI tools detected. Install at least one (kimi, qwen, codex, opencode).\n');
-    process.stderr.write('[mmbridge] Run `mmbridge doctor` for details.\n');
+    cancel('No AI tools detected. Install at least one (kimi, qwen, codex, opencode). Run `mmbridge doctor` for details.');
     return;
   }
 
@@ -60,7 +65,7 @@ export async function runInitCommand(options: InitCommandOptions): Promise<void>
     initialValues: installedAdapters.map((a) => a.name),
   });
 
-  if (isCancel(selectedTools)) {
+  if (isCancel(selectedTools) || !Array.isArray(selectedTools)) {
     cancel('Init cancelled.');
     return;
   }
@@ -91,43 +96,33 @@ export async function runInitCommand(options: InitCommandOptions): Promise<void>
     return;
   }
 
-  const config: Record<string, unknown> = {
-    adapters: Object.fromEntries(
-      (selectedTools as string[]).map((tool) => {
-        const adapter = defaultRegistry.get(tool);
-        return [tool, { command: adapter?.binary ?? tool }];
-      }),
-    ),
-    context: {
-      maxBytes: largeContext ? 2097152 : 1048576,
-    },
-  };
-
-  if (defaultMode !== 'review') {
-    config.defaultMode = defaultMode;
-  }
+  const selectedAdapters = installedAdapters.filter((a) => selectedTools.includes(a.name));
+  const config = buildConfig(selectedAdapters, {
+    maxBytes: largeContext ? 2097152 : 1048576,
+    defaultMode: defaultMode !== 'review' ? String(defaultMode) : undefined,
+  });
 
   await writeConfig(configPath, config);
   outro(`Config written to ${configPath}`);
 }
 
-async function buildDefaultConfig(
-  registry: { values: () => Array<{ name: string; binary: string }> },
-  commandExists: (cmd: string) => Promise<boolean>,
-): Promise<Record<string, unknown>> {
-  const adapters: Record<string, { command: string }> = {};
-  for (const adapter of registry.values()) {
-    if (await commandExists(adapter.binary)) {
-      adapters[adapter.name] = { command: adapter.binary };
-    }
-  }
-  return {
-    adapters,
-    context: { maxBytes: 2097152 },
+function buildConfig(
+  adapters: Array<{ name: string; binary: string }>,
+  options?: { maxBytes?: number; defaultMode?: string },
+): Record<string, unknown> {
+  const config: Record<string, unknown> = {
+    adapters: Object.fromEntries(
+      adapters.map((a) => [a.name, { command: a.binary }]),
+    ),
+    context: { maxBytes: options?.maxBytes ?? 2097152 },
   };
+  // Omit defaultMode when 'review' (the built-in default)
+  if (options?.defaultMode) {
+    config.defaultMode = options.defaultMode;
+  }
+  return config;
 }
 
 async function writeConfig(configPath: string, config: Record<string, unknown>): Promise<void> {
-  await fs.writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
-  process.stderr.write(`[mmbridge] Config written to ${configPath}\n`);
+  await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 }

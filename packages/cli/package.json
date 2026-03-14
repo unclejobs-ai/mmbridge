@@ -27,12 +27,10 @@
     "@mmbridge/integrations": "workspace:*",
     "@mmbridge/session-store": "workspace:*",
     "@mmbridge/tui": "workspace:*",
+    "@clack/prompts": "^1.1.0",
     "commander": "^13.1.0"
   },
   "publishConfig": {
     "access": "public"
-  },
-  "devDependencies": {
-    "@clack/prompts": "^1.1.0"
   }
 }
