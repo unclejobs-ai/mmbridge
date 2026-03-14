@@ -5,8 +5,9 @@ import type { FollowupCommandOptions } from './commands/followup.js';
 import type { DashboardOptions } from './commands/dashboard.js';
 import type { DoctorOptions } from './commands/doctor.js';
 import type { SyncAgentsOptions } from './commands/sync-agents.js';
+import type { InitCommandOptions } from './commands/init.js';
 
-export type { ReviewCommandOptions, FollowupCommandOptions, DashboardOptions, DoctorOptions, SyncAgentsOptions };
+export type { ReviewCommandOptions, FollowupCommandOptions, DashboardOptions, DoctorOptions, SyncAgentsOptions, InitCommandOptions };
 
 export async function main(): Promise<void> {
   const program = new Command();
@@ -93,6 +94,17 @@ export async function main(): Promise<void> {
     .action(async (opts: SyncAgentsOptions) => {
       const { runSyncAgentsCommand } = await import('./commands/sync-agents.js');
       await runSyncAgentsCommand(opts);
+    });
+
+  // ── init ──
+  program
+    .command('init')
+    .description('Initialize mmbridge config for a project')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('-y, --yes', 'Skip prompts and use detected defaults')
+    .action(async (opts: InitCommandOptions) => {
+      const { runInitCommand } = await import('./commands/init.js');
+      await runInitCommand(opts);
     });
 
   await program.parseAsync(process.argv);
