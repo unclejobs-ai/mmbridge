@@ -93,7 +93,7 @@ async function main(): Promise<void> {
   console.log(`Next: cd ${dir} && npm install && npm run build`);
 }
 
-main().catch((err: Error) => {
-  console.error(err.message);
+main().catch((err: unknown) => {
+  console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

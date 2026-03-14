@@ -9,7 +9,8 @@
   "extendDefaultClassifiers": true,
   "adapters": {
     "kimi": { "command": "kimi", "args": ["--model", "k2"] },
-    "qwen": { "command": "qwen", "args": ["--model", "coder-plus"] }
+    "qwen": { "command": "qwen", "args": ["--model", "coder-plus"] },
+    "deepseek": { "module": "mmbridge-adapter-deepseek" }
   },
   "context": {
     "maxBytes": 2097152

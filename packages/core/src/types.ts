@@ -191,7 +191,14 @@ export interface MmbridgeConfig {
   /** If true (default), custom classifiers are prepended to built-in defaults. Set false to replace entirely. */
   extendDefaultClassifiers?: boolean;
   /** Adapter-specific configuration overrides */
-  adapters?: Record<string, { command?: string; args?: string[] }>;
+  adapters?: Record<string, {
+    /** Override the binary/command name */
+    command?: string;
+    /** Override default CLI arguments */
+    args?: string[];
+    /** npm package or file path to load as a third-party adapter */
+    module?: string;
+  }>;
   /** Extra redaction rules beyond built-in patterns */
   redaction?: {
     extraRules?: Array<{ pattern: string; replacement: string; label: string }>;
