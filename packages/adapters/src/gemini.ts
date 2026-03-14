@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { ensureBinary, invoke, parseExternalSessionId, assertPathContained, assertSafeSessionId } from './utils.js';
-import type { AdapterResult } from './types.js';
+import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runGeminiReview({
   workspace,
@@ -108,3 +108,11 @@ async function fileExists(filePath: string): Promise<boolean> {
     return false;
   }
 }
+
+export const geminiAdapter: AdapterDefinition = {
+  name: 'gemini',
+  binary: 'opencode',
+  review: (options) =>
+    runGeminiReview({ workspace: options.workspace, changedFiles: options.changedFiles ?? [] }),
+  followup: (options) => runGeminiFollowup(options),
+};

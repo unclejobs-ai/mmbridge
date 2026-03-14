@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { ensureBinary, invoke, parseExternalSessionId, assertPathContained } from './utils.js';
-import type { AdapterResult } from './types.js';
+import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runCodexReview({
   workspace,
@@ -204,3 +204,10 @@ async function directoryExists(dirPath: string): Promise<boolean> {
     return false;
   }
 }
+
+export const codexAdapter: AdapterDefinition = {
+  name: 'codex',
+  binary: 'codex',
+  review: (options) => runCodexReview(options),
+  followup: (options) => runCodexFollowup(options),
+};

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { ensureBinary, invoke, assertSafeSessionId } from './utils.js';
-import type { AdapterResult } from './types.js';
+import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runKimiReview({
   workspace,
@@ -54,3 +54,10 @@ export async function runKimiFollowup({
     text: result.combined,
   };
 }
+
+export const kimiAdapter: AdapterDefinition = {
+  name: 'kimi',
+  binary: 'kimi',
+  review: (options) => runKimiReview(options),
+  followup: (options) => runKimiFollowup(options),
+};

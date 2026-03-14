@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { ensureBinary, invoke, assertSafeSessionId } from './utils.js';
-import type { AdapterResult } from './types.js';
+import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runQwenReview({
   workspace,
@@ -64,3 +64,10 @@ export function normalizeUuid(sessionId: string | undefined | null): string {
   if (uuidRegex.test(value)) return value;
   return randomUUID();
 }
+
+export const qwenAdapter: AdapterDefinition = {
+  name: 'qwen',
+  binary: 'qwen',
+  review: (options) => runQwenReview(options),
+  followup: (options) => runQwenFollowup(options),
+};
