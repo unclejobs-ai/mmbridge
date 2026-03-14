@@ -32,11 +32,18 @@ export function assertSafeSessionId(id: string): void {
   }
 }
 
-/** Validate a file path does not escape its root directory */
-export function assertPathContained(filePath: string, root: string): boolean {
+/** Check if a file path is contained within a root directory */
+export function isPathContained(filePath: string, root: string): boolean {
   const resolved = path.resolve(filePath);
   const resolvedRoot = path.resolve(root);
   return resolved.startsWith(resolvedRoot + path.sep) || resolved === resolvedRoot;
+}
+
+/** Assert CLI command succeeded, throw with truncated stderr on failure */
+export function assertCliSuccess(tool: string, result: RunResult): void {
+  if (!result.ok) {
+    throw new Error(`${tool} CLI exited with code ${result.code}: ${result.stderr.slice(0, 500)}`);
+  }
 }
 
 export function parseExternalSessionId(

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { ensureBinary, invoke, assertSafeSessionId } from './utils.js';
+import { ensureBinary, invoke, assertSafeSessionId, assertCliSuccess } from './utils.js';
 import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runKimiReview({
@@ -10,13 +10,12 @@ export async function runKimiReview({
   workspace: string;
   sessionId?: string;
 }): Promise<AdapterResult> {
+  if (sessionId) assertSafeSessionId(sessionId);
   await ensureBinary('kimi');
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'kimi.md'), 'utf8');
   const args = ['-w', workspace, ...(sessionId ? ['-S', sessionId] : []), '--quiet', '-p', prompt];
   const result = await invoke('kimi', args, { cwd: workspace, timeoutMs: 300000 });
-  if (!result.ok) {
-    throw new Error(`kimi CLI exited with code ${result.code}: ${result.stderr.slice(0, 500)}`);
-  }
+  assertCliSuccess('kimi', result);
   return {
     tool: 'kimi',
     externalSessionId: sessionId ?? null,
@@ -41,9 +40,7 @@ export async function runKimiFollowup({
   await ensureBinary('kimi');
   const args = ['-w', workspace, '-S', sessionId, '--quiet', '-p', prompt];
   const result = await invoke('kimi', args, { cwd: workspace, timeoutMs: 300000 });
-  if (!result.ok) {
-    throw new Error(`kimi CLI exited with code ${result.code}: ${result.stderr.slice(0, 500)}`);
-  }
+  assertCliSuccess('kimi', result);
   return {
     tool: 'kimi',
     externalSessionId: sessionId,

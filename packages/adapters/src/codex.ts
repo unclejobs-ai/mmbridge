@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { ensureBinary, invoke, parseExternalSessionId, assertPathContained } from './utils.js';
+import { ensureBinary, invoke, parseExternalSessionId, isPathContained, assertCliSuccess } from './utils.js';
 import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runCodexReview({
@@ -16,9 +16,7 @@ export async function runCodexReview({
   const outputPath = createCodexOutputPath(workspace, 'review');
   const args = buildCodexExecArgs({ workspace, outputPath });
   const result = await invoke('codex', args, { cwd: workspace, input: prompt, timeoutMs: 300000 });
-  if (!result.ok) {
-    throw new Error(`codex CLI exited with code ${result.code}: ${result.stderr.slice(0, 500)}`);
-  }
+  assertCliSuccess('codex', result);
   const externalSessionId = parseExternalSessionId(result.combined, null);
   const text = await readCodexLastMessage(outputPath, result.combined);
   return {
@@ -70,9 +68,7 @@ export async function runCodexFollowup({
   const outputPath = createCodexOutputPath(workingDir, 'followup');
   const args = buildCodexResumeArgs({ workspace: workingDir, sessionId, outputPath });
   const result = await invoke('codex', args, { cwd: workingDir, input: prompt, timeoutMs: 300000 });
-  if (!result.ok) {
-    throw new Error(`codex CLI exited with code ${result.code}: ${result.stderr.slice(0, 500)}`);
-  }
+  assertCliSuccess('codex', result);
   const text = await readCodexLastMessage(outputPath, result.combined);
   const externalSessionId = parseExternalSessionId(result.combined, sessionId);
   return {
@@ -100,7 +96,7 @@ export async function buildCodexReviewPrompt({
   const changedFilesRoot = path.resolve(workspace, 'changed-files');
   const absoluteChangedFiles = changedFiles
     .map((file) => path.resolve(workspace, 'changed-files', file))
-    .filter((abs) => assertPathContained(abs, changedFilesRoot));
+    .filter((abs) => isPathContained(abs, changedFilesRoot));
   return [
     basePrompt.trim(),
     '',

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { ensureBinary, invoke, parseExternalSessionId, assertPathContained, assertSafeSessionId } from './utils.js';
+import { ensureBinary, invoke, parseExternalSessionId, isPathContained, assertSafeSessionId, assertCliSuccess } from './utils.js';
 import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runGeminiReview({
@@ -14,17 +14,16 @@ export async function runGeminiReview({
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'gemini.md'), 'utf8');
   const args = ['run', '--model', 'google/gemini-3.1-pro-preview', '--format', 'json'];
   const fileArgs: string[] = [path.join(workspace, 'context.md')];
+  const changedFilesRoot = path.resolve(workspace, 'changed-files');
   for (const file of changedFiles.slice(0, 12)) {
     const candidate = path.resolve(workspace, 'changed-files', file);
-    if (!assertPathContained(candidate, path.resolve(workspace, 'changed-files'))) continue;
+    if (!isPathContained(candidate, changedFilesRoot)) continue;
     if (await fileExists(candidate)) fileArgs.push(candidate);
   }
   for (const file of fileArgs) args.push('-f', file);
   args.push(prompt);
   const result = await invoke('opencode', args, { cwd: workspace, timeoutMs: 300000 });
-  if (!result.ok) {
-    throw new Error(`opencode CLI exited with code ${result.code}: ${result.stderr.slice(0, 500)}`);
-  }
+  assertCliSuccess('opencode', result);
   const externalSessionId = parseExternalSessionId(result.combined, null);
   return {
     tool: 'gemini',
@@ -59,9 +58,7 @@ export async function runGeminiFollowup({
     prompt,
   ];
   const result = await invoke('opencode', args, { cwd: workspace, timeoutMs: 300000 });
-  if (!result.ok) {
-    throw new Error(`opencode CLI exited with code ${result.code}: ${result.stderr.slice(0, 500)}`);
-  }
+  assertCliSuccess('opencode', result);
   return {
     tool: 'gemini',
     externalSessionId: sessionId,

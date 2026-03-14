@@ -20,6 +20,10 @@ export class AdapterRegistry {
     return [...this.adapters.keys()];
   }
 
+  values(): AdapterDefinition[] {
+    return [...this.adapters.values()];
+  }
+
   async loadFromConfig(config: MmbridgeConfig): Promise<void> {
     const adapterConfigs = config.adapters ?? {};
     for (const [name, cfg] of Object.entries(adapterConfigs)) {
@@ -28,16 +32,26 @@ export class AdapterRegistry {
       if (typeof modulePath !== 'string') continue;
       try {
         const mod: Record<string, unknown> = await import(modulePath);
-        const adapter = (mod.default ?? mod.adapter) as AdapterDefinition | undefined;
+        const candidate = (mod.default ?? mod.adapter) as Record<string, unknown> | undefined;
         if (
-          adapter?.name &&
-          typeof adapter.review === 'function' &&
-          typeof adapter.followup === 'function'
+          candidate &&
+          typeof candidate.name === 'string' &&
+          typeof candidate.binary === 'string' &&
+          typeof candidate.review === 'function' &&
+          typeof candidate.followup === 'function'
         ) {
+          const adapter: AdapterDefinition = {
+            name: candidate.name,
+            binary: candidate.binary,
+            review: candidate.review as AdapterDefinition['review'],
+            followup: candidate.followup as AdapterDefinition['followup'],
+          };
           this.register(adapter);
         }
-      } catch {
-        // skip adapters that fail to load — non-fatal
+      } catch (err) {
+        process.stderr.write(
+          `[mmbridge] Failed to load adapter "${name}" from ${modulePath}: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
       }
     }
   }

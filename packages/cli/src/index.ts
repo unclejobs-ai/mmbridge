@@ -299,7 +299,7 @@ async function runDoctorCommand(options: DoctorOptions): Promise<void> {
   const { defaultRegistry } = await importAdapters();
   const { renderDoctor, renderSetupWizard } = await importTui();
 
-  const adapterBinaries = defaultRegistry.list().map((t) => defaultRegistry.get(t)!.binary);
+  const adapterBinaries = defaultRegistry.values().map((a) => a.binary);
   const binaries = [...new Set([...adapterBinaries, 'claude'])];
   const checks = await Promise.all(
     binaries.map(async (binary) => ({
