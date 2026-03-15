@@ -1,4 +1,19 @@
-import type { ContextIndex, Finding, ResultIndex } from '@mmbridge/core';
+import type { ContextIndex, Finding, InterpretResult, ResultIndex } from '@mmbridge/core';
+
+export interface SessionToolResult {
+  tool: string;
+  findingCount: number;
+  skipped: boolean;
+  error?: string;
+}
+
+export type FindingDecisionStatus = 'accepted' | 'dismissed';
+
+export interface SessionFindingDecision {
+  key: string;
+  status: FindingDecisionStatus;
+  updatedAt: string;
+}
 
 export interface Session {
   id: string;
@@ -19,6 +34,9 @@ export interface Session {
   findings?: Finding[];
   contextIndex?: ContextIndex | null;
   resultIndex?: ResultIndex | null;
+  toolResults?: SessionToolResult[];
+  interpretation?: InterpretResult | null;
+  findingDecisions?: SessionFindingDecision[];
   followupSupported?: boolean;
   status?: string;
 }
@@ -26,6 +44,11 @@ export interface Session {
 export interface SessionListOptions {
   tool?: string;
   projectDir?: string;
+  mode?: string;
+  query?: string;
+  file?: string;
+  severity?: string;
+  limit?: number;
 }
 
 export interface ProjectState {

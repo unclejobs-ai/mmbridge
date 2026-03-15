@@ -39,6 +39,10 @@ export function App({ initialTab, version }: AppProps): React.ReactElement {
       return;
     }
 
+    if (state.inputMode !== 'none') {
+      return;
+    }
+
     // Tab switching: number keys + letter shortcuts (d/s/c for xterm compat)
     const tabTarget = KEY_TO_TAB[input];
     if (tabTarget) {

@@ -27,7 +27,9 @@ const ACTION_BINDINGS: KeyBinding[] = [
   { key: 'r', description: 'Refresh data' },
   { key: 'e', description: 'Export results' },
   { key: 'f', description: 'Followup on session' },
-  { key: 'd', description: 'Open diff view' },
+  { key: 'g', description: 'Followup on selected finding' },
+  { key: '[ / ]', description: 'Previous / next finding' },
+  { key: 'a / z / u', description: 'Accept / dismiss / clear finding' },
   { key: 'Del', description: 'Delete session' },
   { key: '/', description: 'Search (Sessions)' },
 ];

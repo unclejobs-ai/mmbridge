@@ -1,3 +1,4 @@
+import { SessionStore } from '@mmbridge/session-store';
 import type { Session } from '@mmbridge/session-store';
 import { Box, Text, useInput, useStdout } from 'ink';
 import React, { useCallback, useMemo } from 'react';
@@ -19,6 +20,9 @@ import { useFollowup } from '../hooks/use-followup.js';
 import { useTui } from '../store.js';
 import { CHARS, colors, toolColor } from '../theme.js';
 import { countBySeverity, formatRelativeTime } from '../utils/format.js';
+
+const SEVERITY_FILTERS = ['all', 'CRITICAL', 'WARNING', 'INFO', 'REFACTOR'] as const;
+const MODE_FILTERS = ['all', 'review', 'security', 'architecture', 'followup'] as const;
 
 // ─── SessionRow ───────────────────────────────────────────────────────────────
 
@@ -51,6 +55,10 @@ function SessionRow({ session, isSelected, isFollowup }: SessionRowProps): React
   );
 }
 
+function shortenText(value: string, max = 52): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
 // ─── DetailPanel ──────────────────────────────────────────────────────────────
 
 interface DetailPanelProps {
@@ -61,6 +69,9 @@ interface DetailPanelProps {
 function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactElement {
   const findings = sessionToFindings(session);
   const sevCounts = countBySeverity(findings);
+  const acceptedCount = findings.filter((finding) => finding.status === 'accepted').length;
+  const dismissedCount = findings.filter((finding) => finding.status === 'dismissed').length;
+  const openCount = findings.length - acceptedCount - dismissedCount;
   const contextIndex = parseContextIndex(session.contextIndex);
   const resultIndex = parseResultIndex(session.resultIndex);
   const ancestryChain = buildAncestryChain(allSessions, session.id);
@@ -76,6 +87,9 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
 
   // Top files from resultIndex
   const topFiles = resultIndex?.topFiles?.slice(0, 3) ?? null;
+  const toolResults = Array.isArray(session.toolResults) ? session.toolResults : [];
+  const interpretation = session.interpretation ?? null;
+  const actionPlan = interpretation?.actionPlan?.split('\n')[0]?.trim() ?? null;
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -162,6 +176,10 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
       {/* Base ref */}
       {session.baseRef != null && <KVRow label="Base" value={session.baseRef} labelWidth={6} />}
 
+      {session.parentSessionId != null && (
+        <KVRow label="Parent" value={`#${session.parentSessionId.slice(0, 8)}`} labelWidth={6} />
+      )}
+
       {/* Status */}
       <KVRow
         label="Status"
@@ -169,11 +187,93 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
         labelWidth={6}
         valueColor={session.status === 'error' ? colors.red : colors.green}
       />
+
+      {findings.length > 0 && (
+        <Box flexDirection="column">
+          <Text color={colors.textDim} bold>
+            Triage
+          </Text>
+          <KVRow label="open" value={String(openCount)} labelWidth={10} />
+          <KVRow
+            label="accepted"
+            value={String(acceptedCount)}
+            valueColor={acceptedCount > 0 ? colors.green : colors.textDim}
+            labelWidth={10}
+          />
+          <KVRow
+            label="dismissed"
+            value={String(dismissedCount)}
+            valueColor={dismissedCount > 0 ? colors.red : colors.textDim}
+            labelWidth={10}
+          />
+        </Box>
+      )}
+
+      {toolResults.length > 0 && (
+        <Box flexDirection="column">
+          <Text color={colors.textDim} bold>
+            Bridge
+          </Text>
+          {toolResults.map((result) => {
+            const statusText = result.skipped ? 'skipped' : `${result.findingCount} finds`;
+            const statusColor = result.skipped ? colors.yellow : colors.green;
+            return (
+              <KVRow
+                key={result.tool}
+                label={result.tool}
+                value={result.error ? `${statusText} · ${shortenText(result.error, 22)}` : statusText}
+                valueColor={result.error ? colors.red : statusColor}
+                labelWidth={10}
+              />
+            );
+          })}
+        </Box>
+      )}
+
+      {interpretation != null && (
+        <Box flexDirection="column">
+          <Text color={colors.textDim} bold>
+            Interpret
+          </Text>
+          <KVRow label="tool" value={interpretation.interpreterTool} labelWidth={10} />
+          <KVRow label="valid" value={String(interpretation.validated.length)} labelWidth={10} />
+          <KVRow label="false+" value={String(interpretation.falsePositives.length)} labelWidth={10} />
+          <KVRow label="promoted" value={String(interpretation.promoted.length)} labelWidth={10} />
+          {actionPlan && (
+            <Text color={colors.subtext1} wrap="truncate-end">
+              {actionPlan}
+            </Text>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }
 
 const PAGE_SIZE = 14;
+
+function matchesSessionFilters(
+  session: Session,
+  filters: { query: string; toolFilter: string; severityFilter: string; modeFilter: string },
+): boolean {
+  if (filters.toolFilter !== 'all' && session.tool !== filters.toolFilter) return false;
+  if (filters.modeFilter !== 'all' && session.mode !== filters.modeFilter) return false;
+  if (
+    filters.severityFilter !== 'all' &&
+    !(session.findings ?? []).some((finding) => finding.severity?.toUpperCase() === filters.severityFilter)
+  ) {
+    return false;
+  }
+
+  const query = filters.query.trim().toLowerCase();
+  if (!query) return true;
+
+  const summaryMatch = session.summary?.toLowerCase().includes(query) ?? false;
+  const findingMatch = (session.findings ?? []).some(
+    (finding) => finding.message?.toLowerCase().includes(query) || finding.file?.toLowerCase().includes(query),
+  );
+  return summaryMatch || findingMatch;
+}
 
 // ─── SessionsView ─────────────────────────────────────────────────────────────
 
@@ -182,10 +282,19 @@ export function SessionsView(): React.ReactElement {
   const { sessions, sessionsLoading, sessionsUi } = state;
   const { stdout } = useStdout();
   const cols = stdout?.columns ?? 80;
+  const toolFilters = useMemo(() => ['all', ...new Set(sessions.map((session) => session.tool))], [sessions]);
+
+  const filteredSessions = useMemo(
+    () => sessions.filter((session) => matchesSessionFilters(session, sessionsUi)),
+    [sessions, sessionsUi],
+  );
 
   const selectedIndex = sessionsUi.selectedIndex;
-  const clampedIndex = Math.min(selectedIndex, Math.max(0, sessions.length - 1));
-  const selected: Session | null = sessions[clampedIndex] ?? null;
+  const clampedIndex = Math.min(selectedIndex, Math.max(0, filteredSessions.length - 1));
+  const selected: Session | null = filteredSessions[clampedIndex] ?? null;
+  const selectedFindings = selected ? sessionToFindings(selected) : [];
+  const selectedFindingIndex = Math.min(sessionsUi.findingIndex, Math.max(0, selectedFindings.length - 1));
+  const selectedFinding = selectedFindings[selectedFindingIndex] ?? null;
 
   // Activity sparkline: computed from sessions
   const stats = useMemo(() => computeSessionStats(sessions), [sessions]);
@@ -208,14 +317,76 @@ export function SessionsView(): React.ReactElement {
     [doExport],
   );
 
+  const handleFindingDecision = useCallback(
+    async (session: Session, status: 'accepted' | 'dismissed' | null, findingKey: string) => {
+      const store = new SessionStore();
+      const existingDecisions = session.findingDecisions ?? [];
+      const nextDecisions =
+        status == null
+          ? existingDecisions.filter((decision) => decision.key !== findingKey)
+          : [
+              ...existingDecisions.filter((decision) => decision.key !== findingKey),
+              { key: findingKey, status, updatedAt: new Date().toISOString() },
+            ];
+
+      await store.save({
+        ...session,
+        findingDecisions: nextDecisions,
+      });
+
+      const nextSessions = await store.list({ projectDir: process.cwd() });
+      dispatch({ type: 'SET_SESSIONS', sessions: nextSessions });
+      dispatch({
+        type: 'SHOW_TOAST',
+        message: status == null ? 'Finding triage cleared' : `Finding marked ${status}`,
+        toastType: 'success',
+      });
+    },
+    [dispatch],
+  );
+
   useInput((input, key) => {
-    if (sessions.length === 0) return;
+    if (state.inputMode !== 'none') return;
+    if (
+      filteredSessions.length === 0 &&
+      input !== '/' &&
+      input !== 't' &&
+      input !== 'v' &&
+      input !== 'm' &&
+      input !== 'x'
+    ) {
+      return;
+    }
 
     if (input === 'j' || key.downArrow) {
-      dispatch({ type: 'SESSIONS_SELECT', index: Math.min(sessions.length - 1, clampedIndex + 1) });
+      dispatch({ type: 'SESSIONS_SELECT', index: Math.min(filteredSessions.length - 1, clampedIndex + 1) });
     }
     if (input === 'k' || key.upArrow) {
       dispatch({ type: 'SESSIONS_SELECT', index: Math.max(0, clampedIndex - 1) });
+    }
+    if (input === '/') {
+      dispatch({ type: 'START_SESSION_FILTER' });
+    }
+    if (input === 't') {
+      dispatch({ type: 'SESSIONS_CYCLE_TOOL', tools: toolFilters });
+    }
+    if (input === 'v') {
+      dispatch({ type: 'SESSIONS_CYCLE_SEVERITY', severities: [...SEVERITY_FILTERS] });
+    }
+    if (input === 'm') {
+      dispatch({ type: 'SESSIONS_CYCLE_MODE', modes: [...MODE_FILTERS] });
+    }
+    if (input === 'x') {
+      dispatch({ type: 'SESSIONS_CLEAR_FILTERS' });
+    }
+    if (input === '[') {
+      dispatch({ type: 'SESSIONS_SELECT_FINDING', index: Math.max(0, selectedFindingIndex - 1) });
+    }
+    if (input === ']') {
+      dispatch({
+        type: 'SESSIONS_SELECT_FINDING',
+        index: Math.min(Math.max(0, selectedFindings.length - 1), selectedFindingIndex + 1),
+      });
     }
     if (input === 'f') {
       if (!selected) return;
@@ -223,11 +394,44 @@ export function SessionsView(): React.ReactElement {
         dispatch({ type: 'SHOW_TOAST', message: 'No session ID for followup', toastType: 'error' });
         return;
       }
-      dispatch({ type: 'START_FOLLOWUP', tool: selected.tool, sessionId: selected.externalSessionId });
+      dispatch({
+        type: 'START_FOLLOWUP',
+        tool: selected.tool,
+        sessionId: selected.externalSessionId,
+        parentSessionId: selected.id,
+      });
+    }
+    if (input === 'g') {
+      if (!selected || !selected.externalSessionId || !selectedFinding) return;
+      const location =
+        selectedFinding.line != null ? `${selectedFinding.file}:${selectedFinding.line}` : selectedFinding.file;
+      dispatch({
+        type: 'START_FOLLOWUP',
+        tool: selected.tool,
+        sessionId: selected.externalSessionId,
+        parentSessionId: selected.id,
+        promptDraft: [
+          'Re-check this finding and decide whether it is valid, a false positive, or needs narrower wording.',
+          '',
+          `[${selectedFinding.severity}] ${location} - ${selectedFinding.message}`,
+        ].join('\n'),
+      });
     }
     if (input === 'e') {
       if (!selected) return;
       handleSessionExport(selected);
+    }
+    if (input === 'a') {
+      if (!selected || !selectedFinding) return;
+      void handleFindingDecision(selected, 'accepted', selectedFinding.key);
+    }
+    if (input === 'z') {
+      if (!selected || !selectedFinding) return;
+      void handleFindingDecision(selected, 'dismissed', selectedFinding.key);
+    }
+    if (input === 'u') {
+      if (!selected || !selectedFinding) return;
+      void handleFindingDecision(selected, null, selectedFinding.key);
     }
   });
 
@@ -247,9 +451,51 @@ export function SessionsView(): React.ReactElement {
     );
   }
 
+  const hasActiveFilters =
+    sessionsUi.query.length > 0 ||
+    sessionsUi.toolFilter !== 'all' ||
+    sessionsUi.severityFilter !== 'all' ||
+    sessionsUi.modeFilter !== 'all';
+
+  if (filteredSessions.length === 0) {
+    return (
+      <Box flexDirection="column" width="100%" paddingX={2} paddingY={1} gap={1}>
+        <Text color={colors.overlay1} bold>
+          SESSIONS
+        </Text>
+        <Box flexDirection="row" gap={2} flexWrap="wrap">
+          <Text color={sessionsUi.query ? colors.accent : colors.textDim}>q:{sessionsUi.query || 'all'}</Text>
+          <Text color={sessionsUi.toolFilter !== 'all' ? toolColor(sessionsUi.toolFilter) : colors.textDim}>
+            tool:{sessionsUi.toolFilter}
+          </Text>
+          <Text color={sessionsUi.severityFilter !== 'all' ? colors.yellow : colors.textDim}>
+            sev:{sessionsUi.severityFilter}
+          </Text>
+          <Text color={sessionsUi.modeFilter !== 'all' ? colors.subtext1 : colors.textDim}>
+            mode:{sessionsUi.modeFilter}
+          </Text>
+        </Box>
+        <Text color={colors.textDim}>
+          No sessions match the current filters. Use `/` to search, `t/v/m` to cycle filters, `x` to clear.
+        </Text>
+        {state.inputMode === 'session-filter' && (
+          <PromptInput
+            label="Session search"
+            initialValue={sessionsUi.query}
+            placeholder="message, file, summary..."
+            onSubmit={(query) => {
+              dispatch({ type: 'SESSIONS_SET_QUERY', query });
+              dispatch({ type: 'COMPLETE_INPUT' });
+            }}
+            onCancel={() => dispatch({ type: 'CANCEL_INPUT' })}
+          />
+        )}
+      </Box>
+    );
+  }
+
   const pageStart = Math.floor(clampedIndex / PAGE_SIZE) * PAGE_SIZE;
-  const visibleSessions = sessions.slice(pageStart, pageStart + PAGE_SIZE);
-  const selectedFindings = selected ? sessionToFindings(selected) : [];
+  const visibleSessions = filteredSessions.slice(pageStart, pageStart + PAGE_SIZE);
 
   // Column widths for 3-column layout
   const listWidth = Math.min(38, Math.floor(cols * 0.28));
@@ -260,6 +506,22 @@ export function SessionsView(): React.ReactElement {
 
   return (
     <Box flexDirection="column" width="100%">
+      <Box flexDirection="row" paddingX={1} gap={2} flexWrap="wrap">
+        <Text color={sessionsUi.query ? colors.accent : colors.textDim}>q:{sessionsUi.query || 'all'}</Text>
+        <Text color={sessionsUi.toolFilter !== 'all' ? toolColor(sessionsUi.toolFilter) : colors.textDim}>
+          tool:{sessionsUi.toolFilter}
+        </Text>
+        <Text color={sessionsUi.severityFilter !== 'all' ? colors.yellow : colors.textDim}>
+          sev:{sessionsUi.severityFilter}
+        </Text>
+        <Text color={sessionsUi.modeFilter !== 'all' ? colors.subtext1 : colors.textDim}>
+          mode:{sessionsUi.modeFilter}
+        </Text>
+        <Text color={hasActiveFilters ? colors.green : colors.textDim}>
+          {filteredSessions.length}/{sessions.length}
+        </Text>
+      </Box>
+
       {/* Main row: list + detail + findings (3-column) */}
       <Box flexDirection="row" width="100%">
         {/* Left: Sessions list */}
@@ -269,7 +531,7 @@ export function SessionsView(): React.ReactElement {
           </Text>
           <Box flexDirection="row" gap={1} marginTop={0} marginBottom={1}>
             <Sparkline data={sparkData} color={colors.accent} width={7} />
-            <Text color={colors.textDim}>{sessions.length} total</Text>
+            <Text color={colors.textDim}>{filteredSessions.length} shown</Text>
           </Box>
 
           <Box flexDirection="column">
@@ -288,7 +550,7 @@ export function SessionsView(): React.ReactElement {
 
           <Box marginTop={1}>
             <Text color={colors.textDim}>
-              {pageStart + 1}-{pageStart + visibleSessions.length}/{sessions.length}
+              {pageStart + 1}-{pageStart + visibleSessions.length}/{filteredSessions.length}
             </Text>
           </Box>
         </Box>
@@ -313,7 +575,7 @@ export function SessionsView(): React.ReactElement {
 
         {/* Right: Findings preview */}
         <Box width={findingsWidth}>
-          <FindingsPreview findings={selectedFindings} maxFiles={6} maxFindings={2} />
+          <FindingsPreview findings={selectedFindings} selectedIndex={selectedFindingIndex} />
         </Box>
       </Box>
 
@@ -323,10 +585,29 @@ export function SessionsView(): React.ReactElement {
       {state.inputMode === 'followup' && state.inputTarget && (
         <PromptInput
           label={`Followup (${state.inputTarget.tool})`}
+          initialValue={state.inputTarget.promptDraft}
           onSubmit={(prompt) =>
-            submitFollowup(state.inputTarget?.tool ?? '', state.inputTarget?.sessionId ?? '', prompt)
+            submitFollowup(
+              state.inputTarget?.tool ?? '',
+              state.inputTarget?.sessionId ?? '',
+              prompt,
+              state.inputTarget?.parentSessionId,
+            )
           }
           onCancel={cancelFollowup}
+        />
+      )}
+
+      {state.inputMode === 'session-filter' && (
+        <PromptInput
+          label="Session search"
+          initialValue={sessionsUi.query}
+          placeholder="message, file, summary..."
+          onSubmit={(query) => {
+            dispatch({ type: 'SESSIONS_SET_QUERY', query });
+            dispatch({ type: 'COMPLETE_INPUT' });
+          }}
+          onCancel={() => dispatch({ type: 'CANCEL_INPUT' })}
         />
       )}
     </Box>

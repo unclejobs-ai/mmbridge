@@ -69,3 +69,17 @@ test('runReviewPipeline: bridge mode throws without installed tools', async () =
     /No review tools installed/,
   );
 });
+
+test('runReviewPipeline: bridgeProfile affects consensus threshold', async () => {
+  const result = await runReviewPipeline({
+    ...baseOptions,
+    tool: 'all',
+    bridge: 'standard',
+    bridgeProfile: 'strict',
+    listInstalledTools: async () => ['tool1'],
+    runAdapter: makeMockAdapter('[WARNING] src/a.ts:10 — Missing validation'),
+  });
+
+  assert.equal(result.findings.length, 1);
+  assert.ok(result.summary.includes('strict'));
+});

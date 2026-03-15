@@ -92,6 +92,15 @@ test('buildAncestryChain: follows externalSessionId links', () => {
   assert.deepEqual(chain, ['a', 'b', 'c']);
 });
 
+test('buildAncestryChain: prefers parentSessionId for followups', () => {
+  const sessions = [
+    makeSession({ id: 'root', tool: 'kimi' }),
+    makeSession({ id: 'child', tool: 'kimi', parentSessionId: 'root', externalSessionId: 'thread-1' }),
+  ];
+  const chain = buildAncestryChain(sessions, 'child');
+  assert.deepEqual(chain, ['root', 'child']);
+});
+
 test('buildAncestryChain: follows link to missing ancestor and includes it', () => {
   const sessions = [makeSession({ id: 'b', tool: 'kimi', externalSessionId: 'missing' })];
   const chain = buildAncestryChain(sessions, 'b');

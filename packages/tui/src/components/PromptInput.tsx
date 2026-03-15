@@ -8,10 +8,18 @@ interface PromptInputProps {
   label: string;
   onSubmit: (text: string) => void;
   onCancel: () => void;
+  initialValue?: string;
+  placeholder?: string;
 }
 
-export function PromptInput({ label, onSubmit, onCancel }: PromptInputProps): React.ReactElement {
-  const [value, setValue] = useState('');
+export function PromptInput({
+  label,
+  onSubmit,
+  onCancel,
+  initialValue = '',
+  placeholder = 'Type your prompt...',
+}: PromptInputProps): React.ReactElement {
+  const [value, setValue] = useState(initialValue);
 
   useInput((_input, key) => {
     if (key.escape) {
@@ -30,7 +38,7 @@ export function PromptInput({ label, onSubmit, onCancel }: PromptInputProps): Re
       <Text color={colors.accent} bold>
         {label}:
       </Text>
-      <TextInput value={value} onChange={setValue} onSubmit={handleSubmit} placeholder="Type your prompt..." />
+      <TextInput value={value} onChange={setValue} onSubmit={handleSubmit} placeholder={placeholder} />
       <Text color={colors.textDim}>(ESC cancel)</Text>
     </Box>
   );

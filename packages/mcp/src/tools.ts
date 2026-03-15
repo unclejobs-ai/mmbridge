@@ -156,7 +156,7 @@ export function registerToolHandlers(server: Server): void {
 async function handleReview(args: Record<string, unknown>, server: Server) {
   const tool = String(args.tool ?? 'kimi');
   const mode = String(args.mode ?? 'review');
-  const bridge = String(args.bridge ?? 'none') as 'none' | 'standard' | 'interpreted';
+  const bridge = args.bridge === undefined ? undefined : (String(args.bridge) as 'none' | 'standard' | 'interpreted');
   const baseRef = args.baseRef as string | undefined;
   const projectDir = process.cwd();
 
@@ -166,7 +166,7 @@ async function handleReview(args: Record<string, unknown>, server: Server) {
       mode,
       projectDir,
       baseRef,
-      bridge: tool === 'all' && bridge === 'none' ? 'standard' : bridge,
+      bridge,
       runAdapter: runReviewAdapter,
       listInstalledTools: () => defaultRegistry.listInstalled(),
       saveSession: (data) => store.save(data),
@@ -230,26 +230,7 @@ async function handleSessions(args: Record<string, unknown>) {
   const limit = typeof args.limit === 'number' ? args.limit : 10;
   const query = args.query as string | undefined;
   const severity = args.severity as string | undefined;
-
-  let sessions = await store.list({ tool });
-
-  // Text search filter
-  if (query) {
-    const q = query.toLowerCase();
-    sessions = sessions.filter((s) => {
-      const summaryMatch = s.summary?.toLowerCase().includes(q) ?? false;
-      const findingMatch = (s.findings ?? []).some(
-        (f) => f.message?.toLowerCase().includes(q) || f.file?.toLowerCase().includes(q),
-      );
-      return summaryMatch || findingMatch;
-    });
-  }
-
-  // Severity filter
-  if (severity) {
-    const sev = severity.toUpperCase();
-    sessions = sessions.filter((s) => (s.findings ?? []).some((f) => f.severity === sev));
-  }
+  const sessions = await store.list({ tool, query, severity, limit });
 
   const result = sessions.slice(0, limit).map((s) => ({
     id: s.id,
@@ -276,7 +257,7 @@ async function handleSearch(args: Record<string, unknown>) {
     return textContent('At least one filter (query, file, severity, or tool) is required.', true);
   }
 
-  const sessions = await store.list({ tool });
+  const sessions = await store.list({ tool, query, file, severity });
 
   interface SearchResult {
     sessionId: string;

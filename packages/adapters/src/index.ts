@@ -12,25 +12,30 @@ export type { AdapterDefinition } from './types.js';
 export { AdapterRegistry } from './registry.js';
 
 const defaultRegistry = new AdapterRegistry();
-defaultRegistry.register(kimiAdapter);
-defaultRegistry.register(qwenAdapter);
-defaultRegistry.register(codexAdapter);
-defaultRegistry.register(geminiAdapter);
-defaultRegistry.register(droidAdapter);
-defaultRegistry.register(claudeAdapter);
+const builtinAdapters = [kimiAdapter, qwenAdapter, codexAdapter, geminiAdapter, droidAdapter, claudeAdapter];
+
+function seedBuiltinAdapters(): void {
+  defaultRegistry.clear();
+  for (const adapter of builtinAdapters) {
+    defaultRegistry.register(adapter);
+  }
+}
+
+seedBuiltinAdapters();
 
 export { defaultRegistry };
 
 let initializedProjectDir: string | null = null;
 let initializationPromise: Promise<AdapterRegistry> | null = null;
 
-export async function initRegistry(projectDir = process.cwd()): Promise<AdapterRegistry> {
-  if (initializedProjectDir === projectDir && initializationPromise) {
+export async function initRegistry(projectDir = process.cwd(), force = false): Promise<AdapterRegistry> {
+  if (!force && initializedProjectDir === projectDir && initializationPromise) {
     return initializationPromise;
   }
 
   initializedProjectDir = projectDir;
   initializationPromise = (async () => {
+    seedBuiltinAdapters();
     try {
       const { loadConfig } = await import('@mmbridge/core');
       const config = await loadConfig(projectDir);

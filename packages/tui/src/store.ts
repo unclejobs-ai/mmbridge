@@ -16,6 +16,8 @@ export interface FindingItem {
   file: string;
   line: number | null;
   message: string;
+  key: string;
+  status?: 'accepted' | 'dismissed';
 }
 
 export interface AdapterStatus {
@@ -70,10 +72,15 @@ export interface TuiState {
     focusColumn: 'tool' | 'mode';
   };
   config: { selectedSection: 'adapters' | 'settings'; selectedIndex: number };
-  inputMode: 'none' | 'followup' | 'export';
-  inputTarget: { tool: string; sessionId: string } | null;
+  inputMode: 'none' | 'followup' | 'export' | 'config' | 'session-filter';
+  inputTarget: { tool: string; sessionId: string; parentSessionId?: string; promptDraft?: string } | null;
   sessionsUi: {
     selectedIndex: number;
+    findingIndex: number;
+    query: string;
+    toolFilter: string;
+    severityFilter: string;
+    modeFilter: string;
   };
   toast: { message: string; type: 'success' | 'error' | 'info'; at: number } | null;
   helpVisible: boolean;
@@ -99,12 +106,20 @@ export type TuiAction =
   | { type: 'CONFIG_SET_SECTION'; section: 'adapters' | 'settings' }
   | { type: 'CONFIG_SELECT'; index: number }
   | { type: 'SESSIONS_SELECT'; index: number }
+  | { type: 'SESSIONS_SELECT_FINDING'; index: number }
+  | { type: 'SESSIONS_SET_QUERY'; query: string }
+  | { type: 'SESSIONS_CYCLE_TOOL'; tools: string[] }
+  | { type: 'SESSIONS_CYCLE_SEVERITY'; severities: string[] }
+  | { type: 'SESSIONS_CYCLE_MODE'; modes: string[] }
+  | { type: 'SESSIONS_CLEAR_FILTERS' }
   | { type: 'SHOW_TOAST'; message: string; toastType: 'success' | 'error' | 'info' }
   | { type: 'CLEAR_TOAST' }
   | { type: 'TOGGLE_HELP' }
   | { type: 'SET_SESSION_DETAIL'; detail: SessionDetailData | null }
   | { type: 'CLEAR_SESSION_DETAIL' }
-  | { type: 'START_FOLLOWUP'; tool: string; sessionId: string }
+  | { type: 'START_FOLLOWUP'; tool: string; sessionId: string; parentSessionId?: string; promptDraft?: string }
+  | { type: 'START_SESSION_FILTER' }
+  | { type: 'START_CONFIG_EDIT' }
   | { type: 'START_EXPORT' }
   | { type: 'CANCEL_INPUT' }
   | { type: 'COMPLETE_INPUT' };
@@ -129,7 +144,14 @@ export const initialState: TuiState = {
     focusColumn: 'tool',
   },
   config: { selectedSection: 'adapters', selectedIndex: 0 },
-  sessionsUi: { selectedIndex: 0 },
+  sessionsUi: {
+    selectedIndex: 0,
+    findingIndex: 0,
+    query: '',
+    toolFilter: 'all',
+    severityFilter: 'all',
+    modeFilter: 'all',
+  },
   toast: null,
   helpVisible: false,
   sessionDetail: null,
@@ -210,7 +232,75 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     case 'SESSIONS_SELECT':
       return {
         ...state,
-        sessionsUi: { selectedIndex: action.index },
+        sessionsUi: { ...state.sessionsUi, selectedIndex: action.index, findingIndex: 0 },
+      };
+
+    case 'SESSIONS_SELECT_FINDING':
+      return {
+        ...state,
+        sessionsUi: { ...state.sessionsUi, findingIndex: action.index },
+      };
+
+    case 'SESSIONS_SET_QUERY':
+      return {
+        ...state,
+        sessionsUi: { ...state.sessionsUi, selectedIndex: 0, findingIndex: 0, query: action.query },
+      };
+
+    case 'SESSIONS_CYCLE_TOOL': {
+      const currentIndex = action.tools.indexOf(state.sessionsUi.toolFilter);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % action.tools.length : 0;
+      return {
+        ...state,
+        sessionsUi: {
+          ...state.sessionsUi,
+          selectedIndex: 0,
+          findingIndex: 0,
+          toolFilter: action.tools[nextIndex] ?? 'all',
+        },
+      };
+    }
+
+    case 'SESSIONS_CYCLE_SEVERITY': {
+      const currentIndex = action.severities.indexOf(state.sessionsUi.severityFilter);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % action.severities.length : 0;
+      return {
+        ...state,
+        sessionsUi: {
+          ...state.sessionsUi,
+          selectedIndex: 0,
+          findingIndex: 0,
+          severityFilter: action.severities[nextIndex] ?? 'all',
+        },
+      };
+    }
+
+    case 'SESSIONS_CYCLE_MODE': {
+      const currentIndex = action.modes.indexOf(state.sessionsUi.modeFilter);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % action.modes.length : 0;
+      return {
+        ...state,
+        sessionsUi: {
+          ...state.sessionsUi,
+          selectedIndex: 0,
+          findingIndex: 0,
+          modeFilter: action.modes[nextIndex] ?? 'all',
+        },
+      };
+    }
+
+    case 'SESSIONS_CLEAR_FILTERS':
+      return {
+        ...state,
+        sessionsUi: {
+          ...state.sessionsUi,
+          selectedIndex: 0,
+          findingIndex: 0,
+          query: '',
+          toolFilter: 'all',
+          severityFilter: 'all',
+          modeFilter: 'all',
+        },
       };
 
     case 'SHOW_TOAST':
@@ -232,7 +322,22 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       return { ...state, sessionDetail: null };
 
     case 'START_FOLLOWUP':
-      return { ...state, inputMode: 'followup', inputTarget: { tool: action.tool, sessionId: action.sessionId } };
+      return {
+        ...state,
+        inputMode: 'followup',
+        inputTarget: {
+          tool: action.tool,
+          sessionId: action.sessionId,
+          parentSessionId: action.parentSessionId,
+          promptDraft: action.promptDraft,
+        },
+      };
+
+    case 'START_SESSION_FILTER':
+      return { ...state, inputMode: 'session-filter', inputTarget: null };
+
+    case 'START_CONFIG_EDIT':
+      return { ...state, inputMode: 'config', inputTarget: null };
 
     case 'START_EXPORT':
       return { ...state, inputMode: 'export', inputTarget: null };

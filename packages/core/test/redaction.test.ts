@@ -142,3 +142,31 @@ test('redactContent: stats lists each triggered rule label once', () => {
   const unique = new Set(stats);
   assert.equal(stats.length, unique.size);
 });
+
+test('redactContent: applies valid custom extra rules', () => {
+  const content = 'SESSION_ID=abc123';
+  const { redacted, stats } = redactContent(content, [
+    {
+      pattern: 'abc123',
+      replacement: '[REDACTED_SESSION]',
+      label: 'Session ID',
+    },
+  ]);
+
+  assert.ok(redacted.includes('[REDACTED_SESSION]'));
+  assert.ok(stats.includes('Session ID'));
+});
+
+test('redactContent: ignores invalid custom regex patterns', () => {
+  const content = 'keep-me';
+  const { redacted, stats } = redactContent(content, [
+    {
+      pattern: '[',
+      replacement: '[BROKEN]',
+      label: 'Broken Rule',
+    },
+  ]);
+
+  assert.equal(redacted, content);
+  assert.deepEqual(stats, []);
+});

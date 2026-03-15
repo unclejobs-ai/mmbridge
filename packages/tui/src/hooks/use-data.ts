@@ -11,11 +11,12 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
     dispatch({ type: 'SET_SESSIONS_LOADING', loading: true });
 
     const store = new SessionStore();
+    const projectDir = process.cwd();
     const registeredNames = defaultRegistry.list();
 
     // Fire all independent I/O in parallel: sessions, binary checks, git info
     const [allSessions, binaryChecks, gitResult] = await Promise.all([
-      store.list().catch(() => []),
+      store.list({ projectDir }).catch(() => []),
       Promise.all(
         registeredNames.map(async (toolName) => {
           const adapter = defaultRegistry.get(toolName);
@@ -62,7 +63,7 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
       const [head, baseRef, gitStatus, lastCommitMsg] = gitResult;
       const dirtyCount = gitStatus.staged + gitStatus.unstaged + gitStatus.untracked;
       const projectInfo: ProjectInfo = {
-        path: process.cwd(),
+        path: projectDir,
         branch: head.branch,
         head: head.sha,
         dirtyCount,
@@ -100,11 +101,24 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
 
 export function sessionToFindings(session: {
   findings?: Array<{ severity: string; file: string; line: number | null; message: string }>;
+  findingDecisions?: Array<{ key: string; status: 'accepted' | 'dismissed' }>;
 }): FindingItem[] {
+  const decisions = new Map((session.findingDecisions ?? []).map((decision) => [decision.key, decision.status]));
   return (session.findings ?? []).map((f) => ({
     severity: f.severity,
     file: f.file,
     line: f.line,
     message: f.message,
+    key: findingKey(f),
+    status: decisions.get(findingKey(f)),
   }));
+}
+
+export function findingKey(finding: {
+  severity: string;
+  file: string;
+  line: number | null;
+  message: string;
+}): string {
+  return `${finding.severity.toUpperCase()}:${finding.file}:${finding.line ?? ''}:${finding.message}`;
 }

@@ -3,7 +3,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { DEFAULT_CLASSIFIERS, classifyFileWithRules, loadConfig, resolveClassifiers } from '../dist/config.js';
+import {
+  DEFAULT_CLASSIFIERS,
+  classifyFileWithRules,
+  loadConfig,
+  resolveClassifiers,
+  saveConfig,
+} from '../dist/config.js';
 import type { FileClassifierRule, MmbridgeConfig } from '../dist/types.js';
 
 // DEFAULT_CLASSIFIERS
@@ -156,6 +162,56 @@ test('loadConfig: throws on invalid config shape (classifiers not array)', async
       'utf8',
     );
     await assert.rejects(() => loadConfig(tmpDir), /Invalid mmbridge config/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true });
+  }
+});
+
+test('loadConfig: throws on invalid bridge config shape', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
+  try {
+    await fs.writeFile(
+      path.join(tmpDir, '.mmbridge.config.json'),
+      JSON.stringify({ bridge: { profile: 'unsupported' } }),
+      'utf8',
+    );
+    await assert.rejects(() => loadConfig(tmpDir), /Invalid mmbridge config/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true });
+  }
+});
+
+test('saveConfig: writes a new .mmbridge.config.json when none exists', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
+  try {
+    const configData: MmbridgeConfig = {
+      context: { maxBytes: 262144 },
+      extendDefaultClassifiers: false,
+    };
+
+    const writtenPath = await saveConfig(tmpDir, configData);
+    const raw = await fs.readFile(writtenPath, 'utf8');
+
+    assert.equal(path.basename(writtenPath), '.mmbridge.config.json');
+    assert.deepEqual(JSON.parse(raw), configData);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true });
+  }
+});
+
+test('saveConfig: preserves existing filename when updating config', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
+  try {
+    const existingPath = path.join(tmpDir, 'mmbridge.config.json');
+    await fs.writeFile(existingPath, JSON.stringify({ extendDefaultClassifiers: true }), 'utf8');
+
+    const writtenPath = await saveConfig(tmpDir, {
+      context: { maxBytes: 131072 },
+    });
+
+    const raw = await fs.readFile(existingPath, 'utf8');
+    assert.equal(writtenPath, existingPath);
+    assert.deepEqual(JSON.parse(raw), { context: { maxBytes: 131072 } });
   } finally {
     await fs.rm(tmpDir, { recursive: true });
   }

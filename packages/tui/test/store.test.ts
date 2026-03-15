@@ -110,6 +110,57 @@ test('CONFIG_SELECT: updates selection index', () => {
 test('SESSIONS_SELECT: updates sessions UI index', () => {
   const next = dispatch(initialState, { type: 'SESSIONS_SELECT', index: 5 });
   assert.equal(next.sessionsUi.selectedIndex, 5);
+  assert.equal(next.sessionsUi.findingIndex, 0);
+  assert.equal(next.sessionsUi.query, '');
+});
+
+test('SESSIONS_SELECT_FINDING: updates finding selection', () => {
+  const next = dispatch(initialState, { type: 'SESSIONS_SELECT_FINDING', index: 2 });
+  assert.equal(next.sessionsUi.findingIndex, 2);
+});
+
+test('SESSIONS_SET_QUERY: stores query and resets selection', () => {
+  let withSelection = dispatch(initialState, { type: 'SESSIONS_SELECT', index: 5 });
+  withSelection = dispatch(withSelection, { type: 'SESSIONS_SELECT_FINDING', index: 3 });
+  const next = dispatch(withSelection, { type: 'SESSIONS_SET_QUERY', query: 'auth' });
+  assert.equal(next.sessionsUi.query, 'auth');
+  assert.equal(next.sessionsUi.selectedIndex, 0);
+  assert.equal(next.sessionsUi.findingIndex, 0);
+});
+
+test('SESSIONS_CYCLE_TOOL: advances tool filter', () => {
+  const next = dispatch(initialState, { type: 'SESSIONS_CYCLE_TOOL', tools: ['all', 'kimi', 'bridge'] });
+  assert.equal(next.sessionsUi.toolFilter, 'kimi');
+});
+
+test('SESSIONS_CYCLE_SEVERITY: advances severity filter', () => {
+  const next = dispatch(initialState, {
+    type: 'SESSIONS_CYCLE_SEVERITY',
+    severities: ['all', 'CRITICAL', 'WARNING'],
+  });
+  assert.equal(next.sessionsUi.severityFilter, 'CRITICAL');
+});
+
+test('SESSIONS_CYCLE_MODE: advances mode filter', () => {
+  const next = dispatch(initialState, { type: 'SESSIONS_CYCLE_MODE', modes: ['all', 'review', 'followup'] });
+  assert.equal(next.sessionsUi.modeFilter, 'review');
+});
+
+test('SESSIONS_CLEAR_FILTERS: resets all session filters', () => {
+  let next = dispatch(initialState, { type: 'SESSIONS_SET_QUERY', query: 'auth' });
+  next = dispatch(next, { type: 'SESSIONS_SELECT_FINDING', index: 2 });
+  next = dispatch(next, { type: 'SESSIONS_CYCLE_TOOL', tools: ['all', 'kimi'] });
+  next = dispatch(next, { type: 'SESSIONS_CYCLE_SEVERITY', severities: ['all', 'CRITICAL'] });
+  next = dispatch(next, { type: 'SESSIONS_CYCLE_MODE', modes: ['all', 'review'] });
+  next = dispatch(next, { type: 'SESSIONS_CLEAR_FILTERS' });
+  assert.deepEqual(next.sessionsUi, {
+    selectedIndex: 0,
+    findingIndex: 0,
+    query: '',
+    toolFilter: 'all',
+    severityFilter: 'all',
+    modeFilter: 'all',
+  });
 });
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
@@ -156,9 +207,32 @@ test('CLEAR_SESSION_DETAIL: clears detail', () => {
 // ─── Input mode ──────────────────────────────────────────────────────────────
 
 test('START_FOLLOWUP: sets input mode and target', () => {
-  const next = dispatch(initialState, { type: 'START_FOLLOWUP', tool: 'kimi', sessionId: 'sess-123' });
+  const next = dispatch(initialState, {
+    type: 'START_FOLLOWUP',
+    tool: 'kimi',
+    sessionId: 'sess-123',
+    parentSessionId: 'local-1',
+    promptDraft: 'check this finding',
+  });
   assert.equal(next.inputMode, 'followup');
-  assert.deepEqual(next.inputTarget, { tool: 'kimi', sessionId: 'sess-123' });
+  assert.deepEqual(next.inputTarget, {
+    tool: 'kimi',
+    sessionId: 'sess-123',
+    parentSessionId: 'local-1',
+    promptDraft: 'check this finding',
+  });
+});
+
+test('START_CONFIG_EDIT: enters config input mode without target', () => {
+  const next = dispatch(initialState, { type: 'START_CONFIG_EDIT' });
+  assert.equal(next.inputMode, 'config');
+  assert.equal(next.inputTarget, null);
+});
+
+test('START_SESSION_FILTER: enters session-filter input mode without target', () => {
+  const next = dispatch(initialState, { type: 'START_SESSION_FILTER' });
+  assert.equal(next.inputMode, 'session-filter');
+  assert.equal(next.inputTarget, null);
 });
 
 test('CANCEL_INPUT: resets input mode', () => {

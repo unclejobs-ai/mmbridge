@@ -1,10 +1,18 @@
 import { runBridge } from './bridge.js';
+import { loadConfig } from './config.js';
 import { cleanupContext, createContext } from './context.js';
 import { parseFindings } from './finding-parser.js';
 import { orchestrateReview } from './orchestrate.js';
 import { enrichFindings } from './report.js';
 import { buildContextIndex, buildResultIndex } from './session-index.js';
-import type { ContextWorkspace, Finding, InterpretResult, ResultIndex } from './types.js';
+import type { ContextWorkspace, Finding, InterpretResult, MmbridgeConfig, ResultIndex } from './types.js';
+
+interface ReviewToolSummary {
+  tool: string;
+  findingCount: number;
+  skipped: boolean;
+  error?: string;
+}
 
 // ─── Public interfaces ──────────────────────────────────────────────────────
 
@@ -15,6 +23,7 @@ export interface ReviewPipelineOptions {
   baseRef?: string;
   commit?: string;
   bridge?: 'none' | 'standard' | 'interpreted';
+  bridgeProfile?: 'standard' | 'strict' | 'relaxed';
   /** Called at each pipeline phase for progress updates */
   onProgress?: (phase: string, detail: string) => void;
   /** Called with raw stdout chunks from adapter processes */
@@ -50,6 +59,8 @@ export interface ReviewPipelineOptions {
     findings: Finding[];
     contextIndex: ReturnType<typeof buildContextIndex>;
     resultIndex: ResultIndex;
+    toolResults?: ReviewToolSummary[];
+    interpretation?: InterpretResult | null;
     followupSupported?: boolean;
     status?: string;
   }) => Promise<{ id: string }>;
@@ -75,7 +86,10 @@ function buildCtxIndex(ctx: ContextWorkspace, projectDir: string, mode: string):
 
 export async function runReviewPipeline(options: ReviewPipelineOptions): Promise<ReviewPipelineResult> {
   const { tool, mode, projectDir, onProgress, onStdout } = options;
-  const bridge = options.bridge ?? 'none';
+  const config: MmbridgeConfig = await loadConfig(projectDir).catch(() => ({}));
+  const defaultBridgeMode = config.bridge?.mode ?? 'standard';
+  const bridge = options.bridge ?? (tool === 'all' ? defaultBridgeMode : 'none');
+  const bridgeProfile = options.bridgeProfile ?? config.bridge?.profile ?? 'standard';
 
   // Phase 1: Create context
   onProgress?.('context', 'Building review context...');
@@ -91,7 +105,7 @@ export async function runReviewPipeline(options: ReviewPipelineOptions): Promise
 
     // Bridge mode (tool='all' or explicit bridge)
     if (tool === 'all' || bridge !== 'none') {
-      return await runBridgePipeline(options, ctx, contextIndex, bridge);
+      return await runBridgePipeline(options, ctx, contextIndex, bridge, bridgeProfile);
     }
 
     // Single tool mode
@@ -166,6 +180,7 @@ async function runBridgePipeline(
   ctx: ContextWorkspace,
   contextIndex: ReturnType<typeof buildContextIndex>,
   bridge: 'none' | 'standard' | 'interpreted',
+  bridgeProfile: 'standard' | 'strict' | 'relaxed',
 ): Promise<ReviewPipelineResult> {
   const { mode, projectDir, onProgress, onStdout, runAdapter, listInstalledTools, saveSession } = options;
 
@@ -194,7 +209,7 @@ async function runBridgePipeline(
   onProgress?.('bridge', 'Running bridge consensus...');
   const isInterpreted = bridge === 'interpreted';
   const bridgeResult = await runBridge({
-    profile: 'standard',
+    profile: bridgeProfile,
     interpret: isInterpreted,
     workspace: ctx.workspace,
     changedFiles: ctx.changedFiles,
@@ -223,6 +238,13 @@ async function runBridgePipeline(
         findings: bridgeResult.findings,
         contextIndex,
         resultIndex,
+        toolResults: orchResult.results.map((r) => ({
+          tool: r.tool,
+          findingCount: r.findings.length,
+          skipped: r.skipped,
+          error: r.error,
+        })),
+        interpretation: bridgeResult.interpretation ?? null,
       })
     : { id: 'unsaved' };
 

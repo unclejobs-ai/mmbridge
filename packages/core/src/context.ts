@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { loadConfig } from './config.js';
 import { getChangedFiles, getDefaultBaseRef, getDiff, getHead } from './git.js';
 import { redactWorkspace } from './redaction.js';
 import { ADAPTER_NAMES } from './types.js';
@@ -79,7 +80,8 @@ function buildToolPrompt(tool: string, mode: string, changedFiles: string[]): st
 export async function createContext(options: CreateContextOptions = {}): Promise<ContextWorkspace> {
   const projectDir = path.resolve(options.projectDir ?? process.cwd());
   const mode = options.mode ?? 'review';
-  const maxContextBytes = options.maxContextBytes ?? DEFAULT_MAX_CONTEXT_BYTES;
+  const config = await loadConfig(projectDir);
+  const maxContextBytes = options.maxContextBytes ?? config.context?.maxBytes ?? DEFAULT_MAX_CONTEXT_BYTES;
 
   const head = await getHead(projectDir);
   const baseRef = options.baseRef ?? options.commit ?? (await getDefaultBaseRef(projectDir));
@@ -163,7 +165,7 @@ export async function createContext(options: CreateContextOptions = {}): Promise
   );
 
   // Redact secrets from workspace
-  const redaction = await redactWorkspace(workspace);
+  const redaction = await redactWorkspace(workspace, config.redaction?.extraRules ?? []);
 
   return {
     workspace,

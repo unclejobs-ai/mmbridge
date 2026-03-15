@@ -70,6 +70,9 @@ export class SessionStore {
     const entries = await fs.readdir(this.sessionsDir);
     const sessions: Session[] = [];
     const normalizedProjectDir = options.projectDir ? path.resolve(options.projectDir) : null;
+    const normalizedQuery = options.query?.trim().toLowerCase() ?? '';
+    const normalizedFile = options.file?.trim().toLowerCase() ?? '';
+    const normalizedSeverity = options.severity?.trim().toUpperCase() ?? '';
 
     for (const entry of entries) {
       if (!entry.endsWith('.json')) continue;
@@ -77,7 +80,29 @@ export class SessionStore {
       try {
         const parsed = JSON.parse(await fs.readFile(fullPath, 'utf8')) as Session;
         if (options.tool && parsed.tool !== options.tool) continue;
+        if (options.mode && parsed.mode !== options.mode) continue;
         if (normalizedProjectDir && path.resolve(parsed.projectDir ?? '') !== normalizedProjectDir) continue;
+        if (
+          normalizedSeverity &&
+          !(parsed.findings ?? []).some((finding) => finding.severity?.toUpperCase() === normalizedSeverity)
+        ) {
+          continue;
+        }
+        if (
+          normalizedFile &&
+          !(parsed.findings ?? []).some((finding) => finding.file?.toLowerCase().includes(normalizedFile))
+        ) {
+          continue;
+        }
+        if (normalizedQuery) {
+          const summaryMatch = parsed.summary?.toLowerCase().includes(normalizedQuery) ?? false;
+          const findingMatch = (parsed.findings ?? []).some(
+            (finding) =>
+              finding.message?.toLowerCase().includes(normalizedQuery) ||
+              finding.file?.toLowerCase().includes(normalizedQuery),
+          );
+          if (!summaryMatch && !findingMatch) continue;
+        }
         sessions.push(parsed);
       } catch {
         // ignore malformed session files
@@ -85,7 +110,7 @@ export class SessionStore {
     }
 
     sessions.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    return sessions;
+    return typeof options.limit === 'number' ? sessions.slice(0, options.limit) : sessions;
   }
 
   async remove(id: string): Promise<boolean> {

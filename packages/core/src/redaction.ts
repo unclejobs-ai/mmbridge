@@ -2,6 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { RedactContentResult, RedactionResult } from './types.js';
 
+export interface RedactionRuleSpec {
+  pattern: string;
+  replacement: string;
+  label: string;
+}
+
 const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: string }> = [
   { pattern: /sk-[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_API_KEY]', label: 'OpenAI API key' },
   { pattern: /AIza[A-Za-z0-9_-]{35}/g, replacement: '[REDACTED_GCP_KEY]', label: 'GCP API key' },
@@ -22,11 +28,29 @@ const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: stri
   { pattern: /Bearer\s+[A-Za-z0-9_\-.~+/]{20,}/g, replacement: 'Bearer [REDACTED_TOKEN]', label: 'Bearer token' },
 ];
 
-export function redactContent(content: string): RedactContentResult {
+function buildRules(
+  extraRules: RedactionRuleSpec[] = [],
+): Array<{ pattern: RegExp; replacement: string; label: string }> {
+  const compiled = [...REDACTION_RULES];
+  for (const rule of extraRules) {
+    try {
+      compiled.push({
+        pattern: new RegExp(rule.pattern, 'g'),
+        replacement: rule.replacement,
+        label: rule.label,
+      });
+    } catch {
+      // Ignore invalid user-provided regexes during runtime redaction.
+    }
+  }
+  return compiled;
+}
+
+export function redactContent(content: string, extraRules: RedactionRuleSpec[] = []): RedactContentResult {
   const stats: string[] = [];
   let redacted = content;
 
-  for (const rule of REDACTION_RULES) {
+  for (const rule of buildRules(extraRules)) {
     const before = redacted;
     redacted = redacted.replace(rule.pattern, rule.replacement);
     if (redacted !== before) {
@@ -37,7 +61,7 @@ export function redactContent(content: string): RedactContentResult {
   return { redacted, stats };
 }
 
-export async function redactFile(filePath: string): Promise<RedactionResult> {
+export async function redactFile(filePath: string, extraRules: RedactionRuleSpec[] = []): Promise<RedactionResult> {
   let content: string;
   try {
     content = await fs.readFile(filePath, 'utf8');
@@ -45,7 +69,7 @@ export async function redactFile(filePath: string): Promise<RedactionResult> {
     return { changedFiles: 0, usedRuleCount: 0 };
   }
 
-  const { redacted, stats } = redactContent(content);
+  const { redacted, stats } = redactContent(content, extraRules);
   if (redacted === content) {
     return { changedFiles: 0, usedRuleCount: 0 };
   }
@@ -54,7 +78,10 @@ export async function redactFile(filePath: string): Promise<RedactionResult> {
   return { changedFiles: 1, usedRuleCount: stats.length };
 }
 
-export async function redactWorkspace(workspaceDir: string): Promise<RedactionResult> {
+export async function redactWorkspace(
+  workspaceDir: string,
+  extraRules: RedactionRuleSpec[] = [],
+): Promise<RedactionResult> {
   let totalChanged = 0;
   let totalRules = 0;
 
@@ -70,7 +97,7 @@ export async function redactWorkspace(workspaceDir: string): Promise<RedactionRe
       if (entry.isDirectory()) {
         await walk(full);
       } else if (entry.isFile()) {
-        const result = await redactFile(full);
+        const result = await redactFile(full, extraRules);
         totalChanged += result.changedFiles;
         totalRules += result.usedRuleCount;
       }

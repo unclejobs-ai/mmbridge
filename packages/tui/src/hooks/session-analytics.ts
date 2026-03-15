@@ -93,7 +93,18 @@ export function buildAncestryChain(sessions: Session[], currentId: string): stri
     chain.push(cursor);
 
     const session = byId.get(cursor);
-    cursor = session?.externalSessionId ?? null;
+    if (session?.parentSessionId) {
+      cursor = session.parentSessionId;
+      continue;
+    }
+
+    const externalSessionId = session?.externalSessionId ?? null;
+    if (externalSessionId) {
+      cursor = externalSessionId;
+      continue;
+    }
+
+    cursor = null;
   }
 
   // Reverse so the oldest ancestor comes first.

@@ -25,7 +25,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
   const projectDir = resolveProjectDir(options.project);
   const mode = options.mode ?? 'review';
   const tool = options.tool ?? 'kimi';
-  const bridge = (options.bridge ?? 'none') as 'none' | 'standard' | 'interpreted';
+  const bridge = options.bridge as 'none' | 'standard' | 'interpreted' | undefined;
 
   const { runReviewPipeline, commandExists } = await importCore();
   const { defaultRegistry, runReviewAdapter } = await importAdapters(projectDir);
@@ -44,7 +44,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
     }
   }
 
-  const sessionStore = new SessionStore(projectDir);
+  const sessionStore = new SessionStore();
 
   if (options.stream) {
     const renderer = new StreamRenderer(tool, mode);
@@ -57,7 +57,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
         projectDir,
         baseRef: options.baseRef,
         commit: options.commit,
-        bridge: tool === 'all' && bridge === 'none' ? 'standard' : bridge,
+        bridge,
         runAdapter: runReviewAdapter,
         listInstalledTools: () => defaultRegistry.listInstalled(),
         saveSession: (data) => sessionStore.save(data),
@@ -88,7 +88,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
     projectDir,
     baseRef: options.baseRef,
     commit: options.commit,
-    bridge: tool === 'all' && bridge === 'none' ? 'standard' : bridge,
+    bridge,
     runAdapter: runReviewAdapter,
     listInstalledTools: () => defaultRegistry.listInstalled(),
     saveSession: (data) => sessionStore.save(data),

@@ -24,7 +24,10 @@ const TAB_HINTS: Record<TabId, Array<[string, string]>> = {
   ],
   sessions: [
     ['j/k', 'Navigate'],
+    ['[/]', 'Finding'],
+    ['a/z/u', 'Triage'],
     ['f', 'Followup'],
+    ['g', 'Finding FU'],
     ['e', 'Export'],
     ['q', 'Quit'],
   ],

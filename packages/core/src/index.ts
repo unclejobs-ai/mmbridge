@@ -87,6 +87,7 @@ export type { ExportableReport } from './export.js';
 
 export {
   loadConfig,
+  saveConfig,
   resolveClassifiers,
   classifyFileWithRules,
   DEFAULT_CLASSIFIERS,

@@ -34,26 +34,68 @@ function isMmbridgeConfig(value: unknown): value is MmbridgeConfig {
   if (obj.classifiers !== undefined && !Array.isArray(obj.classifiers)) return false;
   if (obj.extendDefaultClassifiers !== undefined && typeof obj.extendDefaultClassifiers !== 'boolean') return false;
   if (obj.adapters !== undefined && (typeof obj.adapters !== 'object' || obj.adapters === null)) return false;
+  if (obj.context !== undefined && (typeof obj.context !== 'object' || obj.context === null)) return false;
+  if (obj.redaction !== undefined && (typeof obj.redaction !== 'object' || obj.redaction === null)) return false;
+  if (obj.bridge !== undefined && (typeof obj.bridge !== 'object' || obj.bridge === null)) return false;
+
+  const context = obj.context as Record<string, unknown> | undefined;
+  if (context?.maxBytes !== undefined && typeof context.maxBytes !== 'number') return false;
+
+  const redaction = obj.redaction as Record<string, unknown> | undefined;
+  if (redaction?.extraRules !== undefined && !Array.isArray(redaction.extraRules)) return false;
+
+  const bridge = obj.bridge as Record<string, unknown> | undefined;
+  if (bridge?.mode !== undefined && bridge.mode !== 'standard' && bridge.mode !== 'interpreted') return false;
+  if (bridge?.profile !== undefined && !['standard', 'strict', 'relaxed'].includes(String(bridge.profile)))
+    return false;
+
   return true;
 }
 
-export async function loadConfig(projectDir: string): Promise<MmbridgeConfig> {
+async function findConfigPath(projectDir: string): Promise<string | null> {
   for (const filename of CONFIG_FILENAMES) {
     const configPath = path.join(projectDir, filename);
     try {
-      const raw = await fs.readFile(configPath, 'utf8');
-      const parsed: unknown = JSON.parse(raw);
-      if (!isMmbridgeConfig(parsed)) {
-        throw new Error(`Invalid mmbridge config at ${configPath}`);
-      }
-      return parsed;
-    } catch (err) {
-      if (err instanceof SyntaxError || (err instanceof Error && err.message.startsWith('Invalid mmbridge'))) {
-        throw err;
-      }
+      await fs.access(configPath);
+      return configPath;
+    } catch {
+      // Try next known config filename.
     }
   }
+  return null;
+}
+
+export async function loadConfig(projectDir: string): Promise<MmbridgeConfig> {
+  const configPath = await findConfigPath(projectDir);
+  if (!configPath) {
+    return {};
+  }
+
+  try {
+    const raw = await fs.readFile(configPath, 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (!isMmbridgeConfig(parsed)) {
+      throw new Error(`Invalid mmbridge config at ${configPath}`);
+    }
+    return parsed;
+  } catch (err) {
+    if (err instanceof SyntaxError || (err instanceof Error && err.message.startsWith('Invalid mmbridge'))) {
+      throw err;
+    }
+  }
+
   return {};
+}
+
+export async function saveConfig(projectDir: string, config: MmbridgeConfig): Promise<string> {
+  if (!isMmbridgeConfig(config)) {
+    throw new Error('Invalid mmbridge config');
+  }
+
+  const configPath = (await findConfigPath(projectDir)) ?? path.join(projectDir, CONFIG_FILENAMES[0]);
+  const content = `${JSON.stringify(config, null, 2)}\n`;
+  await fs.writeFile(configPath, content, 'utf8');
+  return configPath;
 }
 
 export function resolveClassifiers(config: MmbridgeConfig): FileClassifierRule[] {

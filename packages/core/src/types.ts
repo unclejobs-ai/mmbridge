@@ -231,4 +231,9 @@ export interface MmbridgeConfig {
   context?: {
     maxBytes?: number;
   };
+  /** Bridge defaults for multi-tool review */
+  bridge?: {
+    mode?: 'standard' | 'interpreted';
+    profile?: 'standard' | 'strict' | 'relaxed';
+  };
 }

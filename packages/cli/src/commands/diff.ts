@@ -189,7 +189,7 @@ async function loadSessionFindings(
   tool: string | undefined,
 ): Promise<SessionFindingsResult> {
   const { SessionStore } = await importSessionStore();
-  const store = new SessionStore(projectDir);
+  const store = new SessionStore();
 
   let session = null;
 
