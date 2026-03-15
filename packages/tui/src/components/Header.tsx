@@ -1,4 +1,4 @@
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import type React from 'react';
 import type { TabId } from '../store.js';
 import { TAB_ORDER } from '../store.js';
@@ -17,7 +17,7 @@ interface HeaderProps {
   version?: string;
 }
 
-// Dim horizontal rule — stretches to full terminal width
+// Standalone dim horizontal rule — stretches to full terminal width
 export function HRule(): React.ReactElement {
   const cols = process.stdout.columns ?? 80;
   return (
@@ -28,42 +28,55 @@ export function HRule(): React.ReactElement {
 }
 
 export function Header({ activeTab, branch, dirtyCount, version }: HeaderProps): React.ReactElement {
-  const branchLabel = branch ? ` ${branch}${dirtyCount != null && dirtyCount > 0 ? ` *${dirtyCount}` : ''}` : '';
+  const { stdout } = useStdout();
+  const cols = stdout?.columns ?? 80;
+
+  const branchLabel = branch ? `${branch}${dirtyCount != null && dirtyCount > 0 ? ` *${dirtyCount}` : ''}` : '';
+  const rightLabel = `${branchLabel ? `${branchLabel} ` : ''}v${version ?? 'dev'}`;
+
+  const title = ' mmbridge ';
+  const rightPart = ` ${rightLabel} `;
+  // cols - 2 (outer corners) - 2 (─╮ / ╭─) - title.length - rightPart.length
+  const midLen = Math.max(0, cols - 2 - title.length - rightPart.length - 4);
 
   return (
     <Box flexDirection="column">
-      <Box paddingX={1} paddingY={0} flexDirection="row" justifyContent="space-between">
-        <Box flexDirection="row" gap={1}>
-          <Text color={colors.accent} bold>
-            mmbridge
-          </Text>
-          <Text color={colors.surface0}>{'  --  '}</Text>
-          {TAB_ORDER.map((tab, i) => {
-            const isActive = tab === activeTab;
-            const num = String(i + 1);
-            return (
-              <Box key={tab} flexDirection="column" gap={0} alignItems="center">
-                {isActive ? (
-                  <>
-                    <Text bold color={colors.text}>{` ${num}:${TAB_LABELS[tab]} `}</Text>
-                    <Text color={colors.accent}>{'━'.repeat(num.length + TAB_LABELS[tab].length + 3)}</Text>
-                  </>
-                ) : (
-                  <>
-                    <Text color={colors.overlay1}>{` ${num}:${TAB_LABELS[tab]} `}</Text>
-                    <Text>{' '.repeat(num.length + TAB_LABELS[tab].length + 3)}</Text>
-                  </>
-                )}
-              </Box>
-            );
-          })}
-        </Box>
-        <Box flexDirection="row" gap={1} alignItems="flex-start">
-          {branchLabel.length > 0 && <Text color={colors.overlay1}>{branchLabel}</Text>}
-          <Text color={colors.overlay1}>v{version ?? 'dev'}</Text>
-        </Box>
+      {/* Top border */}
+      <Box>
+        <Text color={colors.surface1}>{'╭─'}</Text>
+        <Text color={colors.accent} bold>
+          {title}
+        </Text>
+        <Text color={colors.surface1}>{'─'.repeat(midLen)}</Text>
+        <Text color={colors.overlay1}>{rightPart}</Text>
+        <Text color={colors.surface1}>{'─╮'}</Text>
       </Box>
-      <HRule />
+
+      {/* Tab row */}
+      <Box>
+        <Text color={colors.surface1}>{'│  '}</Text>
+        {TAB_ORDER.map((tab, i) => {
+          const isActive = tab === activeTab;
+          const icon = isActive ? CHARS.radioOn : CHARS.radioOff;
+          const label = `${i + 1}:${TAB_LABELS[tab]}`;
+          return (
+            <Box key={tab}>
+              <Text color={isActive ? colors.accent : colors.overlay0}>{icon} </Text>
+              <Text color={isActive ? colors.text : colors.overlay1} bold={isActive}>
+                {label}
+              </Text>
+              <Text>{'    '}</Text>
+            </Box>
+          );
+        })}
+        <Box flexGrow={1} />
+        <Text color={colors.surface1}>{'│'}</Text>
+      </Box>
+
+      {/* Bottom border */}
+      <Box>
+        <Text color={colors.surface1}>{`╰${'─'.repeat(Math.max(40, cols - 2))}╯`}</Text>
+      </Box>
     </Box>
   );
 }

@@ -6,7 +6,7 @@ import { registerResourceHandlers } from './resources.js';
 import { registerToolHandlers } from './tools.js';
 
 const server = new Server(
-  { name: 'mmbridge', version: '0.5.0' },
+  { name: 'mmbridge', version: '0.6.0' },
   { capabilities: { tools: {}, resources: {}, prompts: {} } },
 );
 

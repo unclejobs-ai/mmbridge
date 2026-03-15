@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { EventLog } from '../components/EventLog.js';
 import { FullWidthRow } from '../components/FullWidthRow.js';
 import { HRuleFull } from '../components/HRuleFull.js';
-import { KVRow } from '../components/KVRow.js';
 import { LiveMonitor } from '../components/LiveMonitor.js';
 import { SeverityBar } from '../components/SeverityBar.js';
 import { Sparkline } from '../components/Sparkline.js';
@@ -13,7 +12,7 @@ import { computeSessionStats } from '../hooks/session-analytics.js';
 import { useLiveState } from '../hooks/use-live-state.js';
 import { useTui } from '../store.js';
 import type { AdapterStatus } from '../store.js';
-import { CHARS, colors, toolColor } from '../theme.js';
+import { colors, toolColor } from '../theme.js';
 import { formatRelativeTime } from '../utils/format.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -38,65 +37,68 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
-// ─── Adapter row ──────────────────────────────────────────────────────────────
+// ─── Connection row ───────────────────────────────────────────────────────────
 
-interface AdapterRowProps {
+interface ConnectionRowProps {
   adapter: AdapterStatus;
-  toolDailyCounts: number[];
 }
 
-function AdapterRow({ adapter, toolDailyCounts }: AdapterRowProps): React.ReactElement {
-  const icon = adapter.installed ? CHARS.installed : CHARS.missing;
-  const iconColor = adapter.installed ? colors.green : colors.red;
-  const hasActivity = toolDailyCounts.some((c) => c > 0);
+function ConnectionRow({ adapter }: ConnectionRowProps): React.ReactElement {
+  const isReady = adapter.installed;
+  const icon = isReady ? '●' : '○';
+  const iconColor = isReady ? colors.green : colors.textDim;
+
+  const sessionInfo =
+    adapter.sessionCount > 0 && adapter.lastSessionDate
+      ? `${adapter.sessionCount} · ${formatRelativeTime(adapter.lastSessionDate)}`
+      : null;
 
   return (
     <Box flexDirection="row" gap={0}>
       <Text color={iconColor}>{icon} </Text>
-      <Text color={toolColor(adapter.name)} bold>
+      <Text color={isReady ? toolColor(adapter.name) : colors.textDim} bold={isReady}>
         {adapter.name.padEnd(7)}
       </Text>
-      <Text color={colors.textDim}>{String(adapter.sessionCount).padStart(3)}</Text>
-      <Text color={colors.textDim}> </Text>
-      {adapter.installed && hasActivity ? (
-        <Sparkline data={toolDailyCounts} color={toolColor(adapter.name)} width={5} />
+      {isReady ? (
+        <>
+          <Text color={colors.green}>{'ready'}</Text>
+          {sessionInfo ? (
+            <>
+              <Text color={colors.textDim}>{'  '}</Text>
+              <Text color={colors.overlay0}>{sessionInfo}</Text>
+            </>
+          ) : (
+            <Text color={colors.textDim}>{'  no sessions'}</Text>
+          )}
+        </>
       ) : (
-        <Text color={colors.textDim}>{'─────'}</Text>
+        <Text color={colors.textDim}>{'──'}</Text>
       )}
-      <Text color={colors.textDim}> </Text>
-      <Text color={colors.overlay0}>
-        {adapter.lastSessionDate ? formatRelativeTime(adapter.lastSessionDate) : '     -'}
-      </Text>
     </Box>
   );
 }
 
-// ─── Idle sections ────────────────────────────────────────────────────────────
+// ─── Connections section ──────────────────────────────────────────────────────
 
-interface AdaptersSectionProps {
+interface ConnectionsSectionProps {
   adapters: AdapterStatus[];
-  toolDistribution: Record<string, number>;
-  sessionDailyCounts: number[];
 }
 
-function AdaptersSection({ adapters, toolDistribution, sessionDailyCounts }: AdaptersSectionProps): React.ReactElement {
-  const totalToolSessions = Object.values(toolDistribution).reduce((a, b) => a + b, 0);
-
+function ConnectionsSection({ adapters }: ConnectionsSectionProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1} gap={0}>
       <Text color={colors.overlay1} bold>
-        ADAPTERS
+        CONNECTIONS
       </Text>
-      {adapters.map((adapter) => {
-        const toolShare = toolDistribution[adapter.name] ?? 0;
-        const ratio = totalToolSessions > 0 ? toolShare / totalToolSessions : 0;
-        const toolDailyCounts = sessionDailyCounts.map((c) => Math.round(c * ratio));
-        return <AdapterRow key={adapter.name} adapter={adapter} toolDailyCounts={reversedCounts(toolDailyCounts)} />;
-      })}
+      {adapters.map((adapter) => (
+        <ConnectionRow key={adapter.name} adapter={adapter} />
+      ))}
       {adapters.length === 0 && <Text color={colors.textDim}>No adapters configured</Text>}
     </Box>
   );
 }
+
+// ─── Project section ──────────────────────────────────────────────────────────
 
 interface ProjectSectionProps {
   projectInfo: import('../store.js').ProjectInfo | null;
@@ -110,22 +112,17 @@ function ProjectSection({ projectInfo }: ProjectSectionProps): React.ReactElemen
       </Text>
       {projectInfo ? (
         <>
-          <KVRow label="path" value={shortenPath(projectInfo.path)} labelWidth={8} />
-          <KVRow label="branch" value={`${projectInfo.branch} (${projectInfo.head.slice(0, 7)})`} labelWidth={8} />
-          <KVRow
-            label="dirty"
-            value={`${projectInfo.dirtyCount} files`}
-            labelWidth={8}
-            valueColor={projectInfo.dirtyCount > 0 ? colors.yellow : colors.green}
-          />
-          <KVRow label="base" value={projectInfo.baseRef} labelWidth={8} />
+          <Text color={colors.subtext0}>{shortenPath(projectInfo.path)}</Text>
+          <Box flexDirection="row" gap={1}>
+            <Text color={colors.textMuted}>{projectInfo.branch}</Text>
+            <Text color={colors.textDim}>({projectInfo.head.slice(0, 7)})</Text>
+            <Text color={colors.textDim}>·</Text>
+            <Text color={projectInfo.dirtyCount > 0 ? colors.yellow : colors.green}>
+              {projectInfo.dirtyCount > 0 ? `${projectInfo.dirtyCount} dirty` : 'clean'}
+            </Text>
+          </Box>
           {projectInfo.lastCommitMessage && (
-            <KVRow
-              label="commit"
-              value={truncate(projectInfo.lastCommitMessage, 40)}
-              labelWidth={8}
-              valueColor={colors.overlay1}
-            />
+            <Text color={colors.overlay0}>{truncate(projectInfo.lastCommitMessage, 44)}</Text>
           )}
         </>
       ) : (
@@ -134,6 +131,64 @@ function ProjectSection({ projectInfo }: ProjectSectionProps): React.ReactElemen
     </Box>
   );
 }
+
+// ─── Last Review section ──────────────────────────────────────────────────────
+
+interface LastReviewSectionProps {
+  lastReview: import('../store.js').LastReview | null;
+}
+
+function LastReviewSection({ lastReview }: LastReviewSectionProps): React.ReactElement {
+  return (
+    <Box flexDirection="column" paddingX={1} gap={0}>
+      <Text color={colors.overlay1} bold>
+        LAST REVIEW
+      </Text>
+      {lastReview ? (
+        <>
+          <Box flexDirection="row" gap={1}>
+            <Text color={toolColor(lastReview.tool)} bold>
+              {lastReview.tool}
+            </Text>
+            <Text color={colors.textDim}>/</Text>
+            <Text color={colors.textMuted}>{lastReview.mode}</Text>
+            <Text color={colors.textDim}>/</Text>
+            <Text color={colors.textDim}>{formatRelativeTime(lastReview.date)}</Text>
+          </Box>
+          <SeverityBar counts={lastReview.findingCounts} />
+        </>
+      ) : (
+        <Text color={colors.textDim}>No reviews yet</Text>
+      )}
+    </Box>
+  );
+}
+
+// ─── Quick Start section ──────────────────────────────────────────────────────
+
+const QUICK_START_COMMANDS = [
+  'mmbridge review --tool kimi',
+  'mmbridge review --stream',
+  'mmbridge review --tool all',
+] as const;
+
+function QuickStartSection(): React.ReactElement {
+  return (
+    <Box flexDirection="column" paddingX={1} gap={0}>
+      <Text color={colors.overlay1} bold>
+        QUICK START
+      </Text>
+      {QUICK_START_COMMANDS.map((cmd) => (
+        <Box key={cmd} flexDirection="row">
+          <Text color={colors.peach}>$ </Text>
+          <Text color={colors.subtext0}>{cmd}</Text>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+// ─── Activity section ─────────────────────────────────────────────────────────
 
 interface ActivitySectionProps {
   dailyCounts: number[];
@@ -163,36 +218,6 @@ function ActivitySection({ dailyCounts, aggregateSeverity, totalSessions }: Acti
         <Text color={colors.textDim}>No sessions in last 7 days</Text>
       )}
       <Text color={colors.textDim}>total {totalSessions}</Text>
-    </Box>
-  );
-}
-
-interface LastReviewSectionProps {
-  lastReview: import('../store.js').LastReview | null;
-}
-
-function LastReviewSection({ lastReview }: LastReviewSectionProps): React.ReactElement {
-  return (
-    <Box flexDirection="column" paddingX={1} gap={0}>
-      <Text color={colors.overlay1} bold>
-        LAST REVIEW
-      </Text>
-      {lastReview ? (
-        <>
-          <Box flexDirection="row" gap={1}>
-            <Text color={toolColor(lastReview.tool)} bold>
-              {lastReview.tool}
-            </Text>
-            <Text color={colors.textDim}>/</Text>
-            <Text color={colors.textMuted}>{lastReview.mode}</Text>
-            <Text color={colors.textDim}>/</Text>
-            <Text color={colors.textDim}>{formatRelativeTime(lastReview.date)}</Text>
-          </Box>
-          <SeverityBar counts={lastReview.findingCounts} />
-        </>
-      ) : (
-        <Text color={colors.textDim}>No reviews yet</Text>
-      )}
     </Box>
   );
 }
@@ -227,34 +252,31 @@ export function DashboardView(): React.ReactElement {
 
   return (
     <Box flexDirection="column" width="100%" flexGrow={1}>
-      {/* Row 1: Adapters + Project */}
+      {/* Row 1: Connections + Project */}
       <FullWidthRow leftRatio={0.5}>
         {[
-          <AdaptersSection
-            key="adapters"
-            adapters={adapters}
-            toolDistribution={stats.toolDistribution}
-            sessionDailyCounts={stats.dailyCounts}
-          />,
+          <ConnectionsSection key="connections" adapters={adapters} />,
           <ProjectSection key="project" projectInfo={projectInfo} />,
         ]}
       </FullWidthRow>
 
       <HRuleFull />
 
-      {/* Row 2: Activity + Last Review (idle) or Live Monitor (active) */}
+      {/* Row 2: Quick Start + Activity (idle) or Live Monitor (active) */}
       {liveState ? (
         <LiveMonitor liveState={liveState} frameIdx={frameIdx} />
       ) : (
         <FullWidthRow leftRatio={0.5}>
           {[
-            <ActivitySection
-              key="activity"
-              dailyCounts={stats.dailyCounts}
-              aggregateSeverity={stats.aggregateSeverity}
-              totalSessions={sessions.length}
-            />,
-            <LastReviewSection key="last-review" lastReview={lastReview} />,
+            <QuickStartSection key="quick-start" />,
+            <Box key="right-column" flexDirection="column" gap={1}>
+              <ActivitySection
+                dailyCounts={stats.dailyCounts}
+                aggregateSeverity={stats.aggregateSeverity}
+                totalSessions={sessions.length}
+              />
+              <LastReviewSection lastReview={lastReview} />
+            </Box>,
           ]}
         </FullWidthRow>
       )}
