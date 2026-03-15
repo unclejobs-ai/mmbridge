@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ResultIndex, Finding } from './types.js';
+import type { Finding, ResultIndex } from './types.js';
 
 export interface ExportableReport {
   localSessionId?: string;
@@ -15,11 +15,7 @@ export interface ExportableReport {
 }
 
 export async function exportReport(report: ExportableReport, outputPath: string): Promise<void> {
-  const lines: string[] = [
-    '# MMBridge Review Report',
-    '',
-    `**Generated:** ${new Date().toISOString()}`,
-  ];
+  const lines: string[] = ['# MMBridge Review Report', '', `**Generated:** ${new Date().toISOString()}`];
 
   if (report.localSessionId) {
     lines.push(`**Session:** ${report.localSessionId}`);
@@ -28,9 +24,7 @@ export async function exportReport(report: ExportableReport, outputPath: string)
     lines.push(`**Changed files:** ${report.changedFiles}`);
   }
   if (report.followupSupported) {
-    lines.push(
-      `**Follow-up:** supported${report.externalSessionId ? ` (${report.externalSessionId})` : ''}`,
-    );
+    lines.push(`**Follow-up:** supported${report.externalSessionId ? ` (${report.externalSessionId})` : ''}`);
   }
 
   lines.push('', '---', '', '## Summary', '', report.summary);
@@ -39,14 +33,8 @@ export async function exportReport(report: ExportableReport, outputPath: string)
     lines.push('', '## Findings', '');
     for (const finding of report.findings) {
       const severity = finding.severity ?? 'INFO';
-      const location = finding.file
-        ? finding.line != null
-          ? `${finding.file}:${finding.line}`
-          : finding.file
-        : '';
-      lines.push(
-        `- **[${severity}]** ${location ? `\`${location}\` — ` : ''}${finding.message ?? ''}`,
-      );
+      const location = finding.file ? (finding.line != null ? `${finding.file}:${finding.line}` : finding.file) : '';
+      lines.push(`- **[${severity}]** ${location ? `\`${location}\` — ` : ''}${finding.message ?? ''}`);
     }
   }
 

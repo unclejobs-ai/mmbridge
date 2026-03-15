@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
+import type React from 'react';
+import { useEffect, useState } from 'react';
+import type { TabId } from '../store.js';
 import { colors, statusColor } from '../theme.js';
 import { HRule } from './Header.js';
-import type { TabId } from '../store.js';
 
 interface ToastInfo {
   message: string;
@@ -17,8 +18,8 @@ interface StatusBarProps {
 
 const TAB_HINTS: Record<TabId, string> = {
   dashboard: 'r Refresh │ 1-3 Tabs │ ? Help │ q Quit',
-  sessions:  'j/k Navigate │ f Followup │ e Export │ q Quit',
-  config:    'j/k Select │ Enter Test │ ? Help │ q Quit',
+  sessions: 'j/k Navigate │ f Followup │ e Export │ q Quit',
+  config: 'j/k Select │ Enter Test │ ? Help │ q Quit',
 };
 
 const TOAST_DURATION_MS = 3000;
@@ -49,7 +50,9 @@ export function StatusBar({ toast, activeTab }: StatusBarProps): React.ReactElem
       <HRule />
       <Box paddingX={1} paddingY={0}>
         {showToast && toast ? (
-          <Text color={statusColor(toast.type)} bold>{toast.message}</Text>
+          <Text color={statusColor(toast.type)} bold>
+            {toast.message}
+          </Text>
         ) : (
           <Text color={colors.overlay1}>{hints}</Text>
         )}

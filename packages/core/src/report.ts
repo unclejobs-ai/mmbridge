@@ -1,4 +1,4 @@
-import type { Finding, EnrichResult, Severity } from './types.js';
+import type { EnrichResult, Finding, Severity } from './types.js';
 
 const SEVERITY_ORDER: Record<Severity, number> = {
   CRITICAL: 0,
@@ -43,10 +43,7 @@ export function promoteLowConfidence(findings: Finding[]): { findings: Finding[]
   return { findings: promoted, promotedCount };
 }
 
-export function enrichFindings(
-  findings: Finding[],
-  changedFiles: string[],
-): EnrichResult {
+export function enrichFindings(findings: Finding[], changedFiles: string[]): EnrichResult {
   const deduped = deduplicateFindings(findings);
   const scoped = filterScopeFindings(deduped, changedFiles);
   const filteredCount = deduped.length - scoped.length;

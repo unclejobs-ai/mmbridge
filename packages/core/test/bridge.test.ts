@@ -1,9 +1,11 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runBridge, mergeBridgeFindings } from '../dist/bridge.js';
+import test from 'node:test';
+import { mergeBridgeFindings, runBridge } from '../dist/bridge.js';
 import type { Finding } from '../dist/types.js';
 
-const f = (overrides: Partial<Finding> & { severity: Finding['severity']; file: string; message: string }): Finding => ({
+const f = (
+  overrides: Partial<Finding> & { severity: Finding['severity']; file: string; message: string },
+): Finding => ({
   line: null,
   ...overrides,
 });
@@ -25,9 +27,7 @@ test('runBridge: undefined options returns empty result', async () => {
 
 test('runBridge: skipped results are ignored', async () => {
   const result = await runBridge({
-    results: [
-      { tool: 'a', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })], skipped: true },
-    ],
+    results: [{ tool: 'a', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })], skipped: true }],
   });
   assert.equal(result.totalInputs, 0);
   assert.equal(result.findings.length, 0);
@@ -38,9 +38,7 @@ test('runBridge: standard profile requires 2 tools for consensus', async () => {
   // single tool, WARNING — should not pass standard threshold of 2
   const result = await runBridge({
     profile: 'standard',
-    results: [
-      { tool: 'tool1', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] },
-    ],
+    results: [{ tool: 'tool1', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] }],
   });
   // WARNING from 1 tool shouldn't meet threshold=2
   assert.equal(result.findings.filter((x) => x.severity === 'WARNING').length, 0);
@@ -49,9 +47,7 @@ test('runBridge: standard profile requires 2 tools for consensus', async () => {
 test('runBridge: CRITICAL always passes regardless of threshold', async () => {
   const result = await runBridge({
     profile: 'standard',
-    results: [
-      { tool: 'tool1', findings: [f({ severity: 'CRITICAL', file: 'a.ts', message: 'crit' })] },
-    ],
+    results: [{ tool: 'tool1', findings: [f({ severity: 'CRITICAL', file: 'a.ts', message: 'crit' })] }],
   });
   const criticals = result.findings.filter((x) => x.severity === 'CRITICAL');
   assert.equal(criticals.length, 1);
@@ -91,9 +87,7 @@ test('runBridge: sources array contains all contributing tools', async () => {
 test('runBridge: strict profile threshold is 1 (every finding passes)', async () => {
   const result = await runBridge({
     profile: 'strict',
-    results: [
-      { tool: 'tool1', findings: [f({ severity: 'INFO', file: 'a.ts', message: 'info' })] },
-    ],
+    results: [{ tool: 'tool1', findings: [f({ severity: 'INFO', file: 'a.ts', message: 'info' })] }],
   });
   assert.equal(result.findings.length, 1);
 });
@@ -124,9 +118,7 @@ test('runBridge: relaxed profile threshold is 3', async () => {
 
 test('runBridge: profile defaults to standard', async () => {
   const result = await runBridge({
-    results: [
-      { tool: 't', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] },
-    ],
+    results: [{ tool: 't', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] }],
   });
   assert.equal(result.profile, 'standard');
 });
@@ -145,17 +137,15 @@ test('runBridge: counts map severity to total unique findings seen', async () =>
       },
     ],
   });
-  assert.equal(result.counts['CRITICAL'], 1);
-  assert.equal(result.counts['WARNING'], 1);
-  assert.equal(result.counts['INFO'], 1);
+  assert.equal(result.counts.CRITICAL, 1);
+  assert.equal(result.counts.WARNING, 1);
+  assert.equal(result.counts.INFO, 1);
 });
 
 test('runBridge: summary includes profile name and finding count', async () => {
   const result = await runBridge({
     profile: 'strict',
-    results: [
-      { tool: 'tool1', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] },
-    ],
+    results: [{ tool: 'tool1', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] }],
   });
   assert.ok(result.summary.includes('strict'));
   assert.ok(result.summary.includes('1 consensus finding'));

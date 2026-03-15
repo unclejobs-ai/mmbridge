@@ -1,5 +1,5 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 import { runReviewPipeline } from '../dist/review-pipeline.js';
 import type { ReviewPipelineOptions } from '../dist/review-pipeline.js';
 
@@ -59,12 +59,13 @@ test('runReviewPipeline: session is "unsaved" without saveSession', async () => 
 
 test('runReviewPipeline: bridge mode throws without installed tools', async () => {
   await assert.rejects(
-    () => runReviewPipeline({
-      ...baseOptions,
-      tool: 'all',
-      bridge: 'standard',
-      listInstalledTools: async () => [],
-    }),
+    () =>
+      runReviewPipeline({
+        ...baseOptions,
+        tool: 'all',
+        bridge: 'standard',
+        listInstalledTools: async () => [],
+      }),
     /No review tools installed/,
   );
 });

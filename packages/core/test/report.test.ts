@@ -1,16 +1,18 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 import {
-  sortFindings,
   deduplicateFindings,
-  filterScopeFindings,
-  promoteLowConfidence,
   enrichFindings,
+  filterScopeFindings,
   formatFindingsText,
+  promoteLowConfidence,
+  sortFindings,
 } from '../dist/report.js';
 import type { Finding } from '../dist/types.js';
 
-const f = (overrides: Partial<Finding> & { severity: Finding['severity']; file: string; message: string }): Finding => ({
+const f = (
+  overrides: Partial<Finding> & { severity: Finding['severity']; file: string; message: string },
+): Finding => ({
   line: null,
   ...overrides,
 });
@@ -128,45 +130,35 @@ test('filterScopeFindings: keeps global scopeHint findings', () => {
 });
 
 test('filterScopeFindings: keeps findings with empty file string', () => {
-  const findings: Finding[] = [
-    f({ severity: 'WARNING', file: '', message: 'global warning' }),
-  ];
+  const findings: Finding[] = [f({ severity: 'WARNING', file: '', message: 'global warning' })];
   const result = filterScopeFindings(findings, ['a.ts']);
   assert.equal(result.length, 1);
 });
 
 // promoteLowConfidence
 test('promoteLowConfidence: promotes medium-confidence INFO to WARNING', () => {
-  const findings: Finding[] = [
-    f({ severity: 'INFO', file: 'a.ts', message: 'i', confidence: 'medium' }),
-  ];
+  const findings: Finding[] = [f({ severity: 'INFO', file: 'a.ts', message: 'i', confidence: 'medium' })];
   const { findings: promoted, promotedCount } = promoteLowConfidence(findings);
   assert.equal(promoted[0].severity, 'WARNING');
   assert.equal(promotedCount, 1);
 });
 
 test('promoteLowConfidence: does not promote high-confidence INFO', () => {
-  const findings: Finding[] = [
-    f({ severity: 'INFO', file: 'a.ts', message: 'i', confidence: 'high' }),
-  ];
+  const findings: Finding[] = [f({ severity: 'INFO', file: 'a.ts', message: 'i', confidence: 'high' })];
   const { findings: promoted, promotedCount } = promoteLowConfidence(findings);
   assert.equal(promoted[0].severity, 'INFO');
   assert.equal(promotedCount, 0);
 });
 
 test('promoteLowConfidence: does not promote medium-confidence WARNING', () => {
-  const findings: Finding[] = [
-    f({ severity: 'WARNING', file: 'a.ts', message: 'w', confidence: 'medium' }),
-  ];
+  const findings: Finding[] = [f({ severity: 'WARNING', file: 'a.ts', message: 'w', confidence: 'medium' })];
   const { findings: promoted, promotedCount } = promoteLowConfidence(findings);
   assert.equal(promoted[0].severity, 'WARNING');
   assert.equal(promotedCount, 0);
 });
 
 test('promoteLowConfidence: does not promote medium-confidence CRITICAL', () => {
-  const findings: Finding[] = [
-    f({ severity: 'CRITICAL', file: 'a.ts', message: 'c', confidence: 'medium' }),
-  ];
+  const findings: Finding[] = [f({ severity: 'CRITICAL', file: 'a.ts', message: 'c', confidence: 'medium' })];
   const { findings: promoted, promotedCount } = promoteLowConfidence(findings);
   assert.equal(promoted[0].severity, 'CRITICAL');
   assert.equal(promotedCount, 0);
@@ -222,9 +214,7 @@ test('enrichFindings: summary includes CRITICAL count when present', () => {
 });
 
 test('enrichFindings: summary omits zero counts', () => {
-  const findings: Finding[] = [
-    f({ severity: 'INFO', file: 'a.ts', message: 'i' }),
-  ];
+  const findings: Finding[] = [f({ severity: 'INFO', file: 'a.ts', message: 'i' })];
   const result = enrichFindings(findings, []);
   assert.ok(!result.summary.includes('CRITICAL'));
   assert.ok(!result.summary.includes('WARNING'));
@@ -236,9 +226,7 @@ test('formatFindingsText: returns "No findings." for empty array', () => {
 });
 
 test('formatFindingsText: formats finding with line number', () => {
-  const findings: Finding[] = [
-    f({ severity: 'WARNING', file: 'a.ts', line: 42, message: 'bad code' }),
-  ];
+  const findings: Finding[] = [f({ severity: 'WARNING', file: 'a.ts', line: 42, message: 'bad code' })];
   const result = formatFindingsText(findings);
   assert.ok(result.includes('[WARNING]'));
   assert.ok(result.includes('a.ts:42'));
@@ -246,9 +234,7 @@ test('formatFindingsText: formats finding with line number', () => {
 });
 
 test('formatFindingsText: formats finding without line number', () => {
-  const findings: Finding[] = [
-    f({ severity: 'CRITICAL', file: 'b.ts', message: 'security issue' }),
-  ];
+  const findings: Finding[] = [f({ severity: 'CRITICAL', file: 'b.ts', message: 'security issue' })];
   const result = formatFindingsText(findings);
   assert.ok(result.includes('[CRITICAL]'));
   assert.ok(result.includes('b.ts'));

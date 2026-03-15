@@ -1,6 +1,6 @@
-import React from 'react';
 import { Text } from 'ink';
-import { colors, CHARS } from '../theme.js';
+import type React from 'react';
+import { CHARS, colors } from '../theme.js';
 
 interface SparklineProps {
   data: number[];
@@ -8,11 +8,7 @@ interface SparklineProps {
   width?: number;
 }
 
-export function Sparkline({
-  data,
-  color = colors.accent,
-  width,
-}: SparklineProps): React.ReactElement {
+export function Sparkline({ data, color = colors.accent, width }: SparklineProps): React.ReactElement {
   const source = width !== undefined ? data.slice(-width) : data;
 
   if (source.length === 0) {

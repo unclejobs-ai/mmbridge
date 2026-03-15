@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { RunResult, RunCommandOptions } from './types.js';
 import { DEFAULT_CLASSIFIERS, classifyFileWithRules } from './config.js';
+import type { RunCommandOptions, RunResult } from './types.js';
 
 export async function runCommand(
   command: string,
@@ -128,7 +128,8 @@ export function isPotentialSecretFile(filePath: string): boolean {
   if (lower.includes('secret')) return true;
   if (lower.includes('credential')) return true;
   if (lower.includes('token')) return true;
-  if (lower.includes('key') && !lower.endsWith('.keymap') && !lower.endsWith('.tsx') && !lower.endsWith('.ts')) return true;
+  if (lower.includes('key') && !lower.endsWith('.keymap') && !lower.endsWith('.tsx') && !lower.endsWith('.ts'))
+    return true;
   if (/\.(pem|p12|pfx|jks|keystore)$/.test(base)) return true;
   if (/^id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$/.test(base)) return true;
   if (base === '.htpasswd' || base === '.pgpass' || base === '.netrc') return true;
@@ -166,19 +167,10 @@ export function parseCodexAgentMessages(raw: string): string[] {
     if (!trimmed.startsWith('{')) continue;
     try {
       const parsed: unknown = JSON.parse(trimmed);
-      if (
-        parsed !== null &&
-        typeof parsed === 'object' &&
-        'type' in parsed &&
-        'item' in parsed
-      ) {
+      if (parsed !== null && typeof parsed === 'object' && 'type' in parsed && 'item' in parsed) {
         const record = parsed as Record<string, unknown>;
         const item = record.item as Record<string, unknown> | undefined;
-        if (
-          record.type === 'item.completed' &&
-          item?.type === 'agent_message' &&
-          typeof item.text === 'string'
-        ) {
+        if (record.type === 'item.completed' && item?.type === 'agent_message' && typeof item.text === 'string') {
           messages.push(item.text);
         }
       }

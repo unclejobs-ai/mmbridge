@@ -1,12 +1,20 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import os from 'node:os';
 import crypto from 'node:crypto';
-import { runCommand, ensureDir, isBinaryExtension, isPotentialSecretFile, safeRead, limitBytes, projectSlug } from './utils.js';
-import { getHead, getChangedFiles, getDiff, getDefaultBaseRef } from './git.js';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { getChangedFiles, getDefaultBaseRef, getDiff, getHead } from './git.js';
 import { redactWorkspace } from './redaction.js';
 import { ADAPTER_NAMES } from './types.js';
 import type { ContextWorkspace, CreateContextOptions } from './types.js';
+import {
+  ensureDir,
+  isBinaryExtension,
+  isPotentialSecretFile,
+  limitBytes,
+  projectSlug,
+  runCommand,
+  safeRead,
+} from './utils.js';
 
 const DEFAULT_MAX_CONTEXT_BYTES = 2 * 1024 * 1024; // 2 MB
 
@@ -31,8 +39,11 @@ const MODE_INSTRUCTIONS: Record<string, string> = {
 };
 
 function buildToolPrompt(tool: string, mode: string, changedFiles: string[]): string {
-  const modeInstr = MODE_INSTRUCTIONS[mode] ?? MODE_INSTRUCTIONS['review']!;
-  const fileList = changedFiles.slice(0, 30).map((f) => `- ${f}`).join('\n');
+  const modeInstr = MODE_INSTRUCTIONS[mode] ?? MODE_INSTRUCTIONS.review!;
+  const fileList = changedFiles
+    .slice(0, 30)
+    .map((f) => `- ${f}`)
+    .join('\n');
   const truncNote = changedFiles.length > 30 ? `\n- *(${changedFiles.length} files total — showing first 30)*` : '';
 
   return [
@@ -71,7 +82,7 @@ export async function createContext(options: CreateContextOptions = {}): Promise
   const maxContextBytes = options.maxContextBytes ?? DEFAULT_MAX_CONTEXT_BYTES;
 
   const head = await getHead(projectDir);
-  const baseRef = options.baseRef ?? options.commit ?? await getDefaultBaseRef(projectDir);
+  const baseRef = options.baseRef ?? options.commit ?? (await getDefaultBaseRef(projectDir));
 
   const changedFiles = await getChangedFiles(baseRef, projectDir);
 

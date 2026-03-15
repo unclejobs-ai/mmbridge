@@ -8,9 +8,5 @@
     "jsxImportSource": "react"
   },
   "include": ["src"],
-  "references": [
-    { "path": "../core" },
-    { "path": "../adapters" },
-    { "path": "../session-store" }
-  ]
+  "references": [{ "path": "../core" }, { "path": "../adapters" }, { "path": "../session-store" }]
 }

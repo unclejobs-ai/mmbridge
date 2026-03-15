@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { resolveProjectDir, importCore, importAdapters } from './helpers.js';
 import type { AdapterRegistry } from '@mmbridge/adapters';
+import { importAdapters, importCore, resolveProjectDir } from './helpers.js';
 
 export interface InitCommandOptions {
   project?: string;
@@ -51,7 +51,9 @@ export async function runInitCommand(options: InitCommandOptions): Promise<void>
   intro('mmbridge init');
 
   if (installedAdapters.length === 0) {
-    cancel('No AI tools detected. Install at least one (kimi, qwen, codex, opencode). Run `mmbridge doctor` for details.');
+    cancel(
+      'No AI tools detected. Install at least one (kimi, qwen, codex, opencode). Run `mmbridge doctor` for details.',
+    );
     return;
   }
 
@@ -111,9 +113,7 @@ function buildConfig(
   options?: { maxBytes?: number; defaultMode?: string },
 ): Record<string, unknown> {
   const config: Record<string, unknown> = {
-    adapters: Object.fromEntries(
-      adapters.map((a) => [a.name, { command: a.binary }]),
-    ),
+    adapters: Object.fromEntries(adapters.map((a) => [a.name, { command: a.binary }])),
     context: { maxBytes: options?.maxBytes ?? 2097152 },
   };
   // Omit defaultMode when 'review' (the built-in default)

@@ -1,7 +1,7 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tuiReducer, initialState } from '../dist/store.js';
-import type { TuiState, TuiAction } from '../dist/store.js';
+import test from 'node:test';
+import { initialState, tuiReducer } from '../dist/store.js';
+import type { TuiAction, TuiState } from '../dist/store.js';
 
 function dispatch(state: TuiState, action: TuiAction): TuiState {
   return tuiReducer(state, action);
@@ -119,7 +119,7 @@ test('SHOW_TOAST: sets toast with timestamp', () => {
   const next = dispatch(initialState, { type: 'SHOW_TOAST', message: 'Saved!', toastType: 'success' });
   assert.equal(next.toast?.message, 'Saved!');
   assert.equal(next.toast?.type, 'success');
-  assert.ok(next.toast!.at >= before);
+  assert.ok(next.toast?.at >= before);
 });
 
 test('CLEAR_TOAST: removes toast', () => {

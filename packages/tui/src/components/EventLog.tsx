@@ -1,7 +1,7 @@
-import React from 'react';
-import { Box, Text } from 'ink';
-import { colors } from '../theme.js';
 import type { LiveState } from '@mmbridge/core';
+import { Box, Text } from 'ink';
+import type React from 'react';
+import { colors } from '../theme.js';
 
 interface EventLogProps {
   liveState: LiveState | null;
@@ -22,7 +22,7 @@ export function EventLog({ liveState, maxEvents = 8 }: EventLogProps): React.Rea
   return (
     <Box flexDirection="column" paddingX={1}>
       {visible.map((event, i) => (
-        <Box key={i} flexDirection="row" gap={2}>
+        <Box key={`${event.time}-${event.message.slice(0, 20)}`} flexDirection="row" gap={2}>
           <Text color={colors.overlay0}>{event.time}</Text>
           <Text color={colors.subtext0}>{event.message}</Text>
         </Box>

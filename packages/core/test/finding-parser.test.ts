@@ -1,6 +1,6 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFindings, detectParseState } from '../dist/finding-parser.js';
+import test from 'node:test';
+import { detectParseState, parseFindings } from '../dist/finding-parser.js';
 
 // ─── parseFindings ───────────────────────────────────────────────────────────
 
@@ -119,7 +119,8 @@ test('parseFindings: multiple mixed findings', () => {
 });
 
 test('parseFindings: fallback — plain text becomes INFO', () => {
-  const input = 'The code looks generally good but could use some cleanup in the authentication module. Consider refactoring the login flow.';
+  const input =
+    'The code looks generally good but could use some cleanup in the authentication module. Consider refactoring the login flow.';
   const findings = parseFindings(input);
   assert.ok(findings.length > 0);
   assert.ok(findings.every((f) => f.severity === 'INFO'));

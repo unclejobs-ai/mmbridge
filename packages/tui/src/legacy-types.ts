@@ -1,6 +1,6 @@
 // ─── Legacy domain interfaces (preserved for backward compatibility) ──────────
 
-import type { Finding, ResultIndex, InterpretResult } from '@mmbridge/core';
+import type { Finding, InterpretResult, ResultIndex } from '@mmbridge/core';
 
 export interface DoctorReport {
   generatedAt: string;

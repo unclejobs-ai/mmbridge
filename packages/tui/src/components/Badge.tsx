@@ -1,6 +1,6 @@
-import React from 'react';
 import { Text } from 'ink';
-import { severityColor, colors } from '../theme.js';
+import type React from 'react';
+import { colors, severityColor } from '../theme.js';
 
 type BadgeSeverity = 'CRITICAL' | 'WARNING' | 'INFO' | 'REFACTOR' | string;
 type BadgeVariant = 'pill' | 'tag' | 'inline';

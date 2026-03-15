@@ -1,13 +1,13 @@
-import React from 'react';
-import { Box, Text } from 'ink';
-import { colors, CHARS } from '../theme.js';
-import { FullWidthRow } from './FullWidthRow.js';
 import type { LiveState } from '@mmbridge/core';
+import { Box, Text } from 'ink';
+import type React from 'react';
+import { CHARS, colors } from '../theme.js';
+import { FullWidthRow } from './FullWidthRow.js';
 
 // ─── Phase step display ───────────────────────────────────────────────────────
 
 const PHASES = ['context', 'redact', 'review', 'enrich'] as const;
-type Phase = typeof PHASES[number];
+type Phase = (typeof PHASES)[number];
 
 const SPINNER_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
 
@@ -34,13 +34,17 @@ function phaseColor(phaseName: Phase, currentPhase: string): string {
 
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 
-function ProgressBar({ progress, elapsed, width }: { progress: number; elapsed: number; width: number }): React.ReactElement {
+function ProgressBar({
+  progress,
+  elapsed,
+  width,
+}: { progress: number; elapsed: number; width: number }): React.ReactElement {
   const pct = Math.min(100, Math.max(0, progress));
   const filledCount = Math.round((pct / 100) * width);
   const emptyCount = width - filledCount;
   const filled = CHARS.progressFull.repeat(filledCount);
   const empty = CHARS.progressEmpty.repeat(emptyCount);
-  const elapsedStr = elapsed.toFixed(1) + 's';
+  const elapsedStr = `${elapsed.toFixed(1)}s`;
 
   return (
     <Box flexDirection="row" gap={1}>
@@ -78,7 +82,12 @@ interface LiveMonitorProps {
   streamLines?: number;
 }
 
-export function LiveMonitor({ liveState, frameIdx, barWidth = 20, streamLines = 7 }: LiveMonitorProps): React.ReactElement {
+export function LiveMonitor({
+  liveState,
+  frameIdx,
+  barWidth = 20,
+  streamLines = 7,
+}: LiveMonitorProps): React.ReactElement {
   const progress = liveState.progress ?? 0;
   const visible = liveState.streamLines.slice(-streamLines);
 
@@ -86,7 +95,9 @@ export function LiveMonitor({ liveState, frameIdx, barWidth = 20, streamLines = 
     <Box flexDirection="column" paddingX={1} gap={0}>
       <Box flexDirection="row" gap={1}>
         <Text color={colors.overlay1}>REVIEW</Text>
-        <Text color={colors.text} bold>{liveState.tool}</Text>
+        <Text color={colors.text} bold>
+          {liveState.tool}
+        </Text>
         <Text color={colors.textDim}>·</Text>
         <Text color={colors.subtext0}>{liveState.mode}</Text>
       </Box>
@@ -113,7 +124,7 @@ export function LiveMonitor({ liveState, frameIdx, barWidth = 20, streamLines = 
         visible.map((line, i) => {
           const { prefix, rest, prefixColor } = streamLinePrefix(line);
           return (
-            <Box key={i} flexDirection="row" gap={1}>
+            <Box key={`stream-${line.slice(0, 30)}-${i}`} flexDirection="row" gap={1}>
               <Text color={colors.textDim}>│</Text>
               <Text color={prefixColor}>{prefix}</Text>
               <Text color={colors.subtext0}>{rest}</Text>

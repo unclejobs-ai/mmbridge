@@ -1,5 +1,5 @@
-import React from 'react';
 import { Text, useStdout } from 'ink';
+import type React from 'react';
 import { colors } from '../theme.js';
 
 export function HRuleFull(): React.ReactElement {

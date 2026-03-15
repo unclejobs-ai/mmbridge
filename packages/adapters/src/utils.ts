@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { RunResult, RunCommandOptions } from '@mmbridge/core';
+import type { RunCommandOptions, RunResult } from '@mmbridge/core';
 
 async function loadCoreUtils(): Promise<{
   commandExists: (cmd: string) => Promise<boolean>;
@@ -49,10 +49,7 @@ export function assertCliSuccess(tool: string, result: RunResult): void {
   }
 }
 
-export function parseExternalSessionId(
-  rawOutput: unknown,
-  fallback: string | null,
-): string | null {
+export function parseExternalSessionId(rawOutput: unknown, fallback: string | null): string | null {
   const text = String(rawOutput ?? '');
   for (const line of text.split('\n')) {
     const trimmed = line.trim();
@@ -75,10 +72,7 @@ export function parseExternalSessionId(
     }
   }
 
-  const patterns = [
-    /session\s*id\s*[:=]\s*([a-zA-Z0-9_-]+)/i,
-    /session\s+([0-9a-f-]{8,})/i,
-  ];
+  const patterns = [/session\s*id\s*[:=]\s*([a-zA-Z0-9_-]+)/i, /session\s+([0-9a-f-]{8,})/i];
 
   for (const pattern of patterns) {
     const match = text.match(pattern);

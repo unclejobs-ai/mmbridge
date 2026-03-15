@@ -1,10 +1,7 @@
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import {
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import { SessionStore } from '@mmbridge/session-store';
 import { defaultRegistry } from '@mmbridge/adapters';
+import { SessionStore } from '@mmbridge/session-store';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { ListResourcesRequestSchema, ReadResourceRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const store = new SessionStore();
 

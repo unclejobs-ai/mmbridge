@@ -1,10 +1,10 @@
 import {
-  resolveProjectDir,
-  jsonOutput,
   exitWithError,
   importAdapters,
   importSessionStore,
   importTui,
+  jsonOutput,
+  resolveProjectDir,
 } from './helpers.js';
 
 export interface FollowupCommandOptions {
@@ -31,9 +31,7 @@ export async function runFollowupCommand(options: FollowupCommandOptions): Promi
       const sessions = await sessionStore.list({ tool: options.tool });
       const latest = sessions[0] ?? null;
       if (!latest?.externalSessionId) {
-        exitWithError(
-          `No external session ID found for tool "${options.tool}". Run a review first.`,
-        );
+        exitWithError(`No external session ID found for tool "${options.tool}". Run a review first.`);
       }
       sessionId = latest.externalSessionId;
     } else {

@@ -1,14 +1,14 @@
 import crypto from 'node:crypto';
-import { classifyFile } from './utils.js';
 import type {
-  ContextIndex,
-  ResultIndex,
   BuildContextIndexInput,
   BuildResultIndexInput,
+  ContextIndex,
   Finding,
+  ResultIndex,
   SeverityCounts,
   TopFile,
 } from './types.js';
+import { classifyFile } from './utils.js';
 
 export function buildContextIndex(input: BuildContextIndexInput): ContextIndex {
   const changedFiles = input.changedFiles ?? [];
@@ -22,9 +22,7 @@ export function buildContextIndex(input: BuildContextIndexInput): ContextIndex {
   return {
     workspaceId: input.workspace ?? null,
     projectDir: input.projectDir ?? null,
-    projectSlug: input.projectDir
-      ? input.projectDir.replace(/[\\/]/g, '-').replace(/^-/, '')
-      : null,
+    projectSlug: input.projectDir ? input.projectDir.replace(/[\\/]/g, '-').replace(/^-/, '') : null,
     mode: input.mode ?? null,
     baseRef: input.baseRef ?? null,
     head: input.head ?? null,
@@ -63,10 +61,9 @@ export function buildResultIndex(input: BuildResultIndexInput): ResultIndex {
 
   const filesTouched = Object.keys(fileCounts).length;
 
-  const outputDigest =
-    input.rawOutput
-      ? crypto.createHash('sha256').update(input.rawOutput).digest('hex').slice(0, 12)
-      : null;
+  const outputDigest = input.rawOutput
+    ? crypto.createHash('sha256').update(input.rawOutput).digest('hex').slice(0, 12)
+    : null;
 
   return {
     summary: input.summary ?? '',

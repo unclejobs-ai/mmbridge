@@ -1,5 +1,5 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import type React from 'react';
 import { colors } from '../theme.js';
 
 interface KVRowProps {
@@ -10,13 +10,7 @@ interface KVRowProps {
   icon?: string;
 }
 
-export function KVRow({
-  label,
-  value,
-  valueColor,
-  labelWidth = 12,
-  icon,
-}: KVRowProps): React.ReactElement {
+export function KVRow({ label, value, valueColor, labelWidth = 12, icon }: KVRowProps): React.ReactElement {
   const labelText = icon ? `${icon} ${label}` : label;
   const padWidth = icon ? Math.max(labelWidth, labelText.length) : labelWidth;
 

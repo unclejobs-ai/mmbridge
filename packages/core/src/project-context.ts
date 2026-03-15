@@ -1,9 +1,7 @@
-import { getHead, getGitStatusSummary, getDefaultBaseRef, getDiffFileCount } from './git.js';
-import type { ProjectContext, BuildProjectContextOptions } from './types.js';
+import { getDefaultBaseRef, getDiffFileCount, getGitStatusSummary, getHead } from './git.js';
+import type { BuildProjectContextOptions, ProjectContext } from './types.js';
 
-export async function buildProjectContext(
-  options: BuildProjectContextOptions = {},
-): Promise<ProjectContext> {
+export async function buildProjectContext(options: BuildProjectContextOptions = {}): Promise<ProjectContext> {
   const projectDir = options.projectDir ?? process.cwd();
   const sessions = options.sessions ?? [];
 

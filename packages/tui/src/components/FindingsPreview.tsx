@@ -1,8 +1,8 @@
-import React from 'react';
 import { Box, Text } from 'ink';
-import { colors, severityColor, severityIcon, CHARS } from '../theme.js';
-import { Panel } from './Panel.js';
+import type React from 'react';
 import type { FindingItem } from '../store.js';
+import { CHARS, colors, severityColor, severityIcon } from '../theme.js';
+import { Panel } from './Panel.js';
 
 interface FindingsPreviewProps {
   findings: FindingItem[];
@@ -20,7 +20,7 @@ function groupByFile(findings: FindingItem[]): FileGroup[] {
   for (const f of findings) {
     const key = f.file || '(no file)';
     if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(f);
+    map.get(key)?.push(f);
   }
   return Array.from(map.entries())
     .map(([file, items]) => ({ file, findings: items }))
@@ -33,11 +33,7 @@ function shortFile(filePath: string): string {
   return `…/${parts.slice(-2).join('/')}`;
 }
 
-export function FindingsPreview({
-  findings,
-  maxFiles = 8,
-  maxFindings = 3,
-}: FindingsPreviewProps): React.ReactElement {
+export function FindingsPreview({ findings, maxFiles = 8, maxFindings = 3 }: FindingsPreviewProps): React.ReactElement {
   const groups = groupByFile(findings).slice(0, maxFiles);
 
   if (groups.length === 0) {
@@ -55,7 +51,9 @@ export function FindingsPreview({
           <Box key={group.file} flexDirection="column">
             <Box flexDirection="row" gap={1}>
               <Text color={colors.textMuted}>{CHARS.expanded}</Text>
-              <Text color={colors.text} bold>{shortFile(group.file)}</Text>
+              <Text color={colors.text} bold>
+                {shortFile(group.file)}
+              </Text>
               <Text color={colors.textDim}>({group.findings.length})</Text>
             </Box>
             {group.findings.slice(0, maxFindings).map((f, i) => {
@@ -65,15 +63,15 @@ export function FindingsPreview({
                   <Text color={severityColor(sev)}>{severityIcon(sev)}</Text>
                   <Text color={severityColor(sev)}>{sev.slice(0, 4).padEnd(4)}</Text>
                   {f.line != null && <Text color={colors.textDim}>L{f.line}</Text>}
-                  <Text color={colors.subtext1} wrap="truncate">{f.message}</Text>
+                  <Text color={colors.subtext1} wrap="truncate">
+                    {f.message}
+                  </Text>
                 </Box>
               );
             })}
             {group.findings.length > maxFindings && (
               <Box paddingLeft={3}>
-                <Text color={colors.textDim}>
-                  +{group.findings.length - maxFindings} more
-                </Text>
+                <Text color={colors.textDim}>+{group.findings.length - maxFindings} more</Text>
               </Box>
             )}
           </Box>

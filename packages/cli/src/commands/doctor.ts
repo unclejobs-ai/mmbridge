@@ -1,7 +1,7 @@
+import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import fs from 'node:fs/promises';
-import { jsonOutput, importCore, importAdapters, importTui } from './helpers.js';
+import { importAdapters, importCore, importTui, jsonOutput } from './helpers.js';
 
 export interface DoctorOptions {
   json?: boolean;

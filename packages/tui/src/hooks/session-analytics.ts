@@ -1,5 +1,5 @@
-import type { Session } from '@mmbridge/session-store';
 import type { ContextIndex, ResultIndex } from '@mmbridge/core';
+import type { Session } from '@mmbridge/session-store';
 import type { FindingItem } from '../store.js';
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
@@ -66,10 +66,7 @@ export function computeSessionStats(sessions: Session[]): SessionStats {
   }
 
   const totalFindings =
-    aggregateSeverity.critical +
-    aggregateSeverity.warning +
-    aggregateSeverity.info +
-    aggregateSeverity.refactor;
+    aggregateSeverity.critical + aggregateSeverity.warning + aggregateSeverity.info + aggregateSeverity.refactor;
 
   return { dailyCounts, totalFindings, aggregateSeverity, toolDistribution };
 }
@@ -138,50 +135,50 @@ export function parseContextIndex(raw: unknown): ContextIndex | null {
   // Required structural checks for ContextIndex
   if (
     !('changedFiles' in obj) ||
-    typeof obj['changedFiles'] !== 'number' ||
+    typeof obj.changedFiles !== 'number' ||
     !('copiedFiles' in obj) ||
-    typeof obj['copiedFiles'] !== 'number' ||
+    typeof obj.copiedFiles !== 'number' ||
     !('categoryCounts' in obj) ||
-    typeof obj['categoryCounts'] !== 'object' ||
-    obj['categoryCounts'] === null ||
-    Array.isArray(obj['categoryCounts']) ||
+    typeof obj.categoryCounts !== 'object' ||
+    obj.categoryCounts === null ||
+    Array.isArray(obj.categoryCounts) ||
     !('changedSample' in obj) ||
-    !Array.isArray(obj['changedSample'])
+    !Array.isArray(obj.changedSample)
   ) {
     return null;
   }
 
-  const redaction = obj['redaction'];
+  const redaction = obj.redaction;
   const parsedRedaction =
     redaction != null &&
     typeof redaction === 'object' &&
     !Array.isArray(redaction) &&
-    typeof (redaction as Record<string, unknown>)['changedFiles'] === 'number' &&
-    typeof (redaction as Record<string, unknown>)['usedRuleCount'] === 'number'
+    typeof (redaction as Record<string, unknown>).changedFiles === 'number' &&
+    typeof (redaction as Record<string, unknown>).usedRuleCount === 'number'
       ? (redaction as ContextIndex['redaction'])
       : null;
 
-  const head = obj['head'];
+  const head = obj.head;
   const parsedHead =
     head != null &&
     typeof head === 'object' &&
     !Array.isArray(head) &&
-    typeof (head as Record<string, unknown>)['sha'] === 'string' &&
-    typeof (head as Record<string, unknown>)['branch'] === 'string'
+    typeof (head as Record<string, unknown>).sha === 'string' &&
+    typeof (head as Record<string, unknown>).branch === 'string'
       ? (head as ContextIndex['head'])
       : null;
 
   return {
-    workspaceId: typeof obj['workspaceId'] === 'string' ? obj['workspaceId'] : null,
-    projectDir: typeof obj['projectDir'] === 'string' ? obj['projectDir'] : null,
-    projectSlug: typeof obj['projectSlug'] === 'string' ? obj['projectSlug'] : null,
-    mode: typeof obj['mode'] === 'string' ? obj['mode'] : null,
-    baseRef: typeof obj['baseRef'] === 'string' ? obj['baseRef'] : null,
+    workspaceId: typeof obj.workspaceId === 'string' ? obj.workspaceId : null,
+    projectDir: typeof obj.projectDir === 'string' ? obj.projectDir : null,
+    projectSlug: typeof obj.projectSlug === 'string' ? obj.projectSlug : null,
+    mode: typeof obj.mode === 'string' ? obj.mode : null,
+    baseRef: typeof obj.baseRef === 'string' ? obj.baseRef : null,
     head: parsedHead,
-    changedFiles: obj['changedFiles'] as number,
-    copiedFiles: obj['copiedFiles'] as number,
-    categoryCounts: obj['categoryCounts'] as Record<string, number>,
-    changedSample: obj['changedSample'] as string[],
+    changedFiles: obj.changedFiles as number,
+    copiedFiles: obj.copiedFiles as number,
+    categoryCounts: obj.categoryCounts as Record<string, number>,
+    changedSample: obj.changedSample as string[],
     redaction: parsedRedaction,
   };
 }
@@ -199,45 +196,45 @@ export function parseResultIndex(raw: unknown): ResultIndex | null {
 
   // Required structural checks for ResultIndex
   if (
-    typeof obj['summary'] !== 'string' ||
-    typeof obj['parseState'] !== 'string' ||
-    typeof obj['findingsTotal'] !== 'number' ||
-    typeof obj['filesTouched'] !== 'number' ||
-    typeof obj['filteredCount'] !== 'number' ||
-    typeof obj['promotedCount'] !== 'number' ||
-    typeof obj['followupSupported'] !== 'boolean' ||
-    typeof obj['hasBridge'] !== 'boolean'
+    typeof obj.summary !== 'string' ||
+    typeof obj.parseState !== 'string' ||
+    typeof obj.findingsTotal !== 'number' ||
+    typeof obj.filesTouched !== 'number' ||
+    typeof obj.filteredCount !== 'number' ||
+    typeof obj.promotedCount !== 'number' ||
+    typeof obj.followupSupported !== 'boolean' ||
+    typeof obj.hasBridge !== 'boolean'
   ) {
     return null;
   }
 
-  const severityCounts = obj['severityCounts'];
+  const severityCounts = obj.severityCounts;
   if (
     severityCounts == null ||
     typeof severityCounts !== 'object' ||
     Array.isArray(severityCounts) ||
-    typeof (severityCounts as Record<string, unknown>)['CRITICAL'] !== 'number' ||
-    typeof (severityCounts as Record<string, unknown>)['WARNING'] !== 'number' ||
-    typeof (severityCounts as Record<string, unknown>)['INFO'] !== 'number' ||
-    typeof (severityCounts as Record<string, unknown>)['REFACTOR'] !== 'number'
+    typeof (severityCounts as Record<string, unknown>).CRITICAL !== 'number' ||
+    typeof (severityCounts as Record<string, unknown>).WARNING !== 'number' ||
+    typeof (severityCounts as Record<string, unknown>).INFO !== 'number' ||
+    typeof (severityCounts as Record<string, unknown>).REFACTOR !== 'number'
   ) {
     return null;
   }
 
-  if (!Array.isArray(obj['topFiles'])) return null;
+  if (!Array.isArray(obj.topFiles)) return null;
 
   return {
-    summary: obj['summary'] as string,
-    parseState: obj['parseState'] as string,
-    findingsTotal: obj['findingsTotal'] as number,
+    summary: obj.summary as string,
+    parseState: obj.parseState as string,
+    findingsTotal: obj.findingsTotal as number,
     severityCounts: severityCounts as ResultIndex['severityCounts'],
-    filesTouched: obj['filesTouched'] as number,
-    topFiles: obj['topFiles'] as ResultIndex['topFiles'],
-    filteredCount: obj['filteredCount'] as number,
-    promotedCount: obj['promotedCount'] as number,
-    followupSupported: obj['followupSupported'] as boolean,
-    outputDigest: typeof obj['outputDigest'] === 'string' ? obj['outputDigest'] : null,
-    hasBridge: obj['hasBridge'] as boolean,
-    bridgeSummary: typeof obj['bridgeSummary'] === 'string' ? obj['bridgeSummary'] : null,
+    filesTouched: obj.filesTouched as number,
+    topFiles: obj.topFiles as ResultIndex['topFiles'],
+    filteredCount: obj.filteredCount as number,
+    promotedCount: obj.promotedCount as number,
+    followupSupported: obj.followupSupported as boolean,
+    outputDigest: typeof obj.outputDigest === 'string' ? obj.outputDigest : null,
+    hasBridge: obj.hasBridge as boolean,
+    bridgeSummary: typeof obj.bridgeSummary === 'string' ? obj.bridgeSummary : null,
   };
 }

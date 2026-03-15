@@ -1,6 +1,6 @@
-import type { Finding } from './types.js';
 import { parseFindings } from './finding-parser.js';
 import { enrichFindings } from './report.js';
+import type { Finding } from './types.js';
 
 export interface AdapterRunResult {
   text: string;
@@ -12,15 +12,18 @@ export interface OrchestrateOptions {
   mode: string;
   baseRef?: string;
   changedFiles: string[];
-  runAdapter: (tool: string, options: {
-    workspace: string;
-    cwd: string;
-    mode: string;
-    baseRef?: string;
-    changedFiles: string[];
-    onStdout?: (chunk: string) => void;
-    onStderr?: (chunk: string) => void;
-  }) => Promise<AdapterRunResult>;
+  runAdapter: (
+    tool: string,
+    options: {
+      workspace: string;
+      cwd: string;
+      mode: string;
+      baseRef?: string;
+      changedFiles: string[];
+      onStdout?: (chunk: string) => void;
+      onStderr?: (chunk: string) => void;
+    },
+  ) => Promise<AdapterRunResult>;
   onToolProgress?: (tool: string, status: 'start' | 'done' | 'error', result?: unknown) => void;
   /** Streaming callback for adapter stdout — receives (tool, chunk) */
   onStdout?: (tool: string, chunk: string) => void;
@@ -51,7 +54,7 @@ export async function orchestrateReview(options: OrchestrateOptions): Promise<Or
         mode: options.mode,
         baseRef: options.baseRef,
         changedFiles: options.changedFiles,
-        onStdout: options.onStdout ? (chunk: string) => options.onStdout!(tool, chunk) : undefined,
+        onStdout: options.onStdout ? (chunk: string) => options.onStdout?.(tool, chunk) : undefined,
       });
 
       const rawFindings = parseFindings(adapterResult.text);

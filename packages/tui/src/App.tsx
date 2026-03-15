@@ -1,14 +1,15 @@
-import React, { useReducer } from 'react';
-import { Box, useInput, useApp } from 'ink';
-import { tuiReducer, initialState, TuiContext } from './store.js';
-import type { TabId } from './store.js';
+import { Box, useApp, useInput } from 'ink';
+import type React from 'react';
+import { useReducer } from 'react';
 import { Header } from './components/Header.js';
-import { StatusBar } from './components/StatusBar.js';
 import { HelpOverlay } from './components/HelpOverlay.js';
+import { StatusBar } from './components/StatusBar.js';
+import { useLoadData } from './hooks/use-data.js';
+import { TuiContext, initialState, tuiReducer } from './store.js';
+import type { TabId } from './store.js';
+import { ConfigView } from './views/ConfigView.js';
 import { DashboardView } from './views/DashboardView.js';
 import { SessionsView } from './views/SessionsView.js';
-import { ConfigView } from './views/ConfigView.js';
-import { useLoadData } from './hooks/use-data.js';
 
 interface AppProps {
   initialTab?: TabId;
@@ -65,8 +66,8 @@ export function App({ initialTab }: AppProps): React.ReactElement {
         <Header activeTab={state.activeTab} branch={branch} dirtyCount={dirtyCount} />
         <Box flexGrow={1}>
           {state.activeTab === 'dashboard' && <DashboardView />}
-          {state.activeTab === 'sessions'  && <SessionsView />}
-          {state.activeTab === 'config'    && <ConfigView />}
+          {state.activeTab === 'sessions' && <SessionsView />}
+          {state.activeTab === 'config' && <ConfigView />}
         </Box>
         <StatusBar toast={state.toast} activeTab={state.activeTab} />
         {state.helpVisible && <HelpOverlay />}

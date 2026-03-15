@@ -110,11 +110,7 @@ export async function syncClaudeAgents(options: SyncOptions = {}): Promise<SyncR
       files: [...AGENT_FILES],
       templateRoot,
     };
-    await fs.writeFile(
-      path.join(backupRoot, backupId, 'manifest.json'),
-      JSON.stringify(manifest, null, 2),
-      'utf8',
-    );
+    await fs.writeFile(path.join(backupRoot, backupId, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
   }
 
   return {

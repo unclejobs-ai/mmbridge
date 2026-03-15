@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
 import { runFollowupAdapter } from '@mmbridge/adapters';
+import { useCallback } from 'react';
 import type { TuiAction } from '../store.js';
 
 export function useFollowup(dispatch: React.Dispatch<TuiAction>) {

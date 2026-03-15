@@ -1,5 +1,5 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import type React from 'react';
 import { colors } from '../theme.js';
 import { Panel } from './Panel.js';
 
@@ -9,11 +9,7 @@ interface StreamPanelProps {
   title?: string;
 }
 
-export function StreamPanel({
-  lines,
-  maxLines = 12,
-  title = 'LIVE OUTPUT',
-}: StreamPanelProps): React.ReactElement {
+export function StreamPanel({ lines, maxLines = 12, title = 'LIVE OUTPUT' }: StreamPanelProps): React.ReactElement {
   const visible = lines.slice(-maxLines);
 
   return (
@@ -23,7 +19,11 @@ export function StreamPanel({
           <Text color={colors.textDim}>Waiting for output...</Text>
         ) : (
           visible.map((line, i) => (
-            <Text key={i} color={i === visible.length - 1 ? colors.text : colors.overlay1} wrap="truncate">
+            <Text
+              key={`sl-${line.slice(0, 30)}-${i}`}
+              color={i === visible.length - 1 ? colors.text : colors.overlay1}
+              wrap="truncate"
+            >
               {line}
             </Text>
           ))

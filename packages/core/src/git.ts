@@ -1,5 +1,5 @@
+import type { GitStatusSummary, HeadMeta, RunResult } from './types.js';
 import { runCommand } from './utils.js';
-import type { HeadMeta, RunResult, GitStatusSummary } from './types.js';
 
 export async function getHead(cwd?: string): Promise<HeadMeta> {
   const shaResult: RunResult = await runCommand('git', ['rev-parse', '--short', 'HEAD'], { cwd });
@@ -11,11 +11,7 @@ export async function getHead(cwd?: string): Promise<HeadMeta> {
 }
 
 export async function getChangedFiles(baseRef: string, cwd?: string): Promise<string[]> {
-  const result: RunResult = await runCommand(
-    'git',
-    ['diff', '--name-only', baseRef, 'HEAD'],
-    { cwd },
-  );
+  const result: RunResult = await runCommand('git', ['diff', '--name-only', baseRef, 'HEAD'], { cwd });
   if (!result.ok) return [];
   return result.stdout
     .split('\n')
@@ -24,11 +20,7 @@ export async function getChangedFiles(baseRef: string, cwd?: string): Promise<st
 }
 
 export async function getStagedFiles(cwd?: string): Promise<string[]> {
-  const result: RunResult = await runCommand(
-    'git',
-    ['diff', '--name-only', '--cached'],
-    { cwd },
-  );
+  const result: RunResult = await runCommand('git', ['diff', '--name-only', '--cached'], { cwd });
   if (!result.ok) return [];
   return result.stdout
     .split('\n')
@@ -37,11 +29,7 @@ export async function getStagedFiles(cwd?: string): Promise<string[]> {
 }
 
 export async function getUnstagedFiles(cwd?: string): Promise<string[]> {
-  const result: RunResult = await runCommand(
-    'git',
-    ['diff', '--name-only'],
-    { cwd },
-  );
+  const result: RunResult = await runCommand('git', ['diff', '--name-only'], { cwd });
   if (!result.ok) return [];
   return result.stdout
     .split('\n')
@@ -50,11 +38,7 @@ export async function getUnstagedFiles(cwd?: string): Promise<string[]> {
 }
 
 export async function getUntrackedFiles(cwd?: string): Promise<string[]> {
-  const result: RunResult = await runCommand(
-    'git',
-    ['ls-files', '--others', '--exclude-standard'],
-    { cwd },
-  );
+  const result: RunResult = await runCommand('git', ['ls-files', '--others', '--exclude-standard'], { cwd });
   if (!result.ok) return [];
   return result.stdout
     .split('\n')
@@ -75,21 +59,13 @@ export async function getGitStatusSummary(cwd?: string): Promise<GitStatusSummar
 }
 
 export async function getDiff(baseRef: string, cwd?: string): Promise<string> {
-  const result: RunResult = await runCommand(
-    'git',
-    ['diff', baseRef, 'HEAD'],
-    { cwd },
-  );
+  const result: RunResult = await runCommand('git', ['diff', baseRef, 'HEAD'], { cwd });
   return result.ok ? result.stdout : '';
 }
 
 export async function getDefaultBaseRef(cwd?: string): Promise<string> {
   for (const candidate of ['origin/main', 'origin/master', 'main', 'master']) {
-    const result: RunResult = await runCommand(
-      'git',
-      ['rev-parse', '--verify', candidate],
-      { cwd },
-    );
+    const result: RunResult = await runCommand('git', ['rev-parse', '--verify', candidate], { cwd });
     if (result.ok) return candidate;
   }
   return 'HEAD~1';

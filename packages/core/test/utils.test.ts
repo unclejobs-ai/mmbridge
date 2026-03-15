@@ -1,13 +1,13 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import test from 'node:test';
 import {
-  projectSlug,
   classifyFile,
-  isPotentialSecretFile,
   isBinaryExtension,
+  isPotentialSecretFile,
   limitBytes,
   nowIso,
+  projectSlug,
 } from '../dist/utils.js';
 
 // projectSlug
@@ -221,7 +221,7 @@ test('nowIso: returns a valid ISO string', () => {
   assert.equal(typeof iso, 'string');
   // Should parse without throwing
   const date = new Date(iso);
-  assert.ok(!isNaN(date.getTime()));
+  assert.ok(!Number.isNaN(date.getTime()));
 });
 
 test('nowIso: returns current time approximately', () => {

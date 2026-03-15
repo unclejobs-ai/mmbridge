@@ -9,8 +9,16 @@ const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: stri
   { pattern: /ghs_[A-Za-z0-9]{36}/g, replacement: '[REDACTED_GH_TOKEN]', label: 'GitHub app token' },
   { pattern: /polar_at_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_POLAR_TOKEN]', label: 'Polar access token' },
   { pattern: /whsk_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_WEBHOOK_SECRET]', label: 'Webhook secret' },
-  { pattern: /(?:password|passwd|pwd)\s*[:=]\s*["']?([^\s"']{8,})["']?/gi, replacement: '[REDACTED_PASSWORD]', label: 'Password value' },
-  { pattern: /(?:secret|token|key)\s*[:=]\s*["']([A-Za-z0-9_\-./+]{16,})["']/gi, replacement: '[REDACTED_SECRET]', label: 'Generic secret/token' },
+  {
+    pattern: /(?:password|passwd|pwd)\s*[:=]\s*["']?([^\s"']{8,})["']?/gi,
+    replacement: '[REDACTED_PASSWORD]',
+    label: 'Password value',
+  },
+  {
+    pattern: /(?:secret|token|key)\s*[:=]\s*["']([A-Za-z0-9_\-./+]{16,})["']/gi,
+    replacement: '[REDACTED_SECRET]',
+    label: 'Generic secret/token',
+  },
   { pattern: /Bearer\s+[A-Za-z0-9_\-.~+/]{20,}/g, replacement: 'Bearer [REDACTED_TOKEN]', label: 'Bearer token' },
 ];
 

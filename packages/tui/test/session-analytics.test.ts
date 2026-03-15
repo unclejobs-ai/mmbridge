@@ -1,13 +1,13 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { Session } from '@mmbridge/session-store';
 import {
-  computeSessionStats,
   buildAncestryChain,
+  computeSessionStats,
   groupFindingsByFile,
   parseContextIndex,
   parseResultIndex,
 } from '../dist/hooks/session-analytics.js';
-import type { Session } from '@mmbridge/session-store';
 
 function makeSession(overrides: Partial<Session> & { id: string; tool: string }): Session {
   return {
@@ -38,8 +38,8 @@ test('computeSessionStats: counts today sessions', () => {
   ];
   const stats = computeSessionStats(sessions);
   assert.equal(stats.dailyCounts[0], 2); // today
-  assert.equal(stats.toolDistribution['kimi'], 1);
-  assert.equal(stats.toolDistribution['qwen'], 1);
+  assert.equal(stats.toolDistribution.kimi, 1);
+  assert.equal(stats.toolDistribution.qwen, 1);
 });
 
 test('computeSessionStats: aggregates severity', () => {
@@ -66,13 +66,11 @@ test('computeSessionStats: aggregates severity', () => {
 test('computeSessionStats: sessions older than 7 days excluded from daily counts', () => {
   const oldDate = new Date();
   oldDate.setDate(oldDate.getDate() - 10);
-  const sessions = [
-    makeSession({ id: '1', tool: 'kimi', createdAt: oldDate.toISOString() }),
-  ];
+  const sessions = [makeSession({ id: '1', tool: 'kimi', createdAt: oldDate.toISOString() })];
   const stats = computeSessionStats(sessions);
   assert.ok(stats.dailyCounts.every((c) => c === 0));
   // But tool distribution still counts
-  assert.equal(stats.toolDistribution['kimi'], 1);
+  assert.equal(stats.toolDistribution.kimi, 1);
 });
 
 // ─── buildAncestryChain ──────────────────────────────────────────────────────
@@ -95,9 +93,7 @@ test('buildAncestryChain: follows externalSessionId links', () => {
 });
 
 test('buildAncestryChain: follows link to missing ancestor and includes it', () => {
-  const sessions = [
-    makeSession({ id: 'b', tool: 'kimi', externalSessionId: 'missing' }),
-  ];
+  const sessions = [makeSession({ id: 'b', tool: 'kimi', externalSessionId: 'missing' })];
   const chain = buildAncestryChain(sessions, 'b');
   // b → externalSessionId:'missing' → not found → stop
   // chain is [b, missing] reversed = ['missing', 'b']
@@ -159,9 +155,9 @@ test('parseContextIndex: valid context index', () => {
   };
   const parsed = parseContextIndex(raw);
   assert.notEqual(parsed, null);
-  assert.equal(parsed!.changedFiles, 5);
-  assert.equal(parsed!.head?.sha, 'abc123');
-  assert.equal(parsed!.redaction?.usedRuleCount, 1);
+  assert.equal(parsed?.changedFiles, 5);
+  assert.equal(parsed?.head?.sha, 'abc123');
+  assert.equal(parsed?.redaction?.usedRuleCount, 1);
 });
 
 // ─── parseResultIndex ────────────────────────────────────────────────────────
@@ -189,7 +185,7 @@ test('parseResultIndex: valid result index', () => {
   };
   const parsed = parseResultIndex(raw);
   assert.notEqual(parsed, null);
-  assert.equal(parsed!.findingsTotal, 5);
-  assert.equal(parsed!.severityCounts.CRITICAL, 1);
-  assert.equal(parsed!.followupSupported, true);
+  assert.equal(parsed?.findingsTotal, 5);
+  assert.equal(parsed?.severityCounts.CRITICAL, 1);
+  assert.equal(parsed?.followupSupported, true);
 });

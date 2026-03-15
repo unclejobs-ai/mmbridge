@@ -1,5 +1,5 @@
-import React from 'react';
 import { Box, useStdout } from 'ink';
+import type React from 'react';
 
 interface FullWidthRowProps {
   leftRatio?: number;

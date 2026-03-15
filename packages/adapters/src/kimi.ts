@@ -1,7 +1,7 @@
-import path from 'node:path';
 import fs from 'node:fs/promises';
-import { ensureBinary, invoke, assertSafeSessionId, assertCliSuccess } from './utils.js';
+import path from 'node:path';
 import type { AdapterDefinition, AdapterResult } from './types.js';
+import { assertCliSuccess, assertSafeSessionId, ensureBinary, invoke } from './utils.js';
 
 export async function runKimiReview({
   workspace,

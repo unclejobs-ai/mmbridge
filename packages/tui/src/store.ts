@@ -1,5 +1,5 @@
-import React from 'react';
 import type { Session } from '@mmbridge/session-store';
+import React from 'react';
 import type { GroupedFindings } from './hooks/session-analytics.js';
 
 // ─── State shape ──────────────────────────────────────────────────────────────
@@ -254,7 +254,9 @@ type TuiContextValue = [TuiState, React.Dispatch<TuiAction>];
 
 export const TuiContext = React.createContext<TuiContextValue>([
   initialState,
-  () => { /* noop */ },
+  () => {
+    /* noop */
+  },
 ]);
 
 export function useTui(): TuiContextValue {

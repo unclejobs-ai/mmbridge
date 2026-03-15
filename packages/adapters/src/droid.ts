@@ -1,7 +1,7 @@
-import path from 'node:path';
 import fs from 'node:fs/promises';
-import { ensureBinary, invoke, parseExternalSessionId, assertCliSuccess } from './utils.js';
+import path from 'node:path';
 import type { AdapterDefinition, AdapterResult } from './types.js';
+import { assertCliSuccess, ensureBinary, invoke, parseExternalSessionId } from './utils.js';
 
 export async function runDroidReview({
   workspace,
@@ -56,6 +56,7 @@ export async function runDroidFollowup({
 export const droidAdapter: AdapterDefinition = {
   name: 'droid',
   binary: 'droid',
-  review: (options) => runDroidReview({ workspace: options.workspace, onStdout: options.onStdout, onStderr: options.onStderr }),
+  review: (options) =>
+    runDroidReview({ workspace: options.workspace, onStdout: options.onStdout, onStderr: options.onStderr }),
   followup: (options) => runDroidFollowup(options),
 };

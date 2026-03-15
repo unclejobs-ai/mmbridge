@@ -1,24 +1,24 @@
-import React, { useCallback, useMemo } from 'react';
-import { Box, Text, useInput, useStdout } from 'ink';
 import type { Session } from '@mmbridge/session-store';
-import { colors, toolColor, CHARS } from '../theme.js';
+import { Box, Text, useInput, useStdout } from 'ink';
+import React, { useCallback, useMemo } from 'react';
 import { FindingsPreview } from '../components/FindingsPreview.js';
-import { PromptInput } from '../components/PromptInput.js';
-import { Sparkline } from '../components/Sparkline.js';
-import { SeverityBar } from '../components/SeverityBar.js';
-import { KVRow } from '../components/KVRow.js';
 import { HRuleFull } from '../components/HRuleFull.js';
-import { useTui } from '../store.js';
-import { sessionToFindings } from '../hooks/use-data.js';
+import { KVRow } from '../components/KVRow.js';
+import { PromptInput } from '../components/PromptInput.js';
+import { SeverityBar } from '../components/SeverityBar.js';
+import { Sparkline } from '../components/Sparkline.js';
 import {
   buildAncestryChain,
   computeSessionStats,
   parseContextIndex,
   parseResultIndex,
 } from '../hooks/session-analytics.js';
-import { formatRelativeTime, formatCompactDate, countBySeverity } from '../utils/format.js';
+import { sessionToFindings } from '../hooks/use-data.js';
 import { useExportReport } from '../hooks/use-export.js';
 import { useFollowup } from '../hooks/use-followup.js';
+import { useTui } from '../store.js';
+import { CHARS, colors, toolColor } from '../theme.js';
+import { countBySeverity, formatCompactDate, formatRelativeTime } from '../utils/format.js';
 
 // ─── SessionRow ───────────────────────────────────────────────────────────────
 
@@ -29,8 +29,8 @@ interface SessionRowProps {
 }
 
 function sessionRowPrefix(isSelected: boolean, isFollowup: boolean): { text: string; color: string } {
-  if (isSelected) return { text: CHARS.selected + ' ', color: colors.green };
-  if (isFollowup) return { text: CHARS.followup + ' ', color: colors.accent };
+  if (isSelected) return { text: `${CHARS.selected} `, color: colors.green };
+  if (isFollowup) return { text: `${CHARS.followup} `, color: colors.accent };
   return { text: '  ', color: colors.overlay0 };
 }
 
@@ -41,15 +41,11 @@ function SessionRow({ session, isSelected, isFollowup }: SessionRowProps): React
   return (
     <Box flexDirection="row">
       <Text color={prefix.color}>{prefix.text}</Text>
-      <Text color={isSelected ? colors.text : colors.overlay1}>
-        {formatCompactDate(session.createdAt)}
-      </Text>
-      <Text>{' '}</Text>
+      <Text color={isSelected ? colors.text : colors.overlay1}>{formatCompactDate(session.createdAt)}</Text>
+      <Text> </Text>
       <Text color={toolColor(session.tool)}>{session.tool.padEnd(7)}</Text>
       <Text color={isSelected ? colors.subtext0 : colors.overlay0}>{session.mode.padEnd(10)}</Text>
-      <Text color={findingCount > 0 ? colors.yellow : colors.textDim}>
-        {String(findingCount)}
-      </Text>
+      <Text color={findingCount > 0 ? colors.yellow : colors.textDim}>{String(findingCount)}</Text>
     </Box>
   );
 }
@@ -85,7 +81,9 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
       {/* Header: ID + tool / mode */}
       <Box flexDirection="row" gap={1}>
         <Text color={colors.textDim}>#{shortId}</Text>
-        <Text color={toolColor(session.tool)} bold>{session.tool}</Text>
+        <Text color={toolColor(session.tool)} bold>
+          {session.tool}
+        </Text>
         <Text color={colors.textDim}>/</Text>
         <Text color={colors.subtext1}>{session.mode}</Text>
       </Box>
@@ -100,9 +98,7 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
           </>
         )}
         <Text color={colors.textDim}>{' │ '}</Text>
-        <Text color={findings.length > 0 ? colors.yellow : colors.textDim}>
-          {findings.length} finds
-        </Text>
+        <Text color={findings.length > 0 ? colors.yellow : colors.textDim}>{findings.length} finds</Text>
       </Box>
 
       {/* Severity bar */}
@@ -111,7 +107,9 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
       {/* Category breakdown */}
       {categories != null && categories.length > 0 && (
         <Box flexDirection="column">
-          <Text color={colors.textDim} bold>Files</Text>
+          <Text color={colors.textDim} bold>
+            Files
+          </Text>
           <Box flexDirection="row" flexWrap="wrap" gap={1}>
             {categories.slice(0, 4).map(([cat, count]) => (
               <Text key={cat} color={colors.subtext0}>
@@ -125,7 +123,9 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
       {/* Top files */}
       {topFiles != null && topFiles.length > 0 && (
         <Box flexDirection="column">
-          <Text color={colors.textDim} bold>Top</Text>
+          <Text color={colors.textDim} bold>
+            Top
+          </Text>
           <Box flexDirection="row" flexWrap="wrap" gap={1}>
             {topFiles.map((f) => (
               <Text key={f.file} color={colors.overlay2}>
@@ -139,7 +139,9 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
       {/* Ancestry chain */}
       {ancestryChain.length > 1 && (
         <Box flexDirection="row" flexWrap="wrap" gap={0}>
-          <Text color={colors.textDim} bold>Chain </Text>
+          <Text color={colors.textDim} bold>
+            Chain{' '}
+          </Text>
           {ancestryChain.map((id, idx) => {
             const isCurrent = id === session.id;
             const label = id.slice(0, 6);
@@ -147,7 +149,8 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
               <React.Fragment key={id}>
                 {idx > 0 && <Text color={colors.textDim}>{' → '}</Text>}
                 <Text color={isCurrent ? colors.accent : colors.overlay1} bold={isCurrent}>
-                  #{label}{isCurrent ? ' (cur)' : ''}
+                  #{label}
+                  {isCurrent ? ' (cur)' : ''}
                 </Text>
               </React.Fragment>
             );
@@ -156,9 +159,7 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
       )}
 
       {/* Base ref */}
-      {session.baseRef != null && (
-        <KVRow label="Base" value={session.baseRef} labelWidth={6} />
-      )}
+      {session.baseRef != null && <KVRow label="Base" value={session.baseRef} labelWidth={6} />}
 
       {/* Status */}
       <KVRow
@@ -187,21 +188,24 @@ export function SessionsView(): React.ReactElement {
 
   // Activity sparkline: computed from sessions
   const stats = useMemo(() => computeSessionStats(sessions), [sessions]);
-  const sparkData = useMemo(
-    () => [...stats.dailyCounts].reverse(),
-    [stats],
-  );
+  const sparkData = useMemo(() => [...stats.dailyCounts].reverse(), [stats]);
 
   const doExport = useExportReport(dispatch);
   const { submit: submitFollowup, cancel: cancelFollowup } = useFollowup(dispatch);
 
-  const handleSessionExport = useCallback((session: Session) => {
-    doExport({
-      localSessionId: session.id,
-      summary: session.summary ?? '',
-      findings: sessionToFindings(session),
-    }, session.id.slice(0, 8));
-  }, [doExport]);
+  const handleSessionExport = useCallback(
+    (session: Session) => {
+      doExport(
+        {
+          localSessionId: session.id,
+          summary: session.summary ?? '',
+          findings: sessionToFindings(session),
+        },
+        session.id.slice(0, 8),
+      );
+    },
+    [doExport],
+  );
 
   useInput((input, key) => {
     if (sessions.length === 0) return;
@@ -258,7 +262,9 @@ export function SessionsView(): React.ReactElement {
       <Box flexDirection="row" width="100%">
         {/* Left: Sessions list */}
         <Box flexDirection="column" width={listWidth} paddingX={1}>
-          <Text color={colors.overlay1} bold>SESSIONS</Text>
+          <Text color={colors.overlay1} bold>
+            SESSIONS
+          </Text>
           <Box flexDirection="row" gap={1} marginTop={0} marginBottom={1}>
             <Sparkline data={sparkData} color={colors.accent} width={7} />
             <Text color={colors.textDim}>{sessions.length} total</Text>
@@ -267,14 +273,7 @@ export function SessionsView(): React.ReactElement {
           <Box flexDirection="column">
             {visibleSessions.map((s, i) => {
               const isFollowup = s.externalSessionId != null || s.parentSessionId != null;
-              return (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  isSelected={i === clampedIndex}
-                  isFollowup={isFollowup}
-                />
-              );
+              return <SessionRow key={s.id} session={s} isSelected={i === clampedIndex} isFollowup={isFollowup} />;
             })}
           </Box>
 
@@ -289,7 +288,9 @@ export function SessionsView(): React.ReactElement {
 
         {/* Center: Detail panel */}
         <Box flexDirection="column" width={detailWidth} paddingX={1}>
-          <Text color={colors.overlay1} bold>DETAIL</Text>
+          <Text color={colors.overlay1} bold>
+            DETAIL
+          </Text>
           {selected != null ? (
             <Box marginTop={1}>
               <DetailPanel session={selected} allSessions={sessions} />

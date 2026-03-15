@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
+import type React from 'react';
+import { useState } from 'react';
 import { colors } from '../theme.js';
 
 interface PromptInputProps {
@@ -26,13 +27,10 @@ export function PromptInput({ label, onSubmit, onCancel }: PromptInputProps): Re
 
   return (
     <Box flexDirection="row" gap={1} paddingX={1}>
-      <Text color={colors.accent} bold>{label}:</Text>
-      <TextInput
-        value={value}
-        onChange={setValue}
-        onSubmit={handleSubmit}
-        placeholder="Type your prompt..."
-      />
+      <Text color={colors.accent} bold>
+        {label}:
+      </Text>
+      <TextInput value={value} onChange={setValue} onSubmit={handleSubmit} placeholder="Type your prompt..." />
       <Text color={colors.textDim}>(ESC cancel)</Text>
     </Box>
   );

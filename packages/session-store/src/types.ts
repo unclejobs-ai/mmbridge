@@ -1,4 +1,4 @@
-import type { Finding, ContextIndex, ResultIndex } from '@mmbridge/core';
+import type { ContextIndex, Finding, ResultIndex } from '@mmbridge/core';
 
 export interface Session {
   id: string;

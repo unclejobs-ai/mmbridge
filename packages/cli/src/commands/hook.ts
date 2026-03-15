@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import os from 'node:os';
-import { jsonOutput, importIntegrations } from './helpers.js';
+import path from 'node:path';
+import { importIntegrations, jsonOutput } from './helpers.js';
 
 export interface HookCommandOptions {
   global?: boolean;
@@ -30,9 +30,7 @@ export async function runHookInstallCommand(options: HookCommandOptions): Promis
   const mmHooks = generateHookConfig();
 
   for (const [event, hookDefs] of Object.entries(mmHooks)) {
-    const existingHooks = Array.isArray(hooks[event])
-      ? (hooks[event] as Array<Record<string, unknown>>)
-      : [];
+    const existingHooks = Array.isArray(hooks[event]) ? (hooks[event] as Array<Record<string, unknown>>) : [];
     const filtered = existingHooks.filter((h) => {
       if (!Array.isArray(h.hooks)) return true;
       return !(h.hooks as Array<Record<string, unknown>>).some(
@@ -71,9 +69,7 @@ export async function runHookUninstallCommand(options: HookCommandOptions): Prom
   const hooks = (existing.hooks ?? {}) as Record<string, unknown>;
 
   for (const event of Object.keys(hooks)) {
-    const eventHooks = Array.isArray(hooks[event])
-      ? (hooks[event] as Array<Record<string, unknown>>)
-      : [];
+    const eventHooks = Array.isArray(hooks[event]) ? (hooks[event] as Array<Record<string, unknown>>) : [];
     hooks[event] = eventHooks.filter((h) => {
       if (!Array.isArray(h.hooks)) return true;
       return !(h.hooks as Array<Record<string, unknown>>).some(
@@ -91,4 +87,3 @@ export async function runHookUninstallCommand(options: HookCommandOptions): Prom
     process.stderr.write(`[mmbridge] Hooks removed from ${settingsPath}\n`);
   }
 }
-

@@ -1,9 +1,9 @@
-import path from 'node:path';
-import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { parseCodexAgentMessages } from '@mmbridge/core';
-import { ensureBinary, invoke, parseExternalSessionId, isPathContained, assertCliSuccess } from './utils.js';
 import type { AdapterDefinition, AdapterResult } from './types.js';
+import { assertCliSuccess, ensureBinary, invoke, isPathContained, parseExternalSessionId } from './utils.js';
 
 export async function runCodexReview({
   workspace,
@@ -42,18 +42,7 @@ export function buildCodexExecArgs({
   workspace: string;
   outputPath: string;
 }): string[] {
-  return [
-    'exec',
-    '--json',
-    '--skip-git-repo-check',
-    '--sandbox',
-    'read-only',
-    '-C',
-    workspace,
-    '-o',
-    outputPath,
-    '-',
-  ];
+  return ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', workspace, '-o', outputPath, '-'];
 }
 
 export async function runCodexFollowup({

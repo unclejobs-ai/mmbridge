@@ -1,5 +1,5 @@
 import type { Finding, LiveState } from '@mmbridge/core';
-import { writeLiveState, clearLiveState } from '@mmbridge/core';
+import { clearLiveState, writeLiveState } from '@mmbridge/core';
 
 // ─── Catppuccin Mocha ANSI palette ──────────────────────────────────────────
 
@@ -47,9 +47,7 @@ export class StreamRenderer {
   }
 
   start(): void {
-    process.stdout.write(
-      `${C.GREEN}${C.BOLD}● mmbridge${C.RESET} ${C.DIM}${this.tool} / ${this.mode}${C.RESET}\n`,
-    );
+    process.stdout.write(`${C.GREEN}${C.BOLD}● mmbridge${C.RESET} ${C.DIM}${this.tool} / ${this.mode}${C.RESET}\n`);
     this.scheduleLiveStateWrite();
   }
 
@@ -91,9 +89,7 @@ export class StreamRenderer {
       const color = SEVERITY_COLOR[f.severity] ?? C.RESET;
       const icon = SEVERITY_ICON[f.severity] ?? '●';
       const loc = f.line != null ? `:${f.line}` : '';
-      process.stdout.write(
-        `  ${color}${icon} [${f.severity}]${C.RESET} ${C.DIM}${f.file}${loc}${C.RESET}\n`,
-      );
+      process.stdout.write(`  ${color}${icon} [${f.severity}]${C.RESET} ${C.DIM}${f.file}${loc}${C.RESET}\n`);
       process.stdout.write(`    ${f.message}\n`);
     }
   }
@@ -126,9 +122,7 @@ export class StreamRenderer {
     const countStr = parts.length > 0 ? parts.join(' ') : `${C.DIM}0${C.RESET}`;
     const total = findings.length;
 
-    process.stdout.write(
-      `\n${countStr} ${C.DIM}│ ${total} finding${total !== 1 ? 's' : ''} │ ${elapsed}${C.RESET}\n`,
-    );
+    process.stdout.write(`\n${countStr} ${C.DIM}│ ${total} finding${total !== 1 ? 's' : ''} │ ${elapsed}${C.RESET}\n`);
   }
 
   cleanup(): void {

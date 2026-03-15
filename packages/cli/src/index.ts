@@ -1,14 +1,22 @@
 import { Command } from 'commander';
 
-import type { ReviewCommandOptions } from './commands/review.js';
-import type { FollowupCommandOptions } from './commands/followup.js';
-import type { DoctorOptions } from './commands/doctor.js';
-import type { SyncAgentsOptions } from './commands/sync-agents.js';
-import type { InitCommandOptions } from './commands/init.js';
 import type { DiffCommandOptions } from './commands/diff.js';
+import type { DoctorOptions } from './commands/doctor.js';
+import type { FollowupCommandOptions } from './commands/followup.js';
 import type { HookCommandOptions } from './commands/hook.js';
+import type { InitCommandOptions } from './commands/init.js';
+import type { ReviewCommandOptions } from './commands/review.js';
+import type { SyncAgentsOptions } from './commands/sync-agents.js';
 
-export type { ReviewCommandOptions, FollowupCommandOptions, DoctorOptions, SyncAgentsOptions, InitCommandOptions, DiffCommandOptions, HookCommandOptions };
+export type {
+  ReviewCommandOptions,
+  FollowupCommandOptions,
+  DoctorOptions,
+  SyncAgentsOptions,
+  InitCommandOptions,
+  DiffCommandOptions,
+  HookCommandOptions,
+};
 
 export async function main(): Promise<void> {
   const program = new Command();
@@ -50,24 +58,26 @@ export async function main(): Promise<void> {
     .option('--latest', 'Use the latest stored session for this tool')
     .option('-p, --project <dir>', 'Project directory (default: cwd)')
     .option('--json', 'Output JSON instead of TUI')
-    .action(async (opts: {
-      tool: string;
-      prompt: string;
-      session?: string;
-      latest?: boolean;
-      project?: string;
-      json?: boolean;
-    }) => {
-      const { runFollowupCommand } = await import('./commands/followup.js');
-      await runFollowupCommand({
-        tool: opts.tool,
-        prompt: opts.prompt,
-        json: opts.json,
-        explicitSessionId: opts.session,
-        projectDir: opts.project,
-        useLatestWhenMissing: opts.latest,
-      });
-    });
+    .action(
+      async (opts: {
+        tool: string;
+        prompt: string;
+        session?: string;
+        latest?: boolean;
+        project?: string;
+        json?: boolean;
+      }) => {
+        const { runFollowupCommand } = await import('./commands/followup.js');
+        await runFollowupCommand({
+          tool: opts.tool,
+          prompt: opts.prompt,
+          json: opts.json,
+          explicitSessionId: opts.session,
+          projectDir: opts.project,
+          useLatestWhenMissing: opts.latest,
+        });
+      },
+    );
 
   // ── doctor ──
   program

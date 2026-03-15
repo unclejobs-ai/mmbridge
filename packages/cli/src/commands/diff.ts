@@ -1,5 +1,5 @@
-import { resolveProjectDir, exitWithError, importCore, importSessionStore } from './helpers.js';
 import type { Finding, Severity } from '@mmbridge/core';
+import { exitWithError, importCore, importSessionStore, resolveProjectDir } from './helpers.js';
 
 export interface DiffCommandOptions {
   tool?: string;
@@ -23,10 +23,14 @@ const ANSI = {
 
 function severityColor(severity: Severity): string {
   switch (severity) {
-    case 'CRITICAL': return ANSI.red;
-    case 'WARNING': return ANSI.yellow;
-    case 'INFO': return ANSI.cyan;
-    case 'REFACTOR': return ANSI.dim;
+    case 'CRITICAL':
+      return ANSI.red;
+    case 'WARNING':
+      return ANSI.yellow;
+    case 'INFO':
+      return ANSI.cyan;
+    case 'REFACTOR':
+      return ANSI.dim;
   }
 }
 
@@ -69,7 +73,7 @@ function parseDiffHunks(diffText: string): DiffHunk[] {
     // Hunk header: @@ -old,count +new,start @@
     const hunkMatch = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)/.exec(rawLine);
     if (hunkMatch) {
-      currentNewLine = parseInt(hunkMatch[1], 10);
+      currentNewLine = Number.parseInt(hunkMatch[1], 10);
       currentHunk = {
         file: currentFile,
         header: rawLine,
@@ -111,7 +115,7 @@ function buildFindingIndex(findings: Finding[]): Map<string, Map<number | null, 
     const lineMap = index.get(fileKey)!;
     const lineKey = f.line ?? null;
     if (!lineMap.has(lineKey)) lineMap.set(lineKey, []);
-    lineMap.get(lineKey)!.push(f);
+    lineMap.get(lineKey)?.push(f);
   }
 
   return index;
@@ -121,11 +125,7 @@ function buildFindingIndex(findings: Finding[]): Map<string, Map<number | null, 
  * Find findings relevant to a given file+line.
  * Matches exact line, null-line (file-level), or findings on adjacent lines (±2).
  */
-function findingsForLine(
-  index: Map<string, Map<number | null, Finding[]>>,
-  file: string,
-  lineNum: number,
-): Finding[] {
+function findingsForLine(index: Map<string, Map<number | null, Finding[]>>, file: string, lineNum: number): Finding[] {
   const lineMap = index.get(file);
   if (!lineMap) return [];
 
@@ -257,25 +257,16 @@ function renderSummary(findings: Finding[]): string {
 export async function runDiffCommand(options: DiffCommandOptions): Promise<void> {
   const projectDir = resolveProjectDir(options.project);
 
-  const { findings, baseRef: sessionBaseRef } = await loadSessionFindings(
-    projectDir,
-    options.session,
-    options.tool,
-  );
+  const { findings, baseRef: sessionBaseRef } = await loadSessionFindings(projectDir, options.session, options.tool);
 
   const { getDiff, getDefaultBaseRef } = await importCore();
 
-  const resolvedBaseRef =
-    options.baseRef ??
-    sessionBaseRef ??
-    (await getDefaultBaseRef(projectDir));
+  const resolvedBaseRef = options.baseRef ?? sessionBaseRef ?? (await getDefaultBaseRef(projectDir));
 
   const diffText = await getDiff(resolvedBaseRef, projectDir);
 
   if (!diffText.trim()) {
-    process.stdout.write(
-      `${ANSI.dim}No diff found against ${resolvedBaseRef}${ANSI.reset}\n`,
-    );
+    process.stdout.write(`${ANSI.dim}No diff found against ${resolvedBaseRef}${ANSI.reset}\n`);
     return;
   }
 
@@ -289,7 +280,7 @@ export async function runDiffCommand(options: DiffCommandOptions): Promise<void>
   const fileHunks = new Map<string, DiffHunk[]>();
   for (const hunk of hunks) {
     if (!fileHunks.has(hunk.file)) fileHunks.set(hunk.file, []);
-    fileHunks.get(hunk.file)!.push(hunk);
+    fileHunks.get(hunk.file)?.push(hunk);
   }
 
   const output: string[] = [];
@@ -337,5 +328,5 @@ export async function runDiffCommand(options: DiffCommandOptions): Promise<void>
 
   output.push(renderSummary(findings));
 
-  process.stdout.write(output.join('\n') + '\n');
+  process.stdout.write(`${output.join('\n')}\n`);
 }

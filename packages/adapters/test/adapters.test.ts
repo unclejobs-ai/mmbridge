@@ -1,8 +1,8 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
+import { buildCodexExecArgs, buildCodexResumeArgs, requireCodexWorkspace } from '../dist/codex.js';
 import { normalizeUuid } from '../dist/qwen.js';
 import { parseExternalSessionId } from '../dist/utils.js';
-import { buildCodexExecArgs, buildCodexResumeArgs, requireCodexWorkspace } from '../dist/codex.js';
 
 test('normalizeUuid returns a valid UUID unchanged', () => {
   const uuid = '550e8400-e29b-41d4-a716-446655440000';
@@ -11,26 +11,17 @@ test('normalizeUuid returns a valid UUID unchanged', () => {
 
 test('normalizeUuid generates a new UUID for invalid input', () => {
   const result = normalizeUuid('not-a-uuid');
-  assert.match(
-    result,
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-  );
+  assert.match(result, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 });
 
 test('normalizeUuid generates a new UUID for empty string', () => {
   const result = normalizeUuid('');
-  assert.match(
-    result,
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-  );
+  assert.match(result, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 });
 
 test('normalizeUuid generates a new UUID for null', () => {
   const result = normalizeUuid(null);
-  assert.match(
-    result,
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-  );
+  assert.match(result, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 });
 
 test('parseExternalSessionId returns fallback when output is empty', () => {
@@ -93,10 +84,9 @@ test('buildCodexResumeArgs returns expected codex resume argument list', () => {
 });
 
 test('requireCodexWorkspace throws when workspace directory does not exist', async () => {
-  await assert.rejects(
-    requireCodexWorkspace('/nonexistent/path/xyz'),
-    { message: /Codex follow-up workspace is no longer available/ },
-  );
+  await assert.rejects(requireCodexWorkspace('/nonexistent/path/xyz'), {
+    message: /Codex follow-up workspace is no longer available/,
+  });
 });
 
 test('requireCodexWorkspace returns workspace path when directory exists', async () => {

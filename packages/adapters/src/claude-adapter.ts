@@ -1,7 +1,7 @@
-import path from 'node:path';
 import fs from 'node:fs/promises';
-import { ensureBinary, invoke, parseExternalSessionId, assertCliSuccess } from './utils.js';
+import path from 'node:path';
 import type { AdapterDefinition, AdapterResult } from './types.js';
+import { assertCliSuccess, ensureBinary, invoke, parseExternalSessionId } from './utils.js';
 
 export async function runClaudeReview({
   workspace,
@@ -14,16 +14,7 @@ export async function runClaudeReview({
 }): Promise<AdapterResult> {
   await ensureBinary('claude');
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'claude.md'), 'utf8');
-  const args = [
-    '-p',
-    prompt,
-    '--allowedTools',
-    'Read,Grep,Glob',
-    '--output-format',
-    'json',
-    '--model',
-    'sonnet',
-  ];
+  const args = ['-p', prompt, '--allowedTools', 'Read,Grep,Glob', '--output-format', 'json', '--model', 'sonnet'];
   const result = await invoke('claude', args, { cwd: workspace, timeoutMs: 300_000, onStdout, onStderr });
   assertCliSuccess('claude', result);
   const { text, sessionId: externalSessionId } = parseClaudeOutput(result.combined);

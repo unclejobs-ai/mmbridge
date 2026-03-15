@@ -1,25 +1,26 @@
-import React, { useMemo, useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
-import { colors, CHARS, toolColor } from '../theme.js';
+import type React from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { EventLog } from '../components/EventLog.js';
 import { FullWidthRow } from '../components/FullWidthRow.js';
 import { HRuleFull } from '../components/HRuleFull.js';
-import { Sparkline } from '../components/Sparkline.js';
-import { SeverityBar } from '../components/SeverityBar.js';
 import { KVRow } from '../components/KVRow.js';
-import { EventLog } from '../components/EventLog.js';
 import { LiveMonitor } from '../components/LiveMonitor.js';
-import { useTui } from '../store.js';
-import { useLiveState } from '../hooks/use-live-state.js';
+import { SeverityBar } from '../components/SeverityBar.js';
+import { Sparkline } from '../components/Sparkline.js';
 import { computeSessionStats } from '../hooks/session-analytics.js';
-import { formatRelativeTime } from '../utils/format.js';
+import { useLiveState } from '../hooks/use-live-state.js';
+import { useTui } from '../store.js';
 import type { AdapterStatus } from '../store.js';
+import { CHARS, colors, toolColor } from '../theme.js';
+import { formatRelativeTime } from '../utils/format.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function shortenPath(p: string): string {
-  const home = process.env['HOME'] ?? '';
-  if (home && p.startsWith(home)) return '~' + p.slice(home.length);
+  const home = process.env.HOME ?? '';
+  if (home && p.startsWith(home)) return `~${p.slice(home.length)}`;
   return p;
 }
 
@@ -34,7 +35,7 @@ function avgPerDay(counts: number[]): string {
 }
 
 function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
 // ─── Adapter row ──────────────────────────────────────────────────────────────
@@ -52,7 +53,9 @@ function AdapterRow({ adapter, toolDailyCounts }: AdapterRowProps): React.ReactE
   return (
     <Box flexDirection="row" gap={0}>
       <Text color={iconColor}>{icon} </Text>
-      <Text color={toolColor(adapter.name)} bold>{adapter.name.padEnd(7)}</Text>
+      <Text color={toolColor(adapter.name)} bold>
+        {adapter.name.padEnd(7)}
+      </Text>
       <Text color={colors.textDim}>{String(adapter.sessionCount).padStart(3)}</Text>
       <Text color={colors.textDim}> </Text>
       {adapter.installed && hasActivity ? (
@@ -81,22 +84,16 @@ function AdaptersSection({ adapters, toolDistribution, sessionDailyCounts }: Ada
 
   return (
     <Box flexDirection="column" paddingX={1} gap={0}>
-      <Text color={colors.overlay1} bold>ADAPTERS</Text>
+      <Text color={colors.overlay1} bold>
+        ADAPTERS
+      </Text>
       {adapters.map((adapter) => {
         const toolShare = toolDistribution[adapter.name] ?? 0;
         const ratio = totalToolSessions > 0 ? toolShare / totalToolSessions : 0;
         const toolDailyCounts = sessionDailyCounts.map((c) => Math.round(c * ratio));
-        return (
-          <AdapterRow
-            key={adapter.name}
-            adapter={adapter}
-            toolDailyCounts={reversedCounts(toolDailyCounts)}
-          />
-        );
+        return <AdapterRow key={adapter.name} adapter={adapter} toolDailyCounts={reversedCounts(toolDailyCounts)} />;
       })}
-      {adapters.length === 0 && (
-        <Text color={colors.textDim}>No adapters configured</Text>
-      )}
+      {adapters.length === 0 && <Text color={colors.textDim}>No adapters configured</Text>}
     </Box>
   );
 }
@@ -108,7 +105,9 @@ interface ProjectSectionProps {
 function ProjectSection({ projectInfo }: ProjectSectionProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1} gap={0}>
-      <Text color={colors.overlay1} bold>PROJECT</Text>
+      <Text color={colors.overlay1} bold>
+        PROJECT
+      </Text>
       {projectInfo ? (
         <>
           <KVRow label="path" value={shortenPath(projectInfo.path)} labelWidth={8} />
@@ -121,7 +120,12 @@ function ProjectSection({ projectInfo }: ProjectSectionProps): React.ReactElemen
           />
           <KVRow label="base" value={projectInfo.baseRef} labelWidth={8} />
           {projectInfo.lastCommitMessage && (
-            <KVRow label="commit" value={truncate(projectInfo.lastCommitMessage, 40)} labelWidth={8} valueColor={colors.overlay1} />
+            <KVRow
+              label="commit"
+              value={truncate(projectInfo.lastCommitMessage, 40)}
+              labelWidth={8}
+              valueColor={colors.overlay1}
+            />
           )}
         </>
       ) : (
@@ -144,10 +148,14 @@ function ActivitySection({ dailyCounts, aggregateSeverity, totalSessions }: Acti
 
   return (
     <Box flexDirection="column" paddingX={1} gap={0}>
-      <Text color={colors.overlay1} bold>ACTIVITY 7d</Text>
+      <Text color={colors.overlay1} bold>
+        ACTIVITY 7d
+      </Text>
       <Box flexDirection="row" gap={2}>
         <Sparkline data={reversed} color={colors.accent} width={7} />
-        <Text color={colors.textMuted}>avg {avg}/d · {weekTotal} total</Text>
+        <Text color={colors.textMuted}>
+          avg {avg}/d · {weekTotal} total
+        </Text>
       </Box>
       {weekTotal > 0 ? (
         <SeverityBar counts={aggregateSeverity} />
@@ -166,11 +174,15 @@ interface LastReviewSectionProps {
 function LastReviewSection({ lastReview }: LastReviewSectionProps): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1} gap={0}>
-      <Text color={colors.overlay1} bold>LAST REVIEW</Text>
+      <Text color={colors.overlay1} bold>
+        LAST REVIEW
+      </Text>
       {lastReview ? (
         <>
           <Box flexDirection="row" gap={1}>
-            <Text color={toolColor(lastReview.tool)} bold>{lastReview.tool}</Text>
+            <Text color={toolColor(lastReview.tool)} bold>
+              {lastReview.tool}
+            </Text>
             <Text color={colors.textDim}>/</Text>
             <Text color={colors.textMuted}>{lastReview.mode}</Text>
             <Text color={colors.textDim}>/</Text>
@@ -205,7 +217,9 @@ export function DashboardView(): React.ReactElement {
   if (adaptersLoading) {
     return (
       <Box paddingX={2} paddingY={1}>
-        <Text color={colors.green}><Spinner type="dots" /></Text>
+        <Text color={colors.green}>
+          <Spinner type="dots" />
+        </Text>
         <Text color={colors.textMuted}> Loading adapter status...</Text>
       </Box>
     );
@@ -249,7 +263,9 @@ export function DashboardView(): React.ReactElement {
 
       {/* Events */}
       <Box flexDirection="column" paddingX={1}>
-        <Text color={colors.overlay1} bold>EVENTS</Text>
+        <Text color={colors.overlay1} bold>
+          EVENTS
+        </Text>
         <EventLog liveState={liveState} />
       </Box>
     </Box>

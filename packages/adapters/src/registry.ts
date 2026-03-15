@@ -1,5 +1,5 @@
-import type { AdapterDefinition } from './types.js';
 import type { MmbridgeConfig } from '@mmbridge/core';
+import type { AdapterDefinition } from './types.js';
 
 export class AdapterRegistry {
   private readonly adapters = new Map<string, AdapterDefinition>();

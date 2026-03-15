@@ -1,15 +1,7 @@
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import {
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import {
-  getHead,
-  getDefaultBaseRef,
-  getGitStatusSummary,
-  getChangedFiles,
-} from '@mmbridge/core';
+import { getChangedFiles, getDefaultBaseRef, getGitStatusSummary, getHead } from '@mmbridge/core';
 import { SessionStore } from '@mmbridge/session-store';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { GetPromptRequestSchema, ListPromptsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const store = new SessionStore();
 
@@ -32,9 +24,7 @@ export function registerPromptHandlers(server: Server): void {
     const parts: string[] = ['## Project Context for Code Review\n'];
 
     try {
-      const [head, baseRef, gitStatus] = await Promise.all([
-        getHead(), getDefaultBaseRef(), getGitStatusSummary(),
-      ]);
+      const [head, baseRef, gitStatus] = await Promise.all([getHead(), getDefaultBaseRef(), getGitStatusSummary()]);
       const changedFiles = await getChangedFiles(baseRef);
 
       parts.push(`**Branch:** ${head.branch} (${head.sha.slice(0, 7)})`);

@@ -1,13 +1,13 @@
+import { StreamRenderer } from '../render/stream-renderer.js';
 import {
-  resolveProjectDir,
-  jsonOutput,
   exitWithError,
-  importCore,
   importAdapters,
+  importCore,
   importSessionStore,
   importTui,
+  jsonOutput,
+  resolveProjectDir,
 } from './helpers.js';
-import { StreamRenderer } from '../render/stream-renderer.js';
 
 export interface ReviewCommandOptions {
   tool?: string;
@@ -40,9 +40,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
     }
     const isInstalled = await commandExists(adapter.binary);
     if (!isInstalled) {
-      exitWithError(
-        `Binary "${adapter.binary}" not found in PATH. Install it to use the "${tool}" adapter.`,
-      );
+      exitWithError(`Binary "${adapter.binary}" not found in PATH. Install it to use the "${tool}" adapter.`);
     }
   }
 
@@ -72,8 +70,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
       });
 
       const elapsedMs = Date.now();
-      const elapsed =
-        elapsedMs < 1000 ? `${elapsedMs}ms` : `${(elapsedMs / 1000).toFixed(1)}s`;
+      const elapsed = elapsedMs < 1000 ? `${elapsedMs}ms` : `${(elapsedMs / 1000).toFixed(1)}s`;
 
       renderer.printFindings(result.findings);
       renderer.printSummary(result.findings, elapsed);

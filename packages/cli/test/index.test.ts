@@ -26,10 +26,7 @@ describe('@mmbridge/cli', () => {
       threw = true;
       const code = (err as NodeJS.ErrnoException).code;
       // Only acceptable error is a process.exit call
-      assert.ok(
-        code === undefined || typeof code === 'string',
-        'unexpected error type',
-      );
+      assert.ok(code === undefined || typeof code === 'string', 'unexpected error type');
     } finally {
       process.argv = originalArgv;
     }

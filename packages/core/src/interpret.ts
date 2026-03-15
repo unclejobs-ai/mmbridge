@@ -1,5 +1,5 @@
 import type { Finding, InterpretResult } from './types.js';
-import { commandExists, runCommand, parseCodexAgentMessages } from './utils.js';
+import { commandExists, parseCodexAgentMessages, runCommand } from './utils.js';
 
 export async function interpretFindings(options: {
   mergedFindings: Finding[];
@@ -28,7 +28,10 @@ export async function interpretFindings(options: {
     findingsList,
     '',
     '## Changed Files',
-    options.changedFiles.slice(0, 20).map((f) => `- ${f}`).join('\n'),
+    options.changedFiles
+      .slice(0, 20)
+      .map((f) => `- ${f}`)
+      .join('\n'),
     '',
     '## Output Format (JSON)',
     '```json',
@@ -52,16 +55,7 @@ export async function interpretFindings(options: {
 
     const result = await runCommand(
       'codex',
-      [
-        'exec',
-        '--json',
-        '--skip-git-repo-check',
-        '--sandbox',
-        'read-only',
-        '-C',
-        options.workspace,
-        '-',
-      ],
+      ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', options.workspace, '-'],
       {
         cwd: options.workspace,
         input: prompt,
@@ -100,16 +94,12 @@ function parseInterpretResponse(raw: string, findings: Finding[]): InterpretResu
     const fpEntries = Array.isArray(parsed.falsePositives)
       ? (parsed.falsePositives as Array<{ index: number; reason: string }>)
       : [];
-    const promotedRaw = Array.isArray(parsed.promoted)
-      ? (parsed.promoted as Array<Record<string, unknown>>)
-      : [];
+    const promotedRaw = Array.isArray(parsed.promoted) ? (parsed.promoted as Array<Record<string, unknown>>) : [];
     const actionPlan = typeof parsed.actionPlan === 'string' ? parsed.actionPlan : '';
 
     const fpIndices = new Set(fpEntries.map((e) => e.index));
 
-    const validated = findings.filter(
-      (_, i) => validatedIndices.includes(i) && !fpIndices.has(i),
-    );
+    const validated = findings.filter((_, i) => validatedIndices.includes(i) && !fpIndices.has(i));
     const falsePositives = fpEntries
       .filter((e) => e.index >= 0 && e.index < findings.length)
       .map((e) => ({ finding: findings[e.index]!, reason: e.reason }));

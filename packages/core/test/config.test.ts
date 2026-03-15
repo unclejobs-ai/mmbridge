@@ -1,14 +1,9 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
-import {
-  DEFAULT_CLASSIFIERS,
-  classifyFileWithRules,
-  resolveClassifiers,
-  loadConfig,
-} from '../dist/config.js';
+import path from 'node:path';
+import test from 'node:test';
+import { DEFAULT_CLASSIFIERS, classifyFileWithRules, loadConfig, resolveClassifiers } from '../dist/config.js';
 import type { FileClassifierRule, MmbridgeConfig } from '../dist/types.js';
 
 // DEFAULT_CLASSIFIERS
@@ -47,9 +42,7 @@ test('classifyFileWithRules: matches by prefix', () => {
 });
 
 test('classifyFileWithRules: returns Other for no match', () => {
-  const rules: FileClassifierRule[] = [
-    { pattern: 'src/api/', category: 'API' },
-  ];
+  const rules: FileClassifierRule[] = [{ pattern: 'src/api/', category: 'API' }];
   assert.equal(classifyFileWithRules('src/something/else.ts', rules), 'Other');
 });
 
@@ -66,9 +59,7 @@ test('classifyFileWithRules: empty rules returns Other', () => {
 });
 
 test('classifyFileWithRules: exact prefix match required', () => {
-  const rules: FileClassifierRule[] = [
-    { pattern: 'lib/', category: 'Library' },
-  ];
+  const rules: FileClassifierRule[] = [{ pattern: 'lib/', category: 'Library' }];
   // Does not start with 'lib/'
   assert.equal(classifyFileWithRules('packages/lib/foo.ts', rules), 'Other');
   // Starts with 'lib/'
@@ -123,11 +114,7 @@ test('loadConfig: reads .mmbridge.config.json', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
   try {
     const configData: MmbridgeConfig = { extendDefaultClassifiers: false };
-    await fs.writeFile(
-      path.join(tmpDir, '.mmbridge.config.json'),
-      JSON.stringify(configData),
-      'utf8',
-    );
+    await fs.writeFile(path.join(tmpDir, '.mmbridge.config.json'), JSON.stringify(configData), 'utf8');
     const config = await loadConfig(tmpDir);
     assert.equal(config.extendDefaultClassifiers, false);
   } finally {
@@ -139,11 +126,7 @@ test('loadConfig: reads mmbridge.config.json (without dot prefix)', async () => 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
   try {
     const configData: MmbridgeConfig = { extendDefaultClassifiers: true };
-    await fs.writeFile(
-      path.join(tmpDir, 'mmbridge.config.json'),
-      JSON.stringify(configData),
-      'utf8',
-    );
+    await fs.writeFile(path.join(tmpDir, 'mmbridge.config.json'), JSON.stringify(configData), 'utf8');
     const config = await loadConfig(tmpDir);
     assert.equal(config.extendDefaultClassifiers, true);
   } finally {
@@ -154,11 +137,7 @@ test('loadConfig: reads mmbridge.config.json (without dot prefix)', async () => 
 test('loadConfig: throws on invalid JSON', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
   try {
-    await fs.writeFile(
-      path.join(tmpDir, '.mmbridge.config.json'),
-      '{ invalid json }',
-      'utf8',
-    );
+    await fs.writeFile(path.join(tmpDir, '.mmbridge.config.json'), '{ invalid json }', 'utf8');
     await assert.rejects(
       () => loadConfig(tmpDir),
       (err: unknown) => err instanceof SyntaxError,
@@ -176,10 +155,7 @@ test('loadConfig: throws on invalid config shape (classifiers not array)', async
       JSON.stringify({ classifiers: 'not-an-array' }),
       'utf8',
     );
-    await assert.rejects(
-      () => loadConfig(tmpDir),
-      /Invalid mmbridge config/,
-    );
+    await assert.rejects(() => loadConfig(tmpDir), /Invalid mmbridge config/);
   } finally {
     await fs.rm(tmpDir, { recursive: true });
   }

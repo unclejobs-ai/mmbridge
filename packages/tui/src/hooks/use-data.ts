@@ -1,8 +1,8 @@
-import { useEffect, useCallback } from 'react';
-import { commandExists, getHead, getDefaultBaseRef, getGitStatusSummary, runCommand } from '@mmbridge/core';
 import { defaultRegistry } from '@mmbridge/adapters';
+import { commandExists, getDefaultBaseRef, getGitStatusSummary, getHead, runCommand } from '@mmbridge/core';
 import { SessionStore } from '@mmbridge/session-store';
-import type { TuiAction, AdapterStatus, ProjectInfo, LastReview, FindingItem } from '../store.js';
+import { useCallback, useEffect } from 'react';
+import type { AdapterStatus, FindingItem, LastReview, ProjectInfo, TuiAction } from '../store.js';
 import { countBySeverity } from '../utils/format.js';
 
 export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () => void } {
@@ -28,7 +28,9 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
         getHead(),
         getDefaultBaseRef(),
         getGitStatusSummary(),
-        runCommand('git', ['log', '-1', '--format=%s']).then((r) => r.ok ? r.stdout.trim() : null).catch(() => null),
+        runCommand('git', ['log', '-1', '--format=%s'])
+          .then((r) => (r.ok ? r.stdout.trim() : null))
+          .catch(() => null),
       ]).catch(() => null),
     ]);
 
@@ -96,7 +98,9 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
   return { refresh: load };
 }
 
-export function sessionToFindings(session: { findings?: Array<{ severity: string; file: string; line: number | null; message: string }> }): FindingItem[] {
+export function sessionToFindings(session: {
+  findings?: Array<{ severity: string; file: string; line: number | null; message: string }>;
+}): FindingItem[] {
   return (session.findings ?? []).map((f) => ({
     severity: f.severity,
     file: f.file,

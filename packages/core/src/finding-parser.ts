@@ -37,7 +37,7 @@ function extractFileRef(text: string): { file: string; line: number | null } | n
   if (/^\d+\.\d+/.test(candidate)) return null;
   if (candidate.startsWith('http')) return null;
 
-  const line = match[2] !== undefined ? parseInt(match[2], 10) : null;
+  const line = match[2] !== undefined ? Number.parseInt(match[2], 10) : null;
   return { file: candidate, line };
 }
 
@@ -58,7 +58,10 @@ function parseTaggedLine(line: string, raw: string): Finding | null {
   const fileRef = extractFileRef(beforeTag) ?? extractFileRef(afterTag);
 
   // Build the message from the content after the tag, stripping leading separators
-  const message = afterTag.replace(/^[-–—:]\s*/, '').replace(/\*\*/g, '').trim();
+  const message = afterTag
+    .replace(/^[-–—:]\s*/, '')
+    .replace(/\*\*/g, '')
+    .trim();
 
   if (!message) return null;
 
@@ -120,13 +123,17 @@ export function parseFindings(rawText: string): Finding[] {
     //    Only use when we're inside a severity section from a heading
     if (currentSection.severity !== null) {
       const fileRef = extractFileRef(stripped);
-      if (fileRef && fileRef.file) {
+      if (fileRef?.file) {
         // Extract message: text after the file reference
         const afterFile = stripped.slice(
-          stripped.indexOf(fileRef.file) + fileRef.file.length +
-          (fileRef.line !== null ? String(fileRef.line).length + 1 : 0),
+          stripped.indexOf(fileRef.file) +
+            fileRef.file.length +
+            (fileRef.line !== null ? String(fileRef.line).length + 1 : 0),
         );
-        const message = afterFile.replace(/^[-–—:]\s*/, '').replace(/\*\*/g, '').trim();
+        const message = afterFile
+          .replace(/^[-–—:]\s*/, '')
+          .replace(/\*\*/g, '')
+          .trim();
         if (message) {
           findings.push({
             severity: currentSection.severity,
@@ -144,7 +151,10 @@ export function parseFindings(rawText: string): Finding[] {
       // Only if it's not a heading and looks like a finding description
       const looksLikeFinding = stripped.length > 10 && !stripped.startsWith('#') && !stripped.startsWith('```');
       if (looksLikeFinding && !stripped.startsWith('|') && !stripped.startsWith('---')) {
-        const message = stripped.replace(/\*\*/g, '').replace(/^[-–—:]\s*/, '').trim();
+        const message = stripped
+          .replace(/\*\*/g, '')
+          .replace(/^[-–—:]\s*/, '')
+          .trim();
         if (message) {
           findings.push({
             severity: currentSection.severity,
@@ -163,10 +173,16 @@ export function parseFindings(rawText: string): Finding[] {
   if (findings.length === 0 && rawText.trim().length > 0) {
     const nonEmptyLines = lines
       .map((l) => l.trim())
-      .filter((l) => l.length > 10 && !l.startsWith('#') && !l.startsWith('```') && !l.startsWith('|') && !l.startsWith('---'));
+      .filter(
+        (l) =>
+          l.length > 10 && !l.startsWith('#') && !l.startsWith('```') && !l.startsWith('|') && !l.startsWith('---'),
+      );
 
     for (const l of nonEmptyLines) {
-      const message = l.replace(/\*\*/g, '').replace(/^[-–—:*+]\s*/, '').trim();
+      const message = l
+        .replace(/\*\*/g, '')
+        .replace(/^[-–—:*+]\s*/, '')
+        .trim();
       if (message) {
         findings.push({
           severity: 'INFO',

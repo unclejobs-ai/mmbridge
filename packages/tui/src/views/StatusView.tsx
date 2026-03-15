@@ -1,21 +1,22 @@
-import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
-import { colors, CHARS, toolColor } from '../theme.js';
-import { Panel } from '../components/Panel.js';
-import { Sparkline } from '../components/Sparkline.js';
-import { SeverityBar } from '../components/SeverityBar.js';
+import type React from 'react';
+import { useMemo } from 'react';
 import { KVRow } from '../components/KVRow.js';
-import { useTui } from '../store.js';
+import { Panel } from '../components/Panel.js';
+import { SeverityBar } from '../components/SeverityBar.js';
+import { Sparkline } from '../components/Sparkline.js';
 import { computeSessionStats } from '../hooks/session-analytics.js';
-import { formatRelativeTime } from '../utils/format.js';
+import { useTui } from '../store.js';
 import type { AdapterStatus } from '../store.js';
+import { CHARS, colors, toolColor } from '../theme.js';
+import { formatRelativeTime } from '../utils/format.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function shortenPath(p: string): string {
-  const home = process.env['HOME'] ?? '';
-  if (home && p.startsWith(home)) return '~' + p.slice(home.length);
+  const home = process.env.HOME ?? '';
+  if (home && p.startsWith(home)) return `~${p.slice(home.length)}`;
   return p;
 }
 
@@ -30,7 +31,7 @@ function avgPerDay(counts: number[]): string {
 }
 
 function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
 // ─── Compact adapter row ─────────────────────────────────────────────────────
@@ -48,7 +49,9 @@ function AdapterRow({ adapter, toolDailyCounts }: AdapterRowProps): React.ReactE
   return (
     <Box flexDirection="row" gap={0}>
       <Text color={iconColor}>{icon} </Text>
-      <Text color={toolColor(adapter.name)} bold>{adapter.name.padEnd(7)}</Text>
+      <Text color={toolColor(adapter.name)} bold>
+        {adapter.name.padEnd(7)}
+      </Text>
       <Text color={colors.textDim}>{String(adapter.sessionCount).padStart(3)}</Text>
       <Text color={colors.textDim}> </Text>
       {adapter.installed && hasActivity ? (
@@ -73,7 +76,12 @@ interface AdaptersPanelProps {
   totalSessions: number;
 }
 
-function AdaptersPanel({ adapters, toolDistribution, sessionDailyCounts, totalSessions }: AdaptersPanelProps): React.ReactElement {
+function AdaptersPanel({
+  adapters,
+  toolDistribution,
+  sessionDailyCounts,
+  totalSessions,
+}: AdaptersPanelProps): React.ReactElement {
   const totalToolSessions = Object.values(toolDistribution).reduce((a, b) => a + b, 0);
   const installedCount = adapters.filter((a) => a.installed).length;
 
@@ -85,17 +93,9 @@ function AdaptersPanel({ adapters, toolDistribution, sessionDailyCounts, totalSe
           const ratio = totalToolSessions > 0 ? toolShare / totalToolSessions : 0;
           const toolDailyCounts = sessionDailyCounts.map((c) => Math.round(c * ratio));
 
-          return (
-            <AdapterRow
-              key={adapter.name}
-              adapter={adapter}
-              toolDailyCounts={reversedCounts(toolDailyCounts)}
-            />
-          );
+          return <AdapterRow key={adapter.name} adapter={adapter} toolDailyCounts={reversedCounts(toolDailyCounts)} />;
         })}
-        {adapters.length === 0 && (
-          <Text color={colors.textDim}>No adapters configured</Text>
-        )}
+        {adapters.length === 0 && <Text color={colors.textDim}>No adapters configured</Text>}
       </Box>
     </Panel>
   );
@@ -148,7 +148,9 @@ function ActivityPanel({ dailyCounts, aggregateSeverity, totalSessions }: Activi
         <Box flexDirection="row" gap={2}>
           <Sparkline data={reversed} color={colors.accent} width={7} />
           <Text color={colors.textMuted}>avg {avg}/day</Text>
-          <Text color={colors.textDim}>({weekTotal}w / {totalSessions} total)</Text>
+          <Text color={colors.textDim}>
+            ({weekTotal}w / {totalSessions} total)
+          </Text>
         </Box>
         {weekTotal > 0 ? (
           <SeverityBar counts={aggregateSeverity} />
@@ -171,7 +173,9 @@ function LastReviewPanel({ lastReview }: LastReviewPanelProps): React.ReactEleme
         {lastReview ? (
           <>
             <Box flexDirection="row" gap={1}>
-              <Text color={toolColor(lastReview.tool)} bold>{lastReview.tool}</Text>
+              <Text color={toolColor(lastReview.tool)} bold>
+                {lastReview.tool}
+              </Text>
               <Text color={colors.textDim}>/</Text>
               <Text color={colors.textMuted}>{lastReview.mode}</Text>
               <Text color={colors.textDim}>/</Text>
@@ -181,9 +185,7 @@ function LastReviewPanel({ lastReview }: LastReviewPanelProps): React.ReactEleme
               <SeverityBar counts={lastReview.findingCounts} />
             </Box>
             <Box marginTop={1}>
-              <Text color={colors.textDim}>
-                {truncate(lastReview.summary, 60)}
-              </Text>
+              <Text color={colors.textDim}>{truncate(lastReview.summary, 60)}</Text>
             </Box>
           </>
         ) : (
@@ -205,7 +207,9 @@ export function StatusView(): React.ReactElement {
   if (adaptersLoading) {
     return (
       <Box paddingX={2} paddingY={1}>
-        <Text color={colors.green}><Spinner type="dots" /></Text>
+        <Text color={colors.green}>
+          <Spinner type="dots" />
+        </Text>
         <Text color={colors.textMuted}> Loading adapter status...</Text>
       </Box>
     );

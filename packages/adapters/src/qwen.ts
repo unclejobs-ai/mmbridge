@@ -1,8 +1,8 @@
-import path from 'node:path';
-import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { ensureBinary, invoke, assertSafeSessionId, assertCliSuccess } from './utils.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { AdapterDefinition, AdapterResult } from './types.js';
+import { assertCliSuccess, assertSafeSessionId, ensureBinary, invoke } from './utils.js';
 
 export async function runQwenReview({
   workspace,
@@ -59,8 +59,7 @@ export async function runQwenFollowup({
 
 export function normalizeUuid(sessionId: string | undefined | null): string {
   const value = String(sessionId ?? '').trim();
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   if (uuidRegex.test(value)) return value;
   return randomUUID();
 }

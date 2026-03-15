@@ -85,10 +85,10 @@ async function main(): Promise<void> {
   ]);
 
   console.log(`Created ${dir}/`);
-  console.log(`  src/index.ts      - adapter implementation`);
-  console.log(`  test/adapter.test.ts - basic test`);
-  console.log(`  package.json      - npm package config`);
-  console.log(`  tsconfig.json     - TypeScript config`);
+  console.log('  src/index.ts      - adapter implementation');
+  console.log('  test/adapter.test.ts - basic test');
+  console.log('  package.json      - npm package config');
+  console.log('  tsconfig.json     - TypeScript config');
   console.log('');
   console.log(`Next: cd ${dir} && npm install && npm run build`);
 }

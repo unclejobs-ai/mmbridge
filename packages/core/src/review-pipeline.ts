@@ -1,15 +1,10 @@
-import type {
-  Finding,
-  ResultIndex,
-  InterpretResult,
-  ContextWorkspace,
-} from './types.js';
-import { createContext, cleanupContext } from './context.js';
+import { runBridge } from './bridge.js';
+import { cleanupContext, createContext } from './context.js';
 import { parseFindings } from './finding-parser.js';
+import { orchestrateReview } from './orchestrate.js';
 import { enrichFindings } from './report.js';
 import { buildContextIndex, buildResultIndex } from './session-index.js';
-import { orchestrateReview } from './orchestrate.js';
-import { runBridge } from './bridge.js';
+import type { ContextWorkspace, Finding, InterpretResult, ResultIndex } from './types.js';
 
 // ─── Public interfaces ──────────────────────────────────────────────────────
 
@@ -25,16 +20,19 @@ export interface ReviewPipelineOptions {
   /** Called with raw stdout chunks from adapter processes */
   onStdout?: (tool: string, chunk: string) => void;
   /** Adapter runner — injected to avoid circular dependency on @mmbridge/adapters */
-  runAdapter: (tool: string, options: {
-    workspace: string;
-    cwd: string;
-    mode: string;
-    baseRef?: string;
-    changedFiles: string[];
-    sessionId?: string;
-    onStdout?: (chunk: string) => void;
-    onStderr?: (chunk: string) => void;
-  }) => Promise<{
+  runAdapter: (
+    tool: string,
+    options: {
+      workspace: string;
+      cwd: string;
+      mode: string;
+      baseRef?: string;
+      changedFiles: string[];
+      sessionId?: string;
+      onStdout?: (chunk: string) => void;
+      onStderr?: (chunk: string) => void;
+    },
+  ) => Promise<{
     text: string;
     externalSessionId: string | null;
     followupSupported: boolean;
@@ -171,9 +169,7 @@ async function runBridgePipeline(
 ): Promise<ReviewPipelineResult> {
   const { mode, projectDir, onProgress, onStdout, runAdapter, listInstalledTools, saveSession } = options;
 
-  const installedTools = listInstalledTools
-    ? await listInstalledTools()
-    : [];
+  const installedTools = listInstalledTools ? await listInstalledTools() : [];
 
   if (installedTools.length === 0) {
     throw new Error('No review tools installed. Run `mmbridge doctor` to check.');

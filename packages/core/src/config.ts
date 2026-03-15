@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { MmbridgeConfig, FileClassifierRule } from './types.js';
+import type { FileClassifierRule, MmbridgeConfig } from './types.js';
 
 const CONFIG_FILENAMES = ['.mmbridge.config.json', 'mmbridge.config.json'];
 

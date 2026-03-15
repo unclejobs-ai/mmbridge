@@ -1,9 +1,11 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
 import { buildContextIndex, buildResultIndex } from '../dist/session-index.js';
-import type { Finding, BuildContextIndexInput, BuildResultIndexInput } from '../dist/types.js';
+import type { BuildContextIndexInput, BuildResultIndexInput, Finding } from '../dist/types.js';
 
-const f = (overrides: Partial<Finding> & { severity: Finding['severity']; file: string; message: string }): Finding => ({
+const f = (
+  overrides: Partial<Finding> & { severity: Finding['severity']; file: string; message: string },
+): Finding => ({
   line: null,
   ...overrides,
 });
@@ -50,17 +52,12 @@ test('buildContextIndex: handles empty input', () => {
 
 test('buildContextIndex: classifies changed files into categories', () => {
   const input: BuildContextIndexInput = {
-    changedFiles: [
-      'src/api/route.ts',
-      'src/api/other.ts',
-      'src/components/Button.tsx',
-      'lib/helper.ts',
-    ],
+    changedFiles: ['src/api/route.ts', 'src/api/other.ts', 'src/components/Button.tsx', 'lib/helper.ts'],
   };
   const result = buildContextIndex(input);
-  assert.equal(result.categoryCounts['API'], 2);
-  assert.equal(result.categoryCounts['Component'], 1);
-  assert.equal(result.categoryCounts['Library'], 1);
+  assert.equal(result.categoryCounts.API, 2);
+  assert.equal(result.categoryCounts.Component, 1);
+  assert.equal(result.categoryCounts.Library, 1);
 });
 
 test('buildContextIndex: changedSample contains at most 5 files', () => {
@@ -78,7 +75,7 @@ test('buildContextIndex: projectSlug derived from projectDir', () => {
   };
   const result = buildContextIndex(input);
   assert.ok(typeof result.projectSlug === 'string');
-  assert.ok(result.projectSlug!.includes('my-project'));
+  assert.ok(result.projectSlug?.includes('my-project'));
 });
 
 test('buildContextIndex: undefined changedFiles defaults to empty', () => {
@@ -163,7 +160,7 @@ test('buildResultIndex: outputDigest is null when no rawOutput', () => {
 test('buildResultIndex: outputDigest is a 12-char hex string when rawOutput provided', () => {
   const result = buildResultIndex({ rawOutput: 'some content' });
   assert.ok(result.outputDigest !== null);
-  assert.equal(result.outputDigest!.length, 12);
+  assert.equal(result.outputDigest?.length, 12);
   assert.ok(/^[0-9a-f]{12}$/.test(result.outputDigest!));
 });
 

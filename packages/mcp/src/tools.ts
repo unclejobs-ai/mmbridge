@@ -1,15 +1,9 @@
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import {
-  runReviewPipeline,
-  interpretFindings,
-} from '@mmbridge/core';
+import { defaultRegistry, runFollowupAdapter, runReviewAdapter } from '@mmbridge/adapters';
+import { interpretFindings, runReviewPipeline } from '@mmbridge/core';
 import type { Finding } from '@mmbridge/core';
-import { runReviewAdapter, runFollowupAdapter, defaultRegistry } from '@mmbridge/adapters';
 import { SessionStore } from '@mmbridge/session-store';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const store = new SessionStore();
 
@@ -97,7 +91,11 @@ const TOOL_DEFINITIONS = [
         tool: { type: 'string', description: 'Filter by tool name' },
         limit: { type: 'number', default: 10, description: 'Max sessions to return' },
         query: { type: 'string', description: 'Text search in summaries and findings' },
-        severity: { type: 'string', enum: ['CRITICAL', 'WARNING', 'INFO', 'REFACTOR'], description: 'Filter by severity' },
+        severity: {
+          type: 'string',
+          enum: ['CRITICAL', 'WARNING', 'INFO', 'REFACTOR'],
+          description: 'Filter by severity',
+        },
       },
     },
   },
@@ -109,7 +107,11 @@ const TOOL_DEFINITIONS = [
       properties: {
         query: { type: 'string', description: 'Text to search in findings and summaries' },
         file: { type: 'string', description: 'Filter findings by file path (substring match)' },
-        severity: { type: 'string', enum: ['CRITICAL', 'WARNING', 'INFO', 'REFACTOR'], description: 'Filter by exact severity level' },
+        severity: {
+          type: 'string',
+          enum: ['CRITICAL', 'WARNING', 'INFO', 'REFACTOR'],
+          description: 'Filter by exact severity level',
+        },
         tool: { type: 'string', description: 'Filter by tool name' },
         limit: { type: 'number', default: 20, description: 'Max results to return' },
       },
@@ -152,10 +154,10 @@ export function registerToolHandlers(server: Server): void {
 }
 
 async function handleReview(args: Record<string, unknown>, server: Server) {
-  const tool = String(args['tool'] ?? 'kimi');
-  const mode = String(args['mode'] ?? 'review');
-  const bridge = String(args['bridge'] ?? 'none') as 'none' | 'standard' | 'interpreted';
-  const baseRef = args['baseRef'] as string | undefined;
+  const tool = String(args.tool ?? 'kimi');
+  const mode = String(args.mode ?? 'review');
+  const bridge = String(args.bridge ?? 'none') as 'none' | 'standard' | 'interpreted';
+  const baseRef = args.baseRef as string | undefined;
   const projectDir = process.cwd();
 
   try {
@@ -180,9 +182,9 @@ async function handleReview(args: Record<string, unknown>, server: Server) {
 }
 
 async function handleFollowup(args: Record<string, unknown>) {
-  const tool = String(args['tool']);
-  const sessionId = String(args['sessionId']);
-  const prompt = String(args['prompt']);
+  const tool = String(args.tool);
+  const sessionId = String(args.sessionId);
+  const prompt = String(args.prompt);
 
   try {
     const result = await runFollowupAdapter(tool, {
@@ -191,30 +193,24 @@ async function handleFollowup(args: Record<string, unknown>) {
       prompt,
     });
 
-    return textContent(JSON.stringify(
-      { tool, sessionId, text: result.text, ok: result.ok },
-      null,
-      2,
-    ));
+    return textContent(JSON.stringify({ tool, sessionId, text: result.text, ok: result.ok }, null, 2));
   } catch (err) {
     return textContent(`Followup failed: ${errorMessage(err)}`, true);
   }
 }
 
 async function handleInterpret(args: Record<string, unknown>) {
-  if (!Array.isArray(args['findings'])) {
+  if (!Array.isArray(args.findings)) {
     return textContent('findings must be an array', true);
   }
-  const rawFindings = args['findings'] as Array<Record<string, unknown>>;
+  const rawFindings = args.findings as Array<Record<string, unknown>>;
   const findings: Finding[] = rawFindings.map((f) => ({
-    severity: String(f['severity'] ?? 'INFO') as Finding['severity'],
-    file: String(f['file'] ?? ''),
-    line: typeof f['line'] === 'number' ? f['line'] : null,
-    message: String(f['message'] ?? ''),
+    severity: String(f.severity ?? 'INFO') as Finding['severity'],
+    file: String(f.file ?? ''),
+    line: typeof f.line === 'number' ? f.line : null,
+    message: String(f.message ?? ''),
   }));
-  const changedFiles = Array.isArray(args['changedFiles'])
-    ? (args['changedFiles'] as string[])
-    : [];
+  const changedFiles = Array.isArray(args.changedFiles) ? (args.changedFiles as string[]) : [];
 
   try {
     const result = await interpretFindings({
@@ -230,10 +226,10 @@ async function handleInterpret(args: Record<string, unknown>) {
 }
 
 async function handleSessions(args: Record<string, unknown>) {
-  const tool = args['tool'] as string | undefined;
-  const limit = typeof args['limit'] === 'number' ? args['limit'] : 10;
-  const query = args['query'] as string | undefined;
-  const severity = args['severity'] as string | undefined;
+  const tool = args.tool as string | undefined;
+  const limit = typeof args.limit === 'number' ? args.limit : 10;
+  const query = args.query as string | undefined;
+  const severity = args.severity as string | undefined;
 
   let sessions = await store.list({ tool });
 
@@ -252,9 +248,7 @@ async function handleSessions(args: Record<string, unknown>) {
   // Severity filter
   if (severity) {
     const sev = severity.toUpperCase();
-    sessions = sessions.filter((s) =>
-      (s.findings ?? []).some((f) => f.severity === sev),
-    );
+    sessions = sessions.filter((s) => (s.findings ?? []).some((f) => f.severity === sev));
   }
 
   const result = sessions.slice(0, limit).map((s) => ({
@@ -272,11 +266,11 @@ async function handleSessions(args: Record<string, unknown>) {
 }
 
 async function handleSearch(args: Record<string, unknown>) {
-  const query = args['query'] as string | undefined;
-  const file = args['file'] as string | undefined;
-  const severity = args['severity'] as string | undefined;
-  const tool = args['tool'] as string | undefined;
-  const limit = typeof args['limit'] === 'number' ? args['limit'] : 20;
+  const query = args.query as string | undefined;
+  const file = args.file as string | undefined;
+  const severity = args.severity as string | undefined;
+  const tool = args.tool as string | undefined;
+  const limit = typeof args.limit === 'number' ? args.limit : 20;
 
   if (!query && !file && !severity && !tool) {
     return textContent('At least one filter (query, file, severity, or tool) is required.', true);

@@ -1,8 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import type { Session, SessionListOptions, ProjectState } from './types.js';
+import type { ProjectState, Session, SessionListOptions } from './types.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,7 +40,9 @@ export class SessionStore {
     await fs.mkdir(this.sessionsDir, { recursive: true });
   }
 
-  async save(session: Partial<Session> & { tool: string; mode: string; projectDir: string; workspace: string }): Promise<Session> {
+  async save(
+    session: Partial<Session> & { tool: string; mode: string; projectDir: string; workspace: string },
+  ): Promise<Session> {
     await this.init();
     const id = session.id ?? randomUUID();
     const payload: Session = {
@@ -102,7 +104,10 @@ export class SessionStore {
 }
 
 function projectKey(projectDir: string): string {
-  return path.resolve(projectDir).replace(/[\\/]/g, '-').replace(/^(?!-)/, '-');
+  return path
+    .resolve(projectDir)
+    .replace(/[\\/]/g, '-')
+    .replace(/^(?!-)/, '-');
 }
 
 export class ProjectStateStore {
@@ -152,4 +157,4 @@ export class ProjectStateStore {
   }
 }
 
-export { type Session, type SessionListOptions, type ProjectState } from './types.js';
+export type { Session, SessionListOptions, ProjectState } from './types.js';

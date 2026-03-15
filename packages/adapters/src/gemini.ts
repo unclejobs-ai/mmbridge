@@ -1,7 +1,14 @@
-import path from 'node:path';
 import fs from 'node:fs/promises';
-import { ensureBinary, invoke, parseExternalSessionId, isPathContained, assertSafeSessionId, assertCliSuccess } from './utils.js';
+import path from 'node:path';
 import type { AdapterDefinition, AdapterResult } from './types.js';
+import {
+  assertCliSuccess,
+  assertSafeSessionId,
+  ensureBinary,
+  invoke,
+  isPathContained,
+  parseExternalSessionId,
+} from './utils.js';
 
 export async function runGeminiReview({
   workspace,
@@ -51,16 +58,7 @@ export async function runGeminiFollowup({
 }): Promise<AdapterResult> {
   assertSafeSessionId(sessionId);
   await ensureBinary('opencode');
-  const args = [
-    'run',
-    '-s',
-    sessionId,
-    '--model',
-    'google/gemini-3.1-pro-preview',
-    '--format',
-    'json',
-    prompt,
-  ];
+  const args = ['run', '-s', sessionId, '--model', 'google/gemini-3.1-pro-preview', '--format', 'json', prompt];
   const result = await invoke('opencode', args, { cwd: workspace, timeoutMs: 300000 });
   assertCliSuccess('opencode', result);
   return {
@@ -82,12 +80,7 @@ function extractTextFromOpencode(raw: string): string {
     if (!trimmed.startsWith('{')) continue;
     try {
       const parsed: unknown = JSON.parse(trimmed);
-      if (
-        parsed !== null &&
-        typeof parsed === 'object' &&
-        'type' in parsed &&
-        'part' in parsed
-      ) {
+      if (parsed !== null && typeof parsed === 'object' && 'type' in parsed && 'part' in parsed) {
         const record = parsed as Record<string, unknown>;
         const part = record.part as Record<string, unknown> | undefined;
         if (record.type === 'text' && typeof part?.text === 'string') {
@@ -114,6 +107,11 @@ export const geminiAdapter: AdapterDefinition = {
   name: 'gemini',
   binary: 'opencode',
   review: (options) =>
-    runGeminiReview({ workspace: options.workspace, changedFiles: options.changedFiles ?? [], onStdout: options.onStdout, onStderr: options.onStderr }),
+    runGeminiReview({
+      workspace: options.workspace,
+      changedFiles: options.changedFiles ?? [],
+      onStdout: options.onStdout,
+      onStderr: options.onStderr,
+    }),
   followup: (options) => runGeminiFollowup(options),
 };

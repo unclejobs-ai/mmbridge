@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { defaultRegistry } from '@mmbridge/adapters';
+import { DEFAULT_CLASSIFIERS, commandExists, loadConfig, resolveClassifiers } from '@mmbridge/core';
+import type { MmbridgeConfig } from '@mmbridge/core';
 import { Box, Text, useInput } from 'ink';
 import Spinner from 'ink-spinner';
-import { commandExists, loadConfig, resolveClassifiers, DEFAULT_CLASSIFIERS } from '@mmbridge/core';
-import type { MmbridgeConfig } from '@mmbridge/core';
-import { defaultRegistry } from '@mmbridge/adapters';
-import { colors, toolColor, ADAPTER_NAMES, CHARS } from '../theme.js';
-import { Panel } from '../components/Panel.js';
+import type React from 'react';
+import { useEffect, useState } from 'react';
 import { KVRow } from '../components/KVRow.js';
+import { Panel } from '../components/Panel.js';
 import { useTui } from '../store.js';
+import { ADAPTER_NAMES, CHARS, colors, toolColor } from '../theme.js';
 
 const SETTINGS_ITEMS = ['classifiers', 'redaction', 'context', 'bridge'] as const;
 type SettingsItem = (typeof SETTINGS_ITEMS)[number];
@@ -38,9 +39,7 @@ export function ConfigView(): React.ReactElement {
   const selectedAdapter = ADAPTER_NAMES[config.selectedSection === 'adapters' ? config.selectedIndex : 0] ?? 'kimi';
 
   const selectedSetting: SettingsItem =
-    config.selectedSection === 'settings'
-      ? (SETTINGS_ITEMS[config.selectedIndex] ?? 'classifiers')
-      : 'classifiers';
+    config.selectedSection === 'settings' ? (SETTINGS_ITEMS[config.selectedIndex] ?? 'classifiers') : 'classifiers';
 
   const handleTest = async (): Promise<void> => {
     if (testing) return;
@@ -61,9 +60,7 @@ export function ConfigView(): React.ReactElement {
     }
   };
 
-  const maxIndex = config.selectedSection === 'adapters'
-    ? ADAPTER_NAMES.length - 1
-    : SETTINGS_ITEMS.length - 1;
+  const maxIndex = config.selectedSection === 'adapters' ? ADAPTER_NAMES.length - 1 : SETTINGS_ITEMS.length - 1;
 
   useInput((input, key) => {
     if (key.upArrow || input === 'k') {
@@ -105,13 +102,11 @@ export function ConfigView(): React.ReactElement {
             const installed = info?.installed ?? false;
             return (
               <Box key={adapter} flexDirection="row" gap={1}>
-                <Text color={isSelected ? colors.accent : colors.textDim}>
-                  {isSelected ? CHARS.selected : ' '}
+                <Text color={isSelected ? colors.accent : colors.textDim}>{isSelected ? CHARS.selected : ' '}</Text>
+                <Text color={toolColor(adapter)} bold={isSelected}>
+                  {adapter.padEnd(8)}
                 </Text>
-                <Text color={toolColor(adapter)} bold={isSelected}>{adapter.padEnd(8)}</Text>
-                <Text color={installed ? colors.green : colors.red}>
-                  {installed ? CHARS.installed : CHARS.missing}
-                </Text>
+                <Text color={installed ? colors.green : colors.red}>{installed ? CHARS.installed : CHARS.missing}</Text>
               </Box>
             );
           })}
@@ -127,15 +122,17 @@ export function ConfigView(): React.ReactElement {
           <Box flexDirection="column" marginTop={1}>
             {SETTINGS_ITEMS.map((s, i) => {
               const isSelected = config.selectedSection === 'settings' && config.selectedIndex === i;
-              const badge = s === 'classifiers' ? `${classifierCount} rules`
-                : s === 'redaction' ? '9 patterns'
-                : s === 'context' ? '128 KB max'
-                : 'standard';
+              const badge =
+                s === 'classifiers'
+                  ? `${classifierCount} rules`
+                  : s === 'redaction'
+                    ? '9 patterns'
+                    : s === 'context'
+                      ? '128 KB max'
+                      : 'standard';
               return (
                 <Box key={s} flexDirection="row" gap={1}>
-                  <Text color={isSelected ? colors.accent : colors.textDim}>
-                    {isSelected ? CHARS.selected : ' '}
-                  </Text>
+                  <Text color={isSelected ? colors.accent : colors.textDim}>{isSelected ? CHARS.selected : ' '}</Text>
                   <Text color={isSelected ? colors.text : colors.overlay1}>{s.padEnd(14)}</Text>
                   <Text color={colors.textDim}>{badge}</Text>
                 </Box>
@@ -146,7 +143,9 @@ export function ConfigView(): React.ReactElement {
       </Box>
 
       {/* Right detail panel */}
-      <Panel title={config.selectedSection === 'adapters' ? selectedAdapter.toUpperCase() : selectedSetting.toUpperCase()}>
+      <Panel
+        title={config.selectedSection === 'adapters' ? selectedAdapter.toUpperCase() : selectedSetting.toUpperCase()}
+      >
         {config.selectedSection === 'adapters' ? (
           <Box flexDirection="column" marginTop={1}>
             <KVRow label="Binary" value={adapterInfo?.binary ?? selectedAdapter} labelWidth={14} />
@@ -161,20 +160,26 @@ export function ConfigView(): React.ReactElement {
               label="Last test"
               value={testResult ?? 'never'}
               valueColor={
-                testResult?.startsWith('OK') ? colors.green
-                  : testResult?.startsWith('FAIL') ? colors.red
-                  : colors.overlay1
+                testResult?.startsWith('OK')
+                  ? colors.green
+                  : testResult?.startsWith('FAIL')
+                    ? colors.red
+                    : colors.overlay1
               }
               labelWidth={14}
             />
             <Box marginTop={2}>
               {testing ? (
                 <Box flexDirection="row" gap={1}>
-                  <Text color={colors.yellow}><Spinner type="dots" /></Text>
+                  <Text color={colors.yellow}>
+                    <Spinner type="dots" />
+                  </Text>
                   <Text color={colors.yellow}>Testing connection...</Text>
                 </Box>
               ) : (
-                <Text bold color={colors.accent}>Enter TEST CONNECTION</Text>
+                <Text bold color={colors.accent}>
+                  Enter TEST CONNECTION
+                </Text>
               )}
             </Box>
           </Box>
