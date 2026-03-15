@@ -18,7 +18,7 @@ import { useExportReport } from '../hooks/use-export.js';
 import { useFollowup } from '../hooks/use-followup.js';
 import { useTui } from '../store.js';
 import { CHARS, colors, toolColor } from '../theme.js';
-import { countBySeverity, formatCompactDate, formatRelativeTime } from '../utils/format.js';
+import { countBySeverity, formatRelativeTime } from '../utils/format.js';
 
 // ─── SessionRow ───────────────────────────────────────────────────────────────
 

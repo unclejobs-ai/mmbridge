@@ -1,4 +1,3 @@
-import { initRegistry } from '@mmbridge/adapters';
 import { render } from 'ink';
 import React from 'react';
 import { App } from './App.js';
@@ -13,8 +12,7 @@ export type {
 
 // ─── TUI entry point ──────────────────────────────────────────────────────────
 
-export async function renderTui(options?: { tab?: TabId; version?: string }): Promise<void> {
-  await initRegistry(process.cwd());
+export function renderTui(options?: { tab?: TabId; version?: string }): void {
   render(<App initialTab={options?.tab} version={options?.version} />);
 }
 

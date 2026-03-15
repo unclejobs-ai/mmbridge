@@ -45,7 +45,6 @@ export async function initRegistry(projectDir = process.cwd()): Promise<AdapterR
 }
 
 export async function runReviewAdapter(tool: string, options: ReviewOptions): Promise<AdapterResult> {
-  await initRegistry(options.cwd ?? options.workspace);
   const adapter = defaultRegistry.get(tool);
   if (!adapter) {
     throw new Error(`Unsupported tool: ${tool}. Available: ${defaultRegistry.list().join(', ')}`);
@@ -54,7 +53,6 @@ export async function runReviewAdapter(tool: string, options: ReviewOptions): Pr
 }
 
 export async function runFollowupAdapter(tool: string, options: FollowupOptions): Promise<AdapterResult> {
-  await initRegistry(options.cwd ?? options.workspace);
   const adapter = defaultRegistry.get(tool);
   if (!adapter) {
     throw new Error(`Unsupported tool: ${tool}. Available: ${defaultRegistry.list().join(', ')}`);
