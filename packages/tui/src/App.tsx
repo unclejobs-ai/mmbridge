@@ -1,6 +1,6 @@
-import { Box, useApp, useInput, useStdin } from 'ink';
+import { Box, useApp, useInput } from 'ink';
 import type React from 'react';
-import { useEffect, useReducer } from 'react';
+import { useReducer } from 'react';
 import { Header } from './components/Header.js';
 import { HelpOverlay } from './components/HelpOverlay.js';
 import { StatusBar } from './components/StatusBar.js';
@@ -23,26 +23,6 @@ export function App({ initialTab, version }: AppProps): React.ReactElement {
   });
   const { exit } = useApp();
   const { refresh } = useLoadData(dispatch);
-  const { stdin, isRawModeSupported, setRawMode } = useStdin();
-
-  // Fallback raw stdin listener for xterm.js terminals where Ink's useInput
-  // may not receive number keys correctly (e.g. Kaku, Warp)
-  useEffect(() => {
-    if (!isRawModeSupported || !stdin) return;
-
-    const handler = (data: Buffer) => {
-      const str = data.toString('utf-8');
-      // Number keys as raw bytes (0x31 = '1', 0x32 = '2', 0x33 = '3')
-      if (str === '1' || str === '\x31') dispatch({ type: 'SWITCH_TAB', tab: 'dashboard' });
-      if (str === '2' || str === '\x32') dispatch({ type: 'SWITCH_TAB', tab: 'sessions' });
-      if (str === '3' || str === '\x33') dispatch({ type: 'SWITCH_TAB', tab: 'config' });
-    };
-
-    stdin.on('data', handler);
-    return () => {
-      stdin.off('data', handler);
-    };
-  }, [stdin, isRawModeSupported]);
 
   useInput((input, key) => {
     if (state.helpVisible) {
@@ -50,10 +30,10 @@ export function App({ initialTab, version }: AppProps): React.ReactElement {
       return;
     }
 
-    // Tab switching: number keys (primary)
-    if (input === '1') dispatch({ type: 'SWITCH_TAB', tab: 'dashboard' });
-    if (input === '2') dispatch({ type: 'SWITCH_TAB', tab: 'sessions' });
-    if (input === '3') dispatch({ type: 'SWITCH_TAB', tab: 'config' });
+    // Tab switching: number keys + letter shortcuts (d/s/c for xterm compat)
+    if (input === '1' || input === 'd') dispatch({ type: 'SWITCH_TAB', tab: 'dashboard' });
+    if (input === '2' || input === 's') dispatch({ type: 'SWITCH_TAB', tab: 'sessions' });
+    if (input === '3' || input === 'c') dispatch({ type: 'SWITCH_TAB', tab: 'config' });
 
     // Tab switching: arrow keys
     if (key.leftArrow) dispatch({ type: 'SWITCH_TAB_DELTA', delta: -1 });
@@ -95,8 +75,8 @@ export function App({ initialTab, version }: AppProps): React.ReactElement {
         <Header activeTab={state.activeTab} branch={branch} dirtyCount={dirtyCount} version={version} />
         <Box flexGrow={1}>
           {state.activeTab === 'dashboard' && <DashboardView />}
-          {state.activeTab === 'sessions' && <SessionsView />}
-          {state.activeTab === 'config' && <ConfigView />}
+          {state.activeTab === 'sessions' && <SessionsView key="sess" />}
+          {state.activeTab === 'config' && <ConfigView key="conf" />}
         </Box>
         <StatusBar toast={state.toast} activeTab={state.activeTab} />
         {state.helpVisible && <HelpOverlay />}
