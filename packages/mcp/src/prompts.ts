@@ -45,8 +45,8 @@ export function registerPromptHandlers(server: Server): void {
 
     try {
       const sessions = await store.list();
-      if (sessions.length > 0) {
-        const last = sessions[0]!;
+      const last = sessions.at(0);
+      if (last !== undefined) {
         parts.push(`\n**Last review:** ${last.tool}/${last.mode} (${last.createdAt})`);
         parts.push(`**Findings:** ${(last.findings ?? []).length}`);
         if (last.summary) {

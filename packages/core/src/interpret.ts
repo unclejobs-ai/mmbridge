@@ -102,7 +102,10 @@ function parseInterpretResponse(raw: string, findings: Finding[]): InterpretResu
     const validated = findings.filter((_, i) => validatedIndices.includes(i) && !fpIndices.has(i));
     const falsePositives = fpEntries
       .filter((e) => e.index >= 0 && e.index < findings.length)
-      .map((e) => ({ finding: findings[e.index]!, reason: e.reason }));
+      .flatMap((e) => {
+        const finding = findings[e.index];
+        return finding !== undefined ? [{ finding, reason: e.reason }] : [];
+      });
 
     const promoted: Finding[] = promotedRaw.map((p) => ({
       severity: (typeof p.severity === 'string' ? p.severity : 'CRITICAL') as Finding['severity'],

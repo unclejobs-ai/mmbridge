@@ -39,7 +39,7 @@ const MODE_INSTRUCTIONS: Record<string, string> = {
 };
 
 function buildToolPrompt(tool: string, mode: string, changedFiles: string[]): string {
-  const modeInstr = MODE_INSTRUCTIONS[mode] ?? MODE_INSTRUCTIONS.review!;
+  const modeInstr = MODE_INSTRUCTIONS[mode] ?? MODE_INSTRUCTIONS.review ?? '';
   const fileList = changedFiles
     .slice(0, 30)
     .map((f) => `- ${f}`)

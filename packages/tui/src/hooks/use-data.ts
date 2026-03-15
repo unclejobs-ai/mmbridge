@@ -75,8 +75,8 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
     }
 
     // Load last review
-    if (allSessions.length > 0) {
-      const last = allSessions[0]!;
+    const last = allSessions.at(0);
+    if (last !== undefined) {
       const findings = last.findings ?? [];
       const lastReview: LastReview = {
         tool: last.tool,

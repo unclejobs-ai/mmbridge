@@ -160,8 +160,9 @@ test('buildResultIndex: outputDigest is null when no rawOutput', () => {
 test('buildResultIndex: outputDigest is a 12-char hex string when rawOutput provided', () => {
   const result = buildResultIndex({ rawOutput: 'some content' });
   assert.ok(result.outputDigest !== null);
-  assert.equal(result.outputDigest?.length, 12);
-  assert.ok(/^[0-9a-f]{12}$/.test(result.outputDigest!));
+  const digest = result.outputDigest;
+  assert.equal(digest?.length, 12);
+  assert.ok(digest !== null && /^[0-9a-f]{12}$/.test(digest));
 });
 
 test('buildResultIndex: hasBridge is false when no bridgeSummary', () => {

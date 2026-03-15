@@ -314,7 +314,9 @@ export function SessionsView(): React.ReactElement {
       {state.inputMode === 'followup' && state.inputTarget && (
         <PromptInput
           label={`Followup (${state.inputTarget.tool})`}
-          onSubmit={(prompt) => submitFollowup(state.inputTarget!.tool, state.inputTarget!.sessionId, prompt)}
+          onSubmit={(prompt) =>
+            submitFollowup(state.inputTarget?.tool ?? '', state.inputTarget?.sessionId ?? '', prompt)
+          }
           onCancel={cancelFollowup}
         />
       )}

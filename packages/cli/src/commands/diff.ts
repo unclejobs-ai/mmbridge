@@ -112,7 +112,7 @@ function buildFindingIndex(findings: Finding[]): Map<string, Map<number | null, 
   for (const f of findings) {
     const fileKey = f.file ?? '';
     if (!index.has(fileKey)) index.set(fileKey, new Map());
-    const lineMap = index.get(fileKey)!;
+    const lineMap = index.get(fileKey) ?? new Map<number | null, Finding[]>();
     const lineKey = f.line ?? null;
     if (!lineMap.has(lineKey)) lineMap.set(lineKey, []);
     lineMap.get(lineKey)?.push(f);

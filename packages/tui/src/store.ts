@@ -153,7 +153,7 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     case 'SWITCH_TAB_DELTA': {
       const idx = TAB_ORDER.indexOf(state.activeTab);
       const next = clamp(idx + action.delta, 0, TAB_ORDER.length - 1);
-      const tab = TAB_ORDER[next]!;
+      const tab = TAB_ORDER[next] ?? state.activeTab;
       return { ...state, activeTab: tab, sidebar: { selectedIndex: 0 } };
     }
 

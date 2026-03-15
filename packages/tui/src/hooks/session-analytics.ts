@@ -43,7 +43,7 @@ export function computeSessionStats(sessions: Session[]): SessionStats {
 
     const daysAgo = Math.round((todayMidnight - sessionMidnight) / 86_400_000);
     if (daysAgo >= 0 && daysAgo < 7) {
-      dailyCounts[daysAgo]!++;
+      dailyCounts[daysAgo] = (dailyCounts[daysAgo] ?? 0) + 1;
     }
 
     // --- tool distribution ---
