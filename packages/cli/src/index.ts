@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 
 import type { DiffCommandOptions } from './commands/diff.js';
@@ -7,6 +10,9 @@ import type { HookCommandOptions } from './commands/hook.js';
 import type { InitCommandOptions } from './commands/init.js';
 import type { ReviewCommandOptions } from './commands/review.js';
 import type { SyncAgentsOptions } from './commands/sync-agents.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
 
 export type {
   ReviewCommandOptions,
@@ -18,16 +24,41 @@ export type {
   HookCommandOptions,
 };
 
+function supportsInteractiveTui(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY && typeof process.stdin.setRawMode === 'function');
+}
+
+async function runTuiOrFallback(
+  program: Command,
+  options?: { tab?: 'dashboard' | 'sessions' | 'config' },
+): Promise<void> {
+  if (!supportsInteractiveTui()) {
+    process.stderr.write(
+      '[mmbridge] Interactive TUI requires a terminal with raw input mode. Falling back to help.\n\n',
+    );
+    program.outputHelp();
+    process.stderr.write(
+      '\nTry `mmbridge doctor`, `mmbridge review --json`, or run `mmbridge tui` in an interactive terminal.\n',
+    );
+    return;
+  }
+
+  const { renderTui } = await import('@mmbridge/tui');
+  await renderTui({
+    tab: options?.tab,
+    version: program.version(),
+  });
+}
+
 export async function main(): Promise<void> {
   const program = new Command();
 
   program
     .name('mmbridge')
     .description('Multi-model code review bridge')
-    .version('0.2.0')
+    .version(pkg.version)
     .action(async () => {
-      const { renderTui } = await import('@mmbridge/tui');
-      await renderTui();
+      await runTuiOrFallback(program);
     });
 
   // ── review ──
@@ -117,8 +148,9 @@ export async function main(): Promise<void> {
     .description('Open the interactive TUI hub')
     .option('--tab <tab>', 'Open directly to a tab (dashboard|sessions|config)')
     .action(async (opts: { tab?: string }) => {
-      const { renderTui } = await import('@mmbridge/tui');
-      await renderTui({ tab: opts.tab as 'dashboard' | 'sessions' | 'config' });
+      await runTuiOrFallback(program, {
+        tab: opts.tab as 'dashboard' | 'sessions' | 'config',
+      });
     });
 
   // ── diff ──

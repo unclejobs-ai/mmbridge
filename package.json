@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r run build",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc -b",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "pnpm -r run test",
