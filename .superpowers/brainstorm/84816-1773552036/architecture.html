@@ -1,0 +1,115 @@
+<h2>mmbridge v0.6.0 — CLI-First + TUI Monitor</h2>
+<p class="subtitle">kaku/tmux 스타일: CLI가 메인, TUI는 실시간 모니터링 대시보드</p>
+
+<div class="section">
+  <h3>Architecture Overview</h3>
+  <div class="mockup">
+    <div class="mockup-header">System Architecture</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 13px; line-height: 1.6; padding: 20px;">
+      <pre style="color: #cdd6f4; margin: 0;">
+┌─────────────────────────────────────────────────────────────┐
+│                    Claude Code (Bash tool)                   │
+│                                                             │
+│  $ mmbridge review --tool kimi --stream                     │
+│                                                             │
+│  [context] Building review context... (0.3s)                │
+│  [context] 12 files changed, 3 redacted                    │
+│  [review]  Running kimi...                                  │
+│  [stream]  Analyzing src/api/users.ts...                    │
+│  [stream]  Found potential SQL injection at line 42         │
+│  [stream]  Checking src/components/Form.tsx...              │
+│  [enrich]  Parsing findings...                              │
+│  ────────────────────────────────────────────               │
+│  ◆ 1 CRITICAL  ▲ 2 WARNING  ● 1 INFO                      │
+│  Session saved: #abc12345                                    │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ writes to
+                       ▼
+              ┌─────────────────┐
+              │  Session Store  │  ~/.mmbridge/sessions/
+              │  (JSON files)   │
+              └────────┬────────┘
+                       │ reads from
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│              TUI Monitor (separate terminal)                 │
+│                                                             │
+│  ┌─ LIVE ──────┐ ┌─ SESSIONS ──┐ ┌─ FINDINGS ────────────┐│
+│  │ kimi ⟳      │ │ #abc 5 ◆1   │ │ ▶ api/users.ts (3)    ││
+│  │ 12.3s       │ │ #def 3      │ │   ◆ SQL injection     ││
+│  │ ████░░ 67%  │ │ #ghi 0      │ │   ▲ Missing auth      ││
+│  │             │ │             │ │   ● Naming conv       ││
+│  │ Analyzing   │ │             │ │                       ││
+│  │ Form.tsx... │ │             │ │ ▶ components/F.. (1)  ││
+│  └─────────────┘ └─────────────┘ └───────────────────────┘│
+│  r Review │ 1-4 Tabs │ ? Help │ q Quit                     │
+└─────────────────────────────────────────────────────────────┘</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Key Changes from Current</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+    <div style="background: rgba(166,227,161,0.1); border: 1px solid rgba(166,227,161,0.3); border-radius: 8px; padding: 16px;">
+      <h4 style="color: #a6e3a1; margin: 0 0 8px 0;">✓ New: CLI Streaming</h4>
+      <ul style="margin: 0; padding-left: 20px; color: #bac2de;">
+        <li><code>--stream</code> flag for real-time output</li>
+        <li>Phase markers: [context] [review] [stream] [enrich]</li>
+        <li>Severity summary at end</li>
+        <li>Works directly in Claude Code Bash</li>
+      </ul>
+    </div>
+    <div style="background: rgba(137,180,250,0.1); border: 1px solid rgba(137,180,250,0.3); border-radius: 8px; padding: 16px;">
+      <h4 style="color: #89b4fa; margin: 0 0 8px 0;">✓ New: TUI as Monitor</h4>
+      <ul style="margin: 0; padding-left: 20px; color: #bac2de;">
+        <li>Watches session store for live updates</li>
+        <li>3-panel layout: Live | Sessions | Findings</li>
+        <li>Auto-refreshes when CLI writes new session</li>
+        <li>No review execution in TUI (read-only)</li>
+      </ul>
+    </div>
+    <div style="background: rgba(250,179,135,0.1); border: 1px solid rgba(250,179,135,0.3); border-radius: 8px; padding: 16px;">
+      <h4 style="color: #fab387; margin: 0 0 8px 0;">↻ Changed: MCP Tools</h4>
+      <ul style="margin: 0; padding-left: 20px; color: #bac2de;">
+        <li>MCP stays for programmatic access</li>
+        <li>But CLI becomes the recommended path</li>
+        <li>MCP prompt tells Claude to use CLI instead</li>
+      </ul>
+    </div>
+    <div style="background: rgba(203,166,247,0.1); border: 1px solid rgba(203,166,247,0.3); border-radius: 8px; padding: 16px;">
+      <h4 style="color: #cba6f7; margin: 0 0 8px 0;">✗ Removed from TUI</h4>
+      <ul style="margin: 0; padding-left: 20px; color: #bac2de;">
+        <li>ReviewSetup (tool/mode selection UI)</li>
+        <li>ReviewProgress (progress bar)</li>
+        <li>All review execution logic</li>
+        <li>TUI becomes pure monitor/viewer</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h3>이 방향이 맞나요?</h3>
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>이대로 진행</h3>
+      <p>CLI 스트리밍 + TUI 모니터 모드. ReviewSetup/Progress 제거.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>TUI에서도 리뷰 실행은 유지</h3>
+      <p>CLI 스트리밍 추가하되, TUI의 ReviewSetup도 그대로 남김 (두 가지 경로 모두 가능)</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>방향은 맞지만 세부 조정이 필요함 (터미널에서 설명해주세요)</p>
+    </div>
+  </div>
+</div>

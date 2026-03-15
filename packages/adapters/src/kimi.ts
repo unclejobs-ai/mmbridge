@@ -6,15 +6,19 @@ import type { AdapterDefinition, AdapterResult } from './types.js';
 export async function runKimiReview({
   workspace,
   sessionId,
+  onStdout,
+  onStderr,
 }: {
   workspace: string;
   sessionId?: string;
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }): Promise<AdapterResult> {
   if (sessionId) assertSafeSessionId(sessionId);
   await ensureBinary('kimi');
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'kimi.md'), 'utf8');
   const args = ['-w', workspace, ...(sessionId ? ['-S', sessionId] : []), '--quiet', '-p', prompt];
-  const result = await invoke('kimi', args, { cwd: workspace, timeoutMs: 300000 });
+  const result = await invoke('kimi', args, { cwd: workspace, timeoutMs: 300000, onStdout, onStderr });
   assertCliSuccess('kimi', result);
   return {
     tool: 'kimi',

@@ -1,0 +1,91 @@
+<h2>TUI Monitor 레이아웃</h2>
+<p class="subtitle">CLI가 실행한 리뷰를 실시간 모니터링하는 대시보드</p>
+
+<div class="section">
+  <h3>Tab 구조 변경</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+    <div style="background: rgba(243,139,168,0.1); border: 1px solid rgba(243,139,168,0.2); border-radius: 8px; padding: 16px;">
+      <h4 style="color: #f38ba8; margin: 0 0 8px;">Before (v0.5)</h4>
+      <div style="font-family: monospace; color: #a6adc8; font-size: 13px;">
+        1:Status  2:Review  3:Sessions  4:Config<br>
+        <span style="color: #6c7086;">Review = setup + progress + results (실행 UI)</span>
+      </div>
+    </div>
+    <div style="background: rgba(166,227,161,0.1); border: 1px solid rgba(166,227,161,0.2); border-radius: 8px; padding: 16px;">
+      <h4 style="color: #a6e3a1; margin: 0 0 8px;">After (v0.6)</h4>
+      <div style="font-family: monospace; color: #a6adc8; font-size: 13px;">
+        1:Dashboard  2:Sessions  3:Config<br>
+        <span style="color: #6c7086;">Dashboard = status + live monitor 통합</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Dashboard (Tab 1) — Status + Live Monitor 통합</h3>
+  <div class="mockup">
+    <div class="mockup-header">mmbridge — Dashboard</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', monospace; font-size: 11px; line-height: 1.4; padding: 12px; background: #1e1e2e;">
+<pre style="color: #cdd6f4; margin: 0;"><span style="color: #b4befe;">mmbridge</span>                    <span style="color: #6c7086;">1:Dashboard  2:Sessions  3:Config</span>         <span style="color: #6c7086;">main (dda16bd)</span>
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #a6adc8;">ADAPTERS</span>                            <span style="color: #a6adc8;">PROJECT</span>
+<span style="color: #a6e3a1;">✓</span> <span style="color: #94e2d5;">kimi</span>    12 <span style="color: #94e2d5;">▂▃▅▃▁▂▄</span> 3d ago    Path   ~/project/my-app
+<span style="color: #a6e3a1;">✓</span> <span style="color: #cba6f7;">qwen</span>    20 <span style="color: #cba6f7;">▁▂▃▅▇▅▃</span> 1d ago    Branch main (dda16bd)
+<span style="color: #a6e3a1;">✓</span> <span style="color: #89b4fa;">codex</span>   26 <span style="color: #89b4fa;">▃▅▇▅▃▂▁</span> 1d ago    Dirty  <span style="color: #f9e2af;">5 files</span>
+<span style="color: #a6e3a1;">✓</span> <span style="color: #74c7ec;">gemini</span>   7 <span style="color: #74c7ec;">▁▁▂▃▁▁▁</span> 5d ago    Base   origin/main
+<span style="color: #f38ba8;">✗</span> <span style="color: #6c7086;">droid</span>    0 <span style="color: #6c7086;">─────</span>  -        Last   <span style="color: #6c7086;">feat: add streaming</span>
+<span style="color: #f38ba8;">✗</span> <span style="color: #6c7086;">claude</span>   0 <span style="color: #6c7086;">─────</span>  -
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #a6adc8;">LIVE</span> <span style="color: #a6e3a1;">● active</span>                     <span style="color: #a6adc8;">ACTIVITY (7 days)</span>
+<span style="color: #94e2d5;">kimi</span> / review                       <span style="color: #b4befe;">▁▂▃▅▇▅▃</span>  avg 4.9/day (34 total)
+<span style="color: #6c7086;">├─</span> <span style="color: #f9e2af;">context</span>  12 files · 0.4s        <span style="color: #f38ba8;">◆41</span> <span style="color: #f9e2af;">▲43</span> <span style="color: #89dceb;">●71</span> <span style="color: #fab387;">◇1</span>
+<span style="color: #6c7086;">├─</span> <span style="color: #f9e2af;">review</span>   <span style="color: #a6e3a1;">⣾</span> running (8.2s)
+<span style="color: #6c7086;">│</span>  <span style="color: #585b70;">Analyzing api/users.ts...</span>        <span style="color: #a6adc8;">LAST REVIEW</span>
+<span style="color: #6c7086;">│</span>  <span style="color: #585b70;">Found SQL injection L42</span>         <span style="color: #cba6f7;">qwen</span> / review / 1d ago
+<span style="color: #6c7086;">│</span>                                   <span style="color: #f38ba8;">◆0</span> <span style="color: #f9e2af;">▲0</span> <span style="color: #89dceb;">●2</span> <span style="color: #fab387;">◇0</span>
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #6c7086;">r Refresh │ 1-3 Tabs │ ? Help │ q Quit</span></pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Sessions (Tab 2) — 3컬럼 유지</h3>
+  <div class="mockup">
+    <div class="mockup-header">mmbridge — Sessions</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', monospace; font-size: 11px; line-height: 1.4; padding: 12px; background: #1e1e2e;">
+<pre style="color: #cdd6f4; margin: 0;"><span style="color: #b4befe;">mmbridge</span>                    <span style="color: #6c7086;">1:Dashboard</span>  <span style="color: #cdd6f4; text-decoration: underline;">2:Sessions</span>  <span style="color: #6c7086;">3:Config</span>         <span style="color: #6c7086;">main (dda16bd)</span>
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #a6adc8;">SESSIONS</span>                  <span style="color: #a6adc8;">DETAIL</span>              <span style="color: #a6adc8;">FINDINGS</span>
+<span style="color: #a6e3a1;">❯</span> 03-15 <span style="color: #94e2d5;">kimi</span>    review  5  #abc12345           <span style="color: #cdd6f4;">▼</span> api/users.ts (3)
+  03-15 <span style="color: #cba6f7;">qwen</span>    review  2  <span style="color: #94e2d5;">kimi</span> / review        <span style="color: #f38ba8;">◆</span> SQL injection
+  03-14 <span style="color: #89b4fa;">codex</span>   secur.  8  1h ago │ 3 files      <span style="color: #f9e2af;">▲</span> Missing auth
+  03-14 <span style="color: #94e2d5;">kimi</span>    review  3  <span style="color: #f38ba8;">◆1</span> <span style="color: #f9e2af;">▲2</span> <span style="color: #89dceb;">●1</span> <span style="color: #fab387;">◇1</span>        <span style="color: #89dceb;">●</span> Naming conv
+  03-13 <span style="color: #cba6f7;">qwen</span>    arch.   0                      <span style="color: #cdd6f4;">▼</span> components/F.. (1)
+  03-13 <span style="color: #89b4fa;">codex</span>   review  4  Chain                  <span style="color: #f9e2af;">▲</span> XSS risk
+                              #ef → #abc (cur)   ▼ utils/helpers (1)
+  <span style="color: #6c7086;">6/34</span>                      Base origin/main       <span style="color: #89dceb;">●</span> Extract logic
+                              Status <span style="color: #a6e3a1;">complete</span>
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #6c7086;">j/k Navigate │ f Followup │ e Export │ q Quit</span></pre>
+    </div>
+  </div>
+</div>
+
+<h3>이 TUI 디자인 방향이 맞나요?</h3>
+<div class="options">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>승인 — 이대로 진행</h3>
+      <p>Dashboard에 Live 모니터 통합, Sessions 3컬럼, Review 탭 제거</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>터미널에서 어떤 부분을 바꿀지 설명해주세요</p>
+    </div>
+  </div>
+</div>

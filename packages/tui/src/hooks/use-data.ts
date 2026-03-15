@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import { commandExists, getHead, getDefaultBaseRef, getGitStatusSummary } from '@mmbridge/core';
+import { commandExists, getHead, getDefaultBaseRef, getGitStatusSummary, runCommand } from '@mmbridge/core';
 import { defaultRegistry } from '@mmbridge/adapters';
 import { SessionStore } from '@mmbridge/session-store';
 import type { TuiAction, AdapterStatus, ProjectInfo, LastReview, FindingItem } from '../store.js';
@@ -28,6 +28,7 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
         getHead(),
         getDefaultBaseRef(),
         getGitStatusSummary(),
+        runCommand('git', ['log', '-1', '--format=%s']).then((r) => r.ok ? r.stdout.trim() : null).catch(() => null),
       ]).catch(() => null),
     ]);
 
@@ -56,7 +57,7 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
 
     // Set project info from parallel git result
     if (gitResult) {
-      const [head, baseRef, gitStatus] = gitResult;
+      const [head, baseRef, gitStatus, lastCommitMsg] = gitResult;
       const dirtyCount = gitStatus.staged + gitStatus.unstaged + gitStatus.untracked;
       const projectInfo: ProjectInfo = {
         path: process.cwd(),
@@ -64,6 +65,7 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
         head: head.sha,
         dirtyCount,
         baseRef,
+        lastCommitMessage: lastCommitMsg ?? undefined,
       };
       dispatch({ type: 'SET_PROJECT_INFO', info: projectInfo });
     } else {

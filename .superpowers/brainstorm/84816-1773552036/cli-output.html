@@ -1,0 +1,75 @@
+<h2>CLI 스트리밍 출력 포맷</h2>
+<p class="subtitle">Claude Code의 Bash 도구에서 이렇게 보입니다</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Option A: Compact (kaku style)</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.5; padding: 16px; background: #1e1e2e;">
+<pre style="color: #cdd6f4; margin: 0;"><span style="color: #a6e3a1;">●</span> <span style="color: #89b4fa;">mmbridge</span> review <span style="color: #94e2d5;">kimi</span> / review
+<span style="color: #6c7086;">├─</span> <span style="color: #f9e2af;">context</span>  12 files · 3 redacted · 0.4s
+<span style="color: #6c7086;">├─</span> <span style="color: #f9e2af;">review</span>   waiting for kimi response...
+<span style="color: #6c7086;">│</span>  <span style="color: #585b70;">Analyzing src/api/users.ts...</span>
+<span style="color: #6c7086;">│</span>  <span style="color: #585b70;">Found potential SQL injection at line 42</span>
+<span style="color: #6c7086;">│</span>  <span style="color: #585b70;">Checking src/components/Form.tsx...</span>
+<span style="color: #6c7086;">│</span>  <span style="color: #585b70;">Review complete. Parsing output...</span>
+<span style="color: #6c7086;">├─</span> <span style="color: #f9e2af;">enrich</span>   5 findings → 4 after scope filter
+<span style="color: #6c7086;">└─</span> <span style="color: #a6e3a1;">done</span>     12.3s · session <span style="color: #6c7086;">#abc12345</span>
+
+<span style="color: #f38ba8;">◆ CRITICAL</span> src/api/users.ts:42
+  SQL injection via unsanitized user input
+<span style="color: #f9e2af;">▲ WARNING</span>  src/api/users.ts:15
+  Missing authentication check on DELETE endpoint
+<span style="color: #f9e2af;">▲ WARNING</span>  src/components/Form.tsx:88
+  XSS risk: dangerouslySetInnerHTML with user data
+<span style="color: #89dceb;">● INFO</span>     src/utils/helpers.ts
+  Consider extracting validation logic
+
+<span style="color: #6c7086;">─────────────────────────────────────────</span>
+<span style="color: #f38ba8;">◆1</span> <span style="color: #f9e2af;">▲2</span> <span style="color: #89dceb;">●1</span> <span style="color: #6c7086;">│</span> 4 findings <span style="color: #6c7086;">│</span> 12.3s</pre>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Option B: Minimal (just findings)</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.5; padding: 16px; background: #1e1e2e;">
+<pre style="color: #cdd6f4; margin: 0;"><span style="color: #6c7086;">reviewing with kimi (review mode)...</span>
+<span style="color: #585b70;">  context: 12 files, 0.4s</span>
+<span style="color: #585b70;">  kimi: analyzing...</span>
+<span style="color: #585b70;">  kimi: done (11.9s)</span>
+<span style="color: #585b70;">  enrich: 5 → 4 findings</span>
+
+<span style="color: #f38ba8;">[CRITICAL]</span> src/api/users.ts:42
+  SQL injection via unsanitized user input
+
+<span style="color: #f9e2af;">[WARNING]</span>  src/api/users.ts:15
+  Missing authentication check on DELETE endpoint
+
+<span style="color: #f9e2af;">[WARNING]</span>  src/components/Form.tsx:88
+  XSS risk: dangerouslySetInnerHTML with user data
+
+<span style="color: #89dceb;">[INFO]</span>     src/utils/helpers.ts
+  Consider extracting validation logic
+
+<span style="color: #6c7086;">4 findings (1C 2W 1I) in 12.3s</span>
+<span style="color: #6c7086;">session: #abc12345</span></pre>
+    </div>
+  </div>
+</div>
+
+<h3>어떤 스타일?</h3>
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Compact (트리 스타일)</h3>
+      <p>├── 트리 구조로 단계 표시, 스트리밍 라인 들여쓰기. kaku/git log 느낌.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Minimal (플랫)</h3>
+      <p>단순 텍스트, [SEVERITY] 태그. grep/파싱 친화적. 전통 CLI 느낌.</p>
+    </div>
+  </div>
+</div>

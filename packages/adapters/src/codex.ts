@@ -8,15 +8,19 @@ import type { AdapterDefinition, AdapterResult } from './types.js';
 export async function runCodexReview({
   workspace,
   changedFiles = [],
+  onStdout,
+  onStderr,
 }: {
   workspace: string;
   changedFiles?: string[];
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }): Promise<AdapterResult> {
   await ensureBinary('codex');
   const prompt = await buildCodexReviewPrompt({ workspace, changedFiles });
   const outputPath = createCodexOutputPath(workspace, 'review');
   const args = buildCodexExecArgs({ workspace, outputPath });
-  const result = await invoke('codex', args, { cwd: workspace, input: prompt, timeoutMs: 300000 });
+  const result = await invoke('codex', args, { cwd: workspace, input: prompt, timeoutMs: 300000, onStdout, onStderr });
   assertCliSuccess('codex', result);
   const externalSessionId = parseExternalSessionId(result.combined, null);
   const text = await readCodexLastMessage(outputPath, result.combined);

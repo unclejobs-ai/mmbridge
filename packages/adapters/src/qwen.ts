@@ -7,15 +7,19 @@ import type { AdapterDefinition, AdapterResult } from './types.js';
 export async function runQwenReview({
   workspace,
   sessionId,
+  onStdout,
+  onStderr,
 }: {
   workspace: string;
   sessionId?: string;
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }): Promise<AdapterResult> {
   await ensureBinary('qwen');
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'qwen.md'), 'utf8');
   const resolvedSessionId = normalizeUuid(sessionId);
   const args = ['--session-id', resolvedSessionId, '--chat-recording', '--yolo', '-p', prompt];
-  const result = await invoke('qwen', args, { cwd: workspace, timeoutMs: 300000 });
+  const result = await invoke('qwen', args, { cwd: workspace, timeoutMs: 300000, onStdout, onStderr });
   assertCliSuccess('qwen', result);
   return {
     tool: 'qwen',

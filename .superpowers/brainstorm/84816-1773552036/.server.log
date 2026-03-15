@@ -1,0 +1,17 @@
+{"type":"server-started","port":53587,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:53587","screen_dir":"/Users/parkeungje/project/mmbridge-v060/.superpowers/brainstorm/84816-1773552036"}
+{"type":"screen-added","file":"/Users/parkeungje/project/mmbridge-v060/.superpowers/brainstorm/84816-1773552036/architecture.html"}
+{"source":"user-event","type":"click","text":"A\n    \n      이대로 진행\n      CLI 스트리밍 + TUI 모니터 모드. ReviewSetup/Progress 제거.","choice":"a","id":null,"timestamp":1773553219866}
+{"source":"user-event","type":"click","text":"A\n    \n      이대로 진행\n      CLI 스트리밍 + TUI 모니터 모드. ReviewSetup/Progress 제거.","choice":"a","id":null,"timestamp":1773553229430}
+{"source":"user-event","type":"click","text":"A\n    \n      이대로 진행\n      CLI 스트리밍 + TUI 모니터 모드. ReviewSetup/Progress 제거.","choice":"a","id":null,"timestamp":1773553229563}
+{"source":"user-event","type":"click","text":"A\n    \n      이대로 진행\n      CLI 스트리밍 + TUI 모니터 모드. ReviewSetup/Progress 제거.","choice":"a","id":null,"timestamp":1773553229746}
+{"type":"screen-added","file":"/Users/parkeungje/project/mmbridge-v060/.superpowers/brainstorm/84816-1773552036/cli-output.html"}
+{"source":"user-event","type":"click","text":"A\n    \n      Compact (트리 스타일)\n      ├── 트리 구조로 단계 표시, 스트리밍 라인 들여쓰기. kaku/git log 느낌.","choice":"a","id":null,"timestamp":1773553942355}
+{"type":"screen-added","file":"/Users/parkeungje/project/mmbridge-v060/.superpowers/brainstorm/84816-1773552036/tui-monitor.html"}
+{"source":"user-event","type":"click","text":"~\n    \n      수정 필요\n      터미널에서 어떤 부분을 바꿀지 설명해주세요","choice":"tweak","id":null,"timestamp":1773554033925}
+{"type":"screen-added","file":"/Users/parkeungje/project/mmbridge-v060/.superpowers/brainstorm/84816-1773552036/tui-redesign.html"}
+{"source":"user-event","type":"click","text":"~\n    \n      수정 필요\n      터미널에서 설명해주세요","choice":"tweak","id":null,"timestamp":1773554362328}
+{"type":"screen-added","file":"/Users/parkeungje/project/mmbridge-v060/.superpowers/brainstorm/84816-1773552036/tui-refined.html"}
+{"source":"user-event","type":"click","text":"~\n    \n      조금 더 수정\n      터미널에서 피드백 주세요","choice":"tweak","id":null,"timestamp":1773556123849}
+{"type":"screen-added","file":"/Users/parkeungje/project/mmbridge-v060/.superpowers/brainstorm/84816-1773552036/tui-fullwidth.html"}
+{"source":"user-event","type":"click","text":"✓\n    \n      승인 — 스펙 작성\n      Box border 제거, full-width hrule 구분, useStdout columns 기반 렌더링","choice":"approve","id":null,"timestamp":1773556252883}
+{"type":"screen-added","file":"/Users/parkeungje/project/mmbridge-v060/.superpowers/brainstorm/84816-1773552036/waiting.html"}

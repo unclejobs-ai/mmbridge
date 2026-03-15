@@ -19,7 +19,6 @@ function shortenPath(p: string): string {
   return p;
 }
 
-/** dailyCounts[0]=today … [6]=6d ago → reverse so oldest is left */
 function reversedCounts(counts: number[]): number[] {
   return [...counts].reverse();
 }
@@ -30,7 +29,11 @@ function avgPerDay(counts: number[]): string {
   return (total / counts.length).toFixed(1);
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+
+// ─── Compact adapter row ─────────────────────────────────────────────────────
 
 interface AdapterRowProps {
   adapter: AdapterStatus;
@@ -40,22 +43,23 @@ interface AdapterRowProps {
 function AdapterRow({ adapter, toolDailyCounts }: AdapterRowProps): React.ReactElement {
   const icon = adapter.installed ? CHARS.installed : CHARS.missing;
   const iconColor = adapter.installed ? colors.green : colors.red;
-  const sessText = adapter.installed ? String(adapter.sessionCount) : '-';
-  const lastText = adapter.lastSessionDate ? formatRelativeTime(adapter.lastSessionDate) : '-';
+  const hasActivity = toolDailyCounts.some((c) => c > 0);
 
   return (
-    <Box flexDirection="row" gap={1}>
-      <Text color={iconColor}>{icon}</Text>
+    <Box flexDirection="row" gap={0}>
+      <Text color={iconColor}>{icon} </Text>
       <Text color={toolColor(adapter.name)} bold>{adapter.name.padEnd(7)}</Text>
-      <Text color={colors.textMuted}>{sessText.padStart(3)} sess</Text>
-      <Box marginX={1}>
-        {adapter.installed && toolDailyCounts.some((c) => c > 0) ? (
-          <Sparkline data={toolDailyCounts} color={toolColor(adapter.name)} width={6} />
-        ) : (
-          <Text color={colors.textDim}>{'  -   '}</Text>
-        )}
-      </Box>
-      <Text color={colors.textDim}>{lastText}</Text>
+      <Text color={colors.textDim}>{String(adapter.sessionCount).padStart(3)}</Text>
+      <Text color={colors.textDim}> </Text>
+      {adapter.installed && hasActivity ? (
+        <Sparkline data={toolDailyCounts} color={toolColor(adapter.name)} width={5} />
+      ) : (
+        <Text color={colors.textDim}>{'─────'}</Text>
+      )}
+      <Text color={colors.textDim}> </Text>
+      <Text color={colors.overlay0}>
+        {adapter.lastSessionDate ? formatRelativeTime(adapter.lastSessionDate) : '     -'}
+      </Text>
     </Box>
   );
 }
@@ -66,17 +70,19 @@ interface AdaptersPanelProps {
   adapters: AdapterStatus[];
   toolDistribution: Record<string, number>;
   sessionDailyCounts: number[];
+  totalSessions: number;
 }
 
-function AdaptersPanel({ adapters, toolDistribution, sessionDailyCounts }: AdaptersPanelProps): React.ReactElement {
-  const totalSessions = Object.values(toolDistribution).reduce((a, b) => a + b, 0);
+function AdaptersPanel({ adapters, toolDistribution, sessionDailyCounts, totalSessions }: AdaptersPanelProps): React.ReactElement {
+  const totalToolSessions = Object.values(toolDistribution).reduce((a, b) => a + b, 0);
+  const installedCount = adapters.filter((a) => a.installed).length;
 
   return (
-    <Panel title="ADAPTERS" flexGrow={1}>
+    <Panel title={`ADAPTERS (${installedCount}/${adapters.length})`} flexGrow={1}>
       <Box flexDirection="column" marginTop={1} gap={0}>
         {adapters.map((adapter) => {
           const toolShare = toolDistribution[adapter.name] ?? 0;
-          const ratio = totalSessions > 0 ? toolShare / totalSessions : 0;
+          const ratio = totalToolSessions > 0 ? toolShare / totalToolSessions : 0;
           const toolDailyCounts = sessionDailyCounts.map((c) => Math.round(c * ratio));
 
           return (
@@ -105,23 +111,17 @@ function ProjectPanel({ projectInfo }: ProjectPanelProps): React.ReactElement {
       <Box flexDirection="column" marginTop={1}>
         {projectInfo ? (
           <>
-            <KVRow
-              label="Path"
-              value={shortenPath(projectInfo.path)}
-            />
-            <KVRow
-              label="Branch"
-              value={`${projectInfo.branch} (${projectInfo.head.slice(0, 7)})`}
-            />
+            <KVRow label="Path" value={shortenPath(projectInfo.path)} />
+            <KVRow label="Branch" value={`${projectInfo.branch} (${projectInfo.head.slice(0, 7)})`} />
             <KVRow
               label="Dirty"
               value={`${projectInfo.dirtyCount} files`}
               valueColor={projectInfo.dirtyCount > 0 ? colors.yellow : colors.green}
             />
-            <KVRow
-              label="Base"
-              value={projectInfo.baseRef}
-            />
+            <KVRow label="Base" value={projectInfo.baseRef} />
+            {projectInfo.lastCommitMessage && (
+              <KVRow label="Last" value={truncate(projectInfo.lastCommitMessage, 40)} valueColor={colors.overlay1} />
+            )}
           </>
         ) : (
           <Text color={colors.textDim}>Not a git repository</Text>
@@ -134,12 +134,13 @@ function ProjectPanel({ projectInfo }: ProjectPanelProps): React.ReactElement {
 interface ActivityPanelProps {
   dailyCounts: number[];
   aggregateSeverity: { critical: number; warning: number; info: number; refactor: number };
+  totalSessions: number;
 }
 
-function ActivityPanel({ dailyCounts, aggregateSeverity }: ActivityPanelProps): React.ReactElement {
+function ActivityPanel({ dailyCounts, aggregateSeverity, totalSessions }: ActivityPanelProps): React.ReactElement {
   const reversed = reversedCounts(dailyCounts);
   const avg = avgPerDay(dailyCounts);
-  const total = dailyCounts.reduce((a, b) => a + b, 0);
+  const weekTotal = dailyCounts.reduce((a, b) => a + b, 0);
 
   return (
     <Panel title="ACTIVITY (7 days)" flexGrow={1}>
@@ -147,9 +148,9 @@ function ActivityPanel({ dailyCounts, aggregateSeverity }: ActivityPanelProps): 
         <Box flexDirection="row" gap={2}>
           <Sparkline data={reversed} color={colors.accent} width={7} />
           <Text color={colors.textMuted}>avg {avg}/day</Text>
-          <Text color={colors.textDim}>({total} total)</Text>
+          <Text color={colors.textDim}>({weekTotal}w / {totalSessions} total)</Text>
         </Box>
-        {total > 0 ? (
+        {weekTotal > 0 ? (
           <SeverityBar counts={aggregateSeverity} />
         ) : (
           <Text color={colors.textDim}>No sessions in last 7 days</Text>
@@ -181,9 +182,7 @@ function LastReviewPanel({ lastReview }: LastReviewPanelProps): React.ReactEleme
             </Box>
             <Box marginTop={1}>
               <Text color={colors.textDim}>
-                {lastReview.summary.length > 50
-                  ? lastReview.summary.slice(0, 50) + '…'
-                  : lastReview.summary}
+                {truncate(lastReview.summary, 60)}
               </Text>
             </Box>
           </>
@@ -220,6 +219,7 @@ export function StatusView(): React.ReactElement {
           adapters={adapters}
           toolDistribution={stats.toolDistribution}
           sessionDailyCounts={stats.dailyCounts}
+          totalSessions={sessions.length}
         />
         <ProjectPanel projectInfo={projectInfo} />
       </Box>
@@ -229,6 +229,7 @@ export function StatusView(): React.ReactElement {
         <ActivityPanel
           dailyCounts={stats.dailyCounts}
           aggregateSeverity={stats.aggregateSeverity}
+          totalSessions={sessions.length}
         />
         <LastReviewPanel lastReview={lastReview} />
       </Box>

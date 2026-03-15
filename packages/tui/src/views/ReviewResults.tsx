@@ -230,11 +230,6 @@ export function ReviewResults(): React.ReactElement {
         </Box>
       </Panel>
 
-      {/* Footer */}
-      <Text color={colors.textMuted}>
-        j/k Navigate  |  Enter Expand/Collapse  |  n New Review  |  f Followup  |  e Export
-      </Text>
-
       {/* Followup input */}
       {state.inputMode === 'followup' && state.inputTarget && (
         <PromptInput

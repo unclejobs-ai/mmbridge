@@ -5,13 +5,17 @@ import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runDroidReview({
   workspace,
+  onStdout,
+  onStderr,
 }: {
   workspace: string;
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }): Promise<AdapterResult> {
   await ensureBinary('droid');
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'droid.md'), 'utf8');
   const args = ['exec', '--auto', 'high', '--cwd', workspace, '-o', 'text', prompt];
-  const result = await invoke('droid', args, { cwd: workspace, timeoutMs: 300_000 });
+  const result = await invoke('droid', args, { cwd: workspace, timeoutMs: 300_000, onStdout, onStderr });
   assertCliSuccess('droid', result);
   const externalSessionId = parseExternalSessionId(result.combined, null);
   return {
@@ -52,6 +56,6 @@ export async function runDroidFollowup({
 export const droidAdapter: AdapterDefinition = {
   name: 'droid',
   binary: 'droid',
-  review: (options) => runDroidReview({ workspace: options.workspace }),
+  review: (options) => runDroidReview({ workspace: options.workspace, onStdout: options.onStdout, onStderr: options.onStderr }),
   followup: (options) => runDroidFollowup(options),
 };

@@ -34,6 +34,10 @@ export interface RunCommandOptions {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   killGraceMs?: number;
+  /** Called with each stdout chunk as it arrives */
+  onStdout?: (chunk: string) => void;
+  /** Called with each stderr chunk as it arrives */
+  onStderr?: (chunk: string) => void;
 }
 
 export interface ContextWorkspace {

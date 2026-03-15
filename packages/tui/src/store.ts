@@ -32,6 +32,7 @@ export interface ProjectInfo {
   head: string;
   dirtyCount: number;
   baseRef: string;
+  lastCommitMessage?: string;
 }
 
 export interface LastReview {
@@ -74,6 +75,8 @@ export interface TuiState {
     result: null | { summary: string; findings: FindingItem[] };
     bridgeMode: boolean;
     bridgeToolProgress: Record<string, 'pending' | 'running' | 'done' | 'error'>;
+    /** Ring buffer of recent streaming output lines (max 50) */
+    streamBuffer: string[];
   };
   config: { selectedSection: 'adapters' | 'settings'; selectedIndex: number };
   inputMode: 'none' | 'followup' | 'export';
@@ -117,6 +120,7 @@ export type TuiAction =
   | { type: 'SET_REVIEW_PHASE'; phase: 'setup' | 'progress' | 'results' }
   | { type: 'REVIEW_TOGGLE_BRIDGE' }
   | { type: 'REVIEW_BRIDGE_TOOL_PROGRESS'; tool: string; status: 'pending' | 'running' | 'done' | 'error' }
+  | { type: 'REVIEW_STREAM_CHUNK'; chunk: string }
   | { type: 'START_FOLLOWUP'; tool: string; sessionId: string }
   | { type: 'START_EXPORT' }
   | { type: 'CANCEL_INPUT' }
@@ -147,14 +151,15 @@ export const initialState: TuiState = {
     result: null,
     bridgeMode: false,
     bridgeToolProgress: {},
+    streamBuffer: [],
   },
   config: { selectedSection: 'adapters', selectedIndex: 0 },
   sessionsUi: { selectedIndex: 0 },
   toast: null,
   helpVisible: false,
   sessionDetail: null,
-  reviewPhase: 'setup' as const,
-  inputMode: 'none' as const,
+  reviewPhase: 'setup',
+  inputMode: 'none',
   inputTarget: null,
 };
 
@@ -219,7 +224,7 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     case 'REVIEW_START':
       return {
         ...state,
-        review: { ...state.review, running: true, progress: '', progressPhase: 'context', elapsed: 0, result: null },
+        review: { ...state.review, running: true, progress: '', progressPhase: 'context', elapsed: 0, result: null, streamBuffer: [] },
         reviewPhase: 'progress',
       };
 
@@ -233,6 +238,19 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
           elapsed: action.elapsed,
         },
       };
+
+    case 'REVIEW_STREAM_CHUNK': {
+      const MAX_STREAM_LINES = 50;
+      const newLines = action.chunk.split('\n').filter((l) => l.trim().length > 0);
+      const merged = [...state.review.streamBuffer, ...newLines];
+      const trimmed = merged.length > MAX_STREAM_LINES
+        ? merged.slice(merged.length - MAX_STREAM_LINES)
+        : merged;
+      return {
+        ...state,
+        review: { ...state.review, streamBuffer: trimmed },
+      };
+    }
 
     case 'REVIEW_COMPLETE':
       return {

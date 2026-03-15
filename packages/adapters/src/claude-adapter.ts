@@ -5,8 +5,12 @@ import type { AdapterDefinition, AdapterResult } from './types.js';
 
 export async function runClaudeReview({
   workspace,
+  onStdout,
+  onStderr,
 }: {
   workspace: string;
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }): Promise<AdapterResult> {
   await ensureBinary('claude');
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'claude.md'), 'utf8');
@@ -20,7 +24,7 @@ export async function runClaudeReview({
     '--model',
     'sonnet',
   ];
-  const result = await invoke('claude', args, { cwd: workspace, timeoutMs: 300_000 });
+  const result = await invoke('claude', args, { cwd: workspace, timeoutMs: 300_000, onStdout, onStderr });
   assertCliSuccess('claude', result);
   const { text, sessionId: externalSessionId } = parseClaudeOutput(result.combined);
   return {

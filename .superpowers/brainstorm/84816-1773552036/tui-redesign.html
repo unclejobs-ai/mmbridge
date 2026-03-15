@@ -1,0 +1,107 @@
+<h2>TUI Redesign — Goyo-inspired</h2>
+<p class="subtitle">테이블 기반 정보 밀도 + 이벤트 로그 + 실시간 스트림</p>
+
+<div class="section">
+  <h3>Dashboard (Tab 1)</h3>
+  <div class="mockup">
+    <div class="mockup-header">mmbridge — Dashboard</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.35; padding: 12px; background: #1e1e2e; letter-spacing: 0.3px;">
+<pre style="color: #cdd6f4; margin: 0;"><span style="color: #b4befe; font-weight: bold;">mmbridge</span>            <span style="color: #6c7086;">DESIGN</span>  <span style="color: #6c7086;">PROJECT</span>                        <span style="color: #6c7086;">SESSIONS</span>  <span style="color: #6c7086;">RUNNING</span>
+                     review  ~/project/my-app                    34        <span style="color: #a6e3a1;">1</span>
+                     <span style="color: #6c7086;">MODEL</span>   <span style="color: #6c7086;">BRANCH</span>            <span style="color: #6c7086;">DIRTY</span>       <span style="color: #6c7086;">ELAPSED</span>
+                     kimi    main (dda16bd)     <span style="color: #f9e2af;">5 files</span>     <span style="color: #a6e3a1;">08:12</span>
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #a6adc8;">REQUEST &amp; CONFIG</span>                     <span style="color: #a6adc8;">ADAPTERS</span>                   <span style="color: #a6adc8;">STREAM · OUTPUT</span>
+
+review mode: general code review     NAME      STATUS     TIME   <span style="color: #6c7086;">│</span> <span style="color: #585b70;">INF</span> reading input 4,211
+base: origin/main                                                <span style="color: #6c7086;">│</span> <span style="color: #585b70;">INF</span> chunk 1/3 sent
+files: 12 changed                    <span style="color: #94e2d5;">kimi</span>      <span style="color: #1e1e2e; background: #a6e3a1;"> running </span>  8.2s  <span style="color: #6c7086;">│</span> <span style="color: #585b70;">INF</span> analyzing users.ts
+  API(3) Comp(4) Lib(2)              <span style="color: #cba6f7;">qwen</span>      <span style="color: #6c7086;">queued</span>    ──     <span style="color: #6c7086;">│</span> <span style="color: #f9e2af;">WRN</span> chunk 2/3 sent
+  Test(2) Config(1)                  <span style="color: #89b4fa;">codex</span>     <span style="color: #6c7086;">queued</span>    ──     <span style="color: #6c7086;">│</span> <span style="color: #585b70;">INF</span> found injection L42
+                                     <span style="color: #74c7ec;">gemini</span>    <span style="color: #6c7086;">──</span>        ──     <span style="color: #6c7086;">│</span> <span style="color: #f38ba8;">CRI</span> SQL injection
+                                                                <span style="color: #6c7086;">│</span> <span style="color: #585b70;">INF</span> retry chunk 3...
+  bridge: <span style="color: #a6e3a1;">ON</span>                         Targets: 3  ████░░ 33%     <span style="color: #6c7086;">│</span> <span style="color: #585b70;">INF</span> chunk 3/3 sent
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #a6adc8;">EVENTS</span>
+
+<span style="color: #6c7086;">08:04.0</span>  review requested — <span style="color: #94e2d5;">kimi</span> + <span style="color: #cba6f7;">qwen</span> + <span style="color: #89b4fa;">codex</span> (bridge mode)
+<span style="color: #6c7086;">08:04.1</span>  context created — 12 files, 3 redacted, workspace /tmp/mmctx-a8f2
+<span style="color: #6c7086;">08:04.5</span>  <span style="color: #94e2d5;">kimi</span> dispatched — review mode, timeout 300s
+<span style="color: #6c7086;">08:04.5</span>  <span style="color: #cba6f7;">qwen</span> dispatched — review mode, timeout 300s
+<span style="color: #6c7086;">08:04.6</span>  <span style="color: #89b4fa;">codex</span> dispatched — review mode, timeout 300s
+<span style="color: #6c7086;">08:08.2</span>  <span style="color: #94e2d5;">kimi</span> streaming — <span style="color: #f38ba8;">1 CRITICAL</span> found so far
+<span style="color: #6c7086;">────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #6c7086;">r Refresh │ 1-3 Tabs │ ? Help │ q Quit              mmbridge v0.6.0</span></pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Sessions (Tab 2) — 완료된 리뷰 결과 탐색</h3>
+  <div class="mockup">
+    <div class="mockup-header">mmbridge — Sessions</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.35; padding: 12px; background: #1e1e2e; letter-spacing: 0.3px;">
+<pre style="color: #cdd6f4; margin: 0;"><span style="color: #b4befe; font-weight: bold;">mmbridge</span>   <span style="color: #6c7086;">1:Dashboard</span>  <span style="color: #cdd6f4; text-decoration: underline;">2:Sessions</span>  <span style="color: #6c7086;">3:Config</span>                     <span style="color: #6c7086;">main (dda16bd)</span>
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #a6adc8;">SESSION LIST</span>              <span style="color: #a6adc8;">DETAIL</span>                      <span style="color: #a6adc8;">FINDINGS</span>
+
+  <span style="color: #6c7086;">DATE</span>    <span style="color: #6c7086;">TOOL</span>   <span style="color: #6c7086;">MODE</span>  <span style="color: #6c7086;">F</span>  #abc12345
+<span style="color: #a6e3a1;">❯</span> 03-15 <span style="color: #94e2d5;">kimi</span>   revw  <span style="color: #f9e2af;">5</span>  <span style="color: #94e2d5;">kimi</span> / review / 1h ago     <span style="color: #cdd6f4;">▼</span> <span style="color: #cdd6f4; font-weight: bold;">api/users.ts</span> (3)
+  03-15 <span style="color: #cba6f7;">qwen</span>   revw  <span style="color: #6c7086;">2</span>  3 files │ 5 findings          <span style="color: #f38ba8;">  ◆ CRIT</span> SQL injection L42
+  03-14 <span style="color: #89b4fa;">codex</span>  secu  <span style="color: #f38ba8;">8</span>  <span style="color: #f38ba8;">◆1</span> <span style="color: #f9e2af;">▲2</span> <span style="color: #89dceb;">●1</span> <span style="color: #fab387;">◇1</span>                <span style="color: #f9e2af;">  ▲ WARN</span> Missing auth L15
+  03-14 <span style="color: #94e2d5;">kimi</span>   revw  <span style="color: #6c7086;">3</span>                                <span style="color: #89dceb;">  ● INFO</span> Naming conv
+  03-13 <span style="color: #cba6f7;">qwen</span>   arch  <span style="color: #6c7086;">0</span>  Files
+  03-13 <span style="color: #89b4fa;">codex</span>  revw  <span style="color: #6c7086;">4</span>    API(2) Component(1)       <span style="color: #cdd6f4;">▼</span> <span style="color: #cdd6f4; font-weight: bold;">components/Form</span> (1)
+  03-12 <span style="color: #94e2d5;">kimi</span>   secu  <span style="color: #f9e2af;">6</span>    Test(1)                   <span style="color: #f9e2af;">  ▲ WARN</span> XSS risk L88
+  03-12 <span style="color: #cba6f7;">qwen</span>   revw  <span style="color: #6c7086;">1</span>
+                          Chain                        <span style="color: #cdd6f4;">▼</span> <span style="color: #cdd6f4; font-weight: bold;">utils/helpers</span> (1)
+  <span style="color: #6c7086;">8/34 sessions</span>            #ef1 → <span style="color: #b4befe;">#abc</span> (cur)            <span style="color: #89dceb;">  ● INFO</span> Extract logic
+  <span style="color: #b4befe;">▁▂▃▅▇▅▃</span> <span style="color: #6c7086;">4.9/d</span>       Status <span style="color: #a6e3a1;">complete</span>
+<span style="color: #313244;">─────────────────────────────────────────────────────────────────────────────</span>
+<span style="color: #6c7086;">j/k Navigate │ Enter View │ f Followup │ e Export │ q Quit</span></pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Key Design Decisions vs Goyo Reference</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Goyo에서 가져온 것</h4>
+      <ul>
+        <li>상단 메타데이터 바 (PROJECT, SESSIONS, RUNNING, ELAPSED)</li>
+        <li>테이블 형태 어댑터 상태 (NAME, STATUS, TIME 컬럼)</li>
+        <li>하단 EVENTS 로그 (타임스탬프 + 이벤트 스트림)</li>
+        <li>오른쪽 STREAM 출력 (실시간 텍스트 흐름)</li>
+        <li>진행률 바 (████░░ 33%)</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>mmbridge에 맞게 변형한 것</h4>
+      <ul>
+        <li>Goyo의 밝은 테마 → Catppuccin Mocha 유지 (터미널 일관성)</li>
+        <li>Goyo의 에이전트 그래프 → 어댑터 테이블로 단순화</li>
+        <li>EVENTS 로그에 severity 하이라이트 추가</li>
+        <li>Sessions 탭 3컬럼 유지</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h3>이 디자인 방향 승인?</h3>
+<div class="options">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>승인</h3>
+      <p>Goyo-inspired 대시보드 + 이벤트 로그 + 스트림. 이대로 구현.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>터미널에서 설명해주세요</p>
+    </div>
+  </div>
+</div>

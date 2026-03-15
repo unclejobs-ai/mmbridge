@@ -8,12 +8,12 @@ import { describe, it } from 'node:test';
 
 describe('@mmbridge/cli', () => {
   it('exports main function', async () => {
-    const mod = await import('../src/index.js');
+    const mod = await import('../dist/index.js');
     assert.equal(typeof mod.main, 'function', 'main must be a function');
   });
 
   it('main returns a Promise', async () => {
-    const mod = await import('../src/index.js');
+    const mod = await import('../dist/index.js');
     // Run with --help so it exits cleanly without network I/O
     const originalArgv = process.argv;
     process.argv = ['node', 'mmbridge', '--help'];
@@ -40,7 +40,7 @@ describe('@mmbridge/cli', () => {
 
 describe('ReviewCommandOptions type shape', () => {
   it('type is structurally compatible', async () => {
-    const mod = await import('../src/index.js');
+    const mod = await import('../dist/index.js');
     // Verify that the exported types exist by checking the module shape.
     // TypeScript will enforce type correctness at compile time.
     assert.ok(mod, 'module imported successfully');

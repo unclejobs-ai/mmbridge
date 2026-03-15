@@ -77,6 +77,9 @@ export { parseFindings, detectParseState } from './finding-parser.js';
 export { orchestrateReview } from './orchestrate.js';
 export type { OrchestrateOptions, OrchestrateResult, ToolResult } from './orchestrate.js';
 
+export { runReviewPipeline } from './review-pipeline.js';
+export type { ReviewPipelineOptions, ReviewPipelineResult } from './review-pipeline.js';
+
 export { interpretFindings } from './interpret.js';
 
 export { exportReport } from './export.js';

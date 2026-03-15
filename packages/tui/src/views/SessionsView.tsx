@@ -1,8 +1,9 @@
 import React, { useCallback, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { Session } from '@mmbridge/session-store';
-import { colors, toolColor, severityColor, severityIcon, CHARS } from '../theme.js';
+import { colors, toolColor, CHARS } from '../theme.js';
 import { Panel } from '../components/Panel.js';
+import { FindingsPreview } from '../components/FindingsPreview.js';
 import { PromptInput } from '../components/PromptInput.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { SeverityBar } from '../components/SeverityBar.js';
@@ -27,18 +28,19 @@ interface SessionRowProps {
   isFollowup: boolean;
 }
 
+function sessionRowPrefix(isSelected: boolean, isFollowup: boolean): { text: string; color: string } {
+  if (isSelected) return { text: CHARS.selected + ' ', color: colors.green };
+  if (isFollowup) return { text: CHARS.followup + ' ', color: colors.accent };
+  return { text: '  ', color: colors.overlay0 };
+}
+
 function SessionRow({ session, isSelected, isFollowup }: SessionRowProps): React.ReactElement {
   const findingCount = (session.findings ?? []).length;
-  const prefix = isSelected
-    ? CHARS.selected + ' '
-    : isFollowup
-    ? CHARS.followup + ' '
-    : '  ';
-  const prefixColor = isSelected ? colors.green : isFollowup ? colors.accent : colors.overlay0;
+  const prefix = sessionRowPrefix(isSelected, isFollowup);
 
   return (
     <Box flexDirection="row">
-      <Text color={prefixColor}>{prefix}</Text>
+      <Text color={prefix.color}>{prefix.text}</Text>
       <Text color={isSelected ? colors.text : colors.overlay1}>
         {formatCompactDate(session.createdAt)}
       </Text>
@@ -95,20 +97,12 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
           <>
             <Text color={colors.textDim}>{' │ '}</Text>
             <Text color={colors.subtext0}>{resultIndex.filesTouched} files</Text>
-            <Text color={colors.textDim}>{' │ '}</Text>
-            <Text color={findings.length > 0 ? colors.yellow : colors.textDim}>
-              {findings.length} finds
-            </Text>
           </>
         )}
-        {resultIndex == null && (
-          <>
-            <Text color={colors.textDim}>{' │ '}</Text>
-            <Text color={findings.length > 0 ? colors.yellow : colors.textDim}>
-              {findings.length} finds
-            </Text>
-          </>
-        )}
+        <Text color={colors.textDim}>{' │ '}</Text>
+        <Text color={findings.length > 0 ? colors.yellow : colors.textDim}>
+          {findings.length} finds
+        </Text>
       </Box>
 
       {/* Severity bar */}
@@ -247,21 +241,19 @@ export function SessionsView(): React.ReactElement {
   }
 
   const visibleSessions = sessions.slice(0, PAGE_SIZE);
+  const selectedFindings = selected ? sessionToFindings(selected) : [];
 
   return (
     <Box flexDirection="column" width="100%" paddingY={1}>
-      {/* Main row: list + detail */}
+      {/* Main row: list + detail + findings (3-column) */}
       <Box flexDirection="row" width="100%" gap={1}>
-        {/* Left: Sessions list panel (~40%) */}
-        <Panel title="SESSIONS" width={42}>
-          {/* Activity sparkline */}
+        {/* Left: Sessions list */}
+        <Panel title="SESSIONS" width={36} minWidth={30}>
           <Box flexDirection="row" gap={1} marginTop={1} marginBottom={1}>
-            <Text color={colors.textDim}>Activity:</Text>
-            <Sparkline data={sparkData} color={colors.accent} width={8} />
+            <Sparkline data={sparkData} color={colors.accent} width={7} />
             <Text color={colors.textDim}>{sessions.length} total</Text>
           </Box>
 
-          {/* Session rows */}
           <Box flexDirection="column">
             {visibleSessions.map((s, i) => {
               const isFollowup = s.externalSessionId != null || s.parentSessionId != null;
@@ -276,15 +268,14 @@ export function SessionsView(): React.ReactElement {
             })}
           </Box>
 
-          {/* Footer */}
           <Box marginTop={1}>
             <Text color={colors.textDim}>
-              Showing {visibleSessions.length} of {sessions.length}
+              {visibleSessions.length}/{sessions.length}
             </Text>
           </Box>
         </Panel>
 
-        {/* Right: Detail panel (~60%) */}
+        {/* Center: Detail panel */}
         <Panel title="DETAIL" flexGrow={1} borderColor={colors.surface1}>
           {selected != null ? (
             <Box marginTop={1}>
@@ -294,13 +285,9 @@ export function SessionsView(): React.ReactElement {
             <Text color={colors.textDim}>No session selected.</Text>
           )}
         </Panel>
-      </Box>
 
-      {/* Key hints */}
-      <Box marginTop={1} paddingX={1}>
-        <Text color={colors.overlay0}>
-          {' j/k Navigate │ Enter View Findings │ f Followup │ e Export'}
-        </Text>
+        {/* Right: Findings preview */}
+        <FindingsPreview findings={selectedFindings} maxFiles={6} maxFindings={2} />
       </Box>
 
       {/* Followup input */}

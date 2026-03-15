@@ -7,6 +7,8 @@ interface PanelProps {
   width?: number | string;
   flexGrow?: number;
   borderColor?: string;
+  height?: number;
+  minWidth?: number;
   children: React.ReactNode;
 }
 
@@ -15,6 +17,8 @@ export function Panel({
   width,
   flexGrow,
   borderColor = colors.surface0,
+  height,
+  minWidth,
   children,
 }: PanelProps): React.ReactElement {
   return (
@@ -25,6 +29,9 @@ export function Panel({
       width={flexGrow !== undefined ? undefined : width}
       flexGrow={flexGrow}
       paddingX={1}
+      height={height}
+      minWidth={minWidth}
+      overflowY={height ? 'hidden' : undefined}
     >
       <Text color={colors.subtext0} bold>
         {title}

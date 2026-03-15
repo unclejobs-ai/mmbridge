@@ -1,0 +1,120 @@
+<h2>TUI Refined — 가독성 + 정보 밀도</h2>
+<p class="subtitle">터미널에서의 시각적 계층: dim → muted → normal → bold → accent</p>
+
+<div class="section">
+  <h3>Dashboard — Idle State (리뷰 안 돌아갈 때)</h3>
+  <div class="mockup">
+    <div class="mockup-header" style="font-family: monospace;">mmbridge — Dashboard (idle)</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace; font-size: 11.5px; line-height: 1.5; padding: 16px 20px; background: #1e1e2e; letter-spacing: 0.2px;">
+<pre style="color: #cdd6f4; margin: 0;"> <span style="color: #b4befe; font-weight: bold;">mmbridge</span>  <span style="color: #45475a;">│</span>  <span style="color: #cdd6f4; text-decoration: underline;">Dashboard</span>   Sessions   Config  <span style="color: #45475a;">│</span>  <span style="color: #6c7086;">main</span> <span style="color: #45475a;">(</span><span style="color: #6c7086;">dda16bd</span><span style="color: #45475a;">)</span>  <span style="color: #f9e2af;">5△</span>
+
+
+ <span style="color: #45475a;">┌──────────────────────────────────┐  ┌──────────────────────────────────┐</span>
+ <span style="color: #45475a;">│</span> <span style="color: #a6adc8; font-weight: bold;">ADAPTERS</span>             <span style="color: #6c7086;">4 of 6</span>     <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span> <span style="color: #a6adc8; font-weight: bold;">PROJECT</span>                          <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #a6e3a1;">✓</span> <span style="color: #94e2d5; font-weight: bold;">kimi</span>    <span style="color: #7f849c;">12</span>  <span style="color: #94e2d5;">▂▃▅▃▁▂▄</span>  <span style="color: #585b70;">3d</span>  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">path</span>    <span style="color: #bac2de;">~/project/my-app</span>        <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #a6e3a1;">✓</span> <span style="color: #cba6f7; font-weight: bold;">qwen</span>    <span style="color: #7f849c;">20</span>  <span style="color: #cba6f7;">▁▂▃▅▇▅▃</span>  <span style="color: #585b70;">1d</span>  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">branch</span>  <span style="color: #bac2de;">main</span> <span style="color: #585b70;">(dda16bd)</span>       <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #a6e3a1;">✓</span> <span style="color: #89b4fa; font-weight: bold;">codex</span>   <span style="color: #7f849c;">26</span>  <span style="color: #89b4fa;">▃▅▇▅▃▂▁</span>  <span style="color: #585b70;">1d</span>  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">dirty</span>   <span style="color: #f9e2af;">5 files</span>                 <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #a6e3a1;">✓</span> <span style="color: #74c7ec; font-weight: bold;">gemini</span>  <span style="color: #7f849c;"> 7</span>  <span style="color: #74c7ec;">▁▁▂▃▁▁▁</span>  <span style="color: #585b70;">5d</span>  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">base</span>    <span style="color: #bac2de;">origin/main</span>            <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">✗</span> <span style="color: #585b70;">droid</span>   <span style="color: #585b70;"> ·</span>  <span style="color: #585b70;">───────</span>  <span style="color: #585b70;">──</span>  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">commit</span>  <span style="color: #6c7086;">feat: add streaming</span>    <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">✗</span> <span style="color: #585b70;">claude</span>  <span style="color: #585b70;"> ·</span>  <span style="color: #585b70;">───────</span>  <span style="color: #585b70;">──</span>  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">└──────────────────────────────────┘  └──────────────────────────────────┘</span>
+
+ <span style="color: #45475a;">┌──────────────────────────────────┐  ┌──────────────────────────────────┐</span>
+ <span style="color: #45475a;">│</span> <span style="color: #a6adc8; font-weight: bold;">ACTIVITY</span>  <span style="color: #6c7086;">7 days</span>              <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span> <span style="color: #a6adc8; font-weight: bold;">LAST REVIEW</span>                     <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #b4befe;">▁▂▃▅▇▅▃</span>  <span style="color: #7f849c;">avg 4.9/d</span>  <span style="color: #585b70;">34 total</span> <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #cba6f7; font-weight: bold;">qwen</span> <span style="color: #585b70;">/</span> <span style="color: #7f849c;">review</span> <span style="color: #585b70;">/</span> <span style="color: #585b70;">1d ago</span>       <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #f38ba8;">◆ 41</span>  <span style="color: #f9e2af;">▲ 43</span>  <span style="color: #89dceb;">● 71</span>  <span style="color: #fab387;">◇ 1</span>    <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #f38ba8;">◆ 0</span>  <span style="color: #f9e2af;">▲ 0</span>  <span style="color: #89dceb;">● 2</span>  <span style="color: #fab387;">◇ 0</span>         <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">2 findings (0 filtered)</span>        <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">└──────────────────────────────────┘  └──────────────────────────────────┘</span>
+
+ <span style="color: #45475a;">┌─</span> <span style="color: #a6adc8; font-weight: bold;">EVENTS</span> <span style="color: #45475a;">───────────────────────────────────────────────────────────────┐</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">no active review — run</span> <span style="color: #bac2de;">mmbridge review --stream</span> <span style="color: #585b70;">to start</span>               <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">└──────────────────────────────────────────────────────────────────────────┘</span>
+
+ <span style="color: #585b70;">r</span> <span style="color: #6c7086;">Refresh</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">1-3</span> <span style="color: #6c7086;">Tabs</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">?</span> <span style="color: #6c7086;">Help</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">q</span> <span style="color: #6c7086;">Quit</span></pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Dashboard — Active Review (리뷰 진행 중)</h3>
+  <div class="mockup">
+    <div class="mockup-header" style="font-family: monospace;">mmbridge — Dashboard (live review)</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace; font-size: 11.5px; line-height: 1.5; padding: 16px 20px; background: #1e1e2e; letter-spacing: 0.2px;">
+<pre style="color: #cdd6f4; margin: 0;"> <span style="color: #b4befe; font-weight: bold;">mmbridge</span>  <span style="color: #45475a;">│</span>  <span style="color: #cdd6f4; text-decoration: underline;">Dashboard</span>   Sessions   Config  <span style="color: #45475a;">│</span>  <span style="color: #6c7086;">main</span> <span style="color: #45475a;">(</span><span style="color: #6c7086;">dda16bd</span><span style="color: #45475a;">)</span>  <span style="color: #a6e3a1;">● LIVE</span>
+
+
+ <span style="color: #45475a;">┌──────────────────────────────────┐  ┌──────────────────────────────────┐</span>
+ <span style="color: #45475a;">│</span> <span style="color: #a6adc8; font-weight: bold;">REVIEW</span>  <span style="color: #94e2d5;">kimi</span> <span style="color: #585b70;">·</span> <span style="color: #7f849c;">review</span> <span style="color: #585b70;">·</span> <span style="color: #a6e3a1;">⣾</span> <span style="color: #a6e3a1;">8.2s</span> <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span> <span style="color: #a6adc8; font-weight: bold;">STREAM</span>                           <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #a6e3a1;">■■■■■■■■■■■■■■</span><span style="color: #313244;">░░░░░░</span>  <span style="color: #7f849c;">67%</span>     <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">INF</span>  <span style="color: #6c7086;">reading input 4,211</span>       <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">INF</span>  <span style="color: #6c7086;">chunk 1/3 sent</span>            <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">context</span>   <span style="color: #a6e3a1;">✓</span> <span style="color: #585b70;">0.4s</span>  <span style="color: #585b70;">12 files</span>   <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">INF</span>  <span style="color: #6c7086;">analyzing users.ts</span>        <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">redact</span>    <span style="color: #a6e3a1;">✓</span> <span style="color: #585b70;">0.1s</span>  <span style="color: #585b70;">3 redacted</span> <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #f9e2af;">WRN</span>  <span style="color: #f9e2af;">missing auth check L15</span>    <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #f9e2af;">review</span>    <span style="color: #a6e3a1;">⣾</span> <span style="color: #a6e3a1;">7.7s</span>               <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #f38ba8;">CRI</span>  <span style="color: #f38ba8;">SQL injection at L42</span>      <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">enrich</span>    <span style="color: #585b70;">○</span>                     <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">INF</span>  <span style="color: #6c7086;">checking Form.tsx</span>         <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>                                  <span style="color: #45475a;">│</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">INF</span>  <span style="color: #6c7086;">retry chunk 3, backoff</span>    <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">└──────────────────────────────────┘  └──────────────────────────────────┘</span>
+
+ <span style="color: #45475a;">┌─</span> <span style="color: #a6adc8; font-weight: bold;">EVENTS</span> <span style="color: #45475a;">───────────────────────────────────────────────────────────────┐</span>
+ <span style="color: #45475a;">│</span>                                                                      <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">08:04.0</span>  review requested — <span style="color: #94e2d5;">kimi</span> (review mode)                       <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">08:04.1</span>  context created — 12 files, 3 redacted                      <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">08:04.5</span>  <span style="color: #94e2d5;">kimi</span> dispatched — timeout 300s                              <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">08:08.2</span>  <span style="color: #94e2d5;">kimi</span> streaming — <span style="color: #f38ba8;">1 CRITICAL</span> found                           <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>  <span style="color: #585b70;">08:11.9</span>  <span style="color: #94e2d5;">kimi</span> streaming — <span style="color: #f9e2af;">1 WARNING</span> found                            <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">│</span>                                                                      <span style="color: #45475a;">│</span>
+ <span style="color: #45475a;">└──────────────────────────────────────────────────────────────────────────┘</span>
+
+ <span style="color: #585b70;">r</span> <span style="color: #6c7086;">Refresh</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">1-3</span> <span style="color: #6c7086;">Tabs</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">?</span> <span style="color: #6c7086;">Help</span>  <span style="color: #45475a;">│</span>  <span style="color: #585b70;">q</span> <span style="color: #6c7086;">Quit</span></pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>가독성 개선 포인트</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+    <div style="background: rgba(180, 190, 254, 0.08); border: 1px solid rgba(180, 190, 254, 0.15); border-radius: 8px; padding: 16px;">
+      <h4 style="color: #b4befe; margin: 0 0 10px;">시각적 계층 (5단계)</h4>
+      <div style="font-family: monospace; font-size: 12px; line-height: 2;">
+        <span style="color: #45475a;">■</span> <span style="color: #6c7086;">surface0 — 테두리, 구분선</span><br>
+        <span style="color: #585b70;">■</span> <span style="color: #6c7086;">surface2 — dim 라벨 (path, branch)</span><br>
+        <span style="color: #7f849c;">■</span> <span style="color: #6c7086;">overlay1 — 수치, 부가 정보</span><br>
+        <span style="color: #bac2de;">■</span> <span style="color: #6c7086;">subtext1 — 주요 값</span><br>
+        <span style="color: #cdd6f4;">■ <b>■</b></span> <span style="color: #6c7086;">text — 제목, 강조</span>
+      </div>
+    </div>
+    <div style="background: rgba(166, 227, 161, 0.08); border: 1px solid rgba(166, 227, 161, 0.15); border-radius: 8px; padding: 16px;">
+      <h4 style="color: #a6e3a1; margin: 0 0 10px;">이전 대비 변경</h4>
+      <ul style="color: #bac2de; font-size: 13px; padding-left: 16px; margin: 0; line-height: 1.8;">
+        <li>Box border로 패널 분리 (borderStyle="single")</li>
+        <li>라벨(path, branch)과 값의 색상 차이 명확화</li>
+        <li>미설치 어댑터 완전 dim 처리</li>
+        <li>여백 확보 (패널 내부 padding)</li>
+        <li>숫자 정렬 (padStart)</li>
+        <li>EVENTS 패널 full-width</li>
+        <li>상단 바에 LIVE 인디케이터</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h3>이 가독성 수준 OK?</h3>
+<div class="options">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>승인 — 스펙 작성으로 넘어가자</h3>
+      <p>CLI 스트리밍 + 이 TUI 디자인으로 구현 플랜 작성</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>조금 더 수정</h3>
+      <p>터미널에서 피드백 주세요</p>
+    </div>
+  </div>
+</div>

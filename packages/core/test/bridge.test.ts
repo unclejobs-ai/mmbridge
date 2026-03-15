@@ -9,22 +9,22 @@ const f = (overrides: Partial<Finding> & { severity: Finding['severity']; file: 
 });
 
 // runBridge — empty inputs
-test('runBridge: empty results returns 0 findings', () => {
-  const result = runBridge({ results: [] });
+test('runBridge: empty results returns 0 findings', async () => {
+  const result = await runBridge({ results: [] });
   assert.equal(result.totalInputs, 0);
   assert.equal(result.consensusFindings, 0);
   assert.deepEqual(result.findings, []);
   assert.equal(result.summary, 'No inputs to bridge.');
 });
 
-test('runBridge: undefined options returns empty result', () => {
-  const result = runBridge();
+test('runBridge: undefined options returns empty result', async () => {
+  const result = await runBridge();
   assert.equal(result.totalInputs, 0);
   assert.equal(result.findings.length, 0);
 });
 
-test('runBridge: skipped results are ignored', () => {
-  const result = runBridge({
+test('runBridge: skipped results are ignored', async () => {
+  const result = await runBridge({
     results: [
       { tool: 'a', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })], skipped: true },
     ],
@@ -34,9 +34,9 @@ test('runBridge: skipped results are ignored', () => {
 });
 
 // runBridge — single tool findings
-test('runBridge: standard profile requires 2 tools for consensus', () => {
+test('runBridge: standard profile requires 2 tools for consensus', async () => {
   // single tool, WARNING — should not pass standard threshold of 2
-  const result = runBridge({
+  const result = await runBridge({
     profile: 'standard',
     results: [
       { tool: 'tool1', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] },
@@ -46,8 +46,8 @@ test('runBridge: standard profile requires 2 tools for consensus', () => {
   assert.equal(result.findings.filter((x) => x.severity === 'WARNING').length, 0);
 });
 
-test('runBridge: CRITICAL always passes regardless of threshold', () => {
-  const result = runBridge({
+test('runBridge: CRITICAL always passes regardless of threshold', async () => {
+  const result = await runBridge({
     profile: 'standard',
     results: [
       { tool: 'tool1', findings: [f({ severity: 'CRITICAL', file: 'a.ts', message: 'crit' })] },
@@ -59,9 +59,9 @@ test('runBridge: CRITICAL always passes regardless of threshold', () => {
 });
 
 // runBridge — multi-tool consensus
-test('runBridge: finding from 2 tools passes standard threshold', () => {
+test('runBridge: finding from 2 tools passes standard threshold', async () => {
   const finding = f({ severity: 'WARNING', file: 'a.ts', message: 'shared warning' });
-  const result = runBridge({
+  const result = await runBridge({
     profile: 'standard',
     results: [
       { tool: 'tool1', findings: [finding] },
@@ -73,9 +73,9 @@ test('runBridge: finding from 2 tools passes standard threshold', () => {
   assert.equal(warnings[0].message, 'shared warning');
 });
 
-test('runBridge: sources array contains all contributing tools', () => {
+test('runBridge: sources array contains all contributing tools', async () => {
   const finding = f({ severity: 'WARNING', file: 'a.ts', message: 'shared' });
-  const result = runBridge({
+  const result = await runBridge({
     profile: 'standard',
     results: [
       { tool: 'toolA', findings: [finding] },
@@ -88,8 +88,8 @@ test('runBridge: sources array contains all contributing tools', () => {
   assert.ok(sources.includes('toolB'));
 });
 
-test('runBridge: strict profile threshold is 1 (every finding passes)', () => {
-  const result = runBridge({
+test('runBridge: strict profile threshold is 1 (every finding passes)', async () => {
+  const result = await runBridge({
     profile: 'strict',
     results: [
       { tool: 'tool1', findings: [f({ severity: 'INFO', file: 'a.ts', message: 'info' })] },
@@ -98,10 +98,10 @@ test('runBridge: strict profile threshold is 1 (every finding passes)', () => {
   assert.equal(result.findings.length, 1);
 });
 
-test('runBridge: relaxed profile threshold is 3', () => {
+test('runBridge: relaxed profile threshold is 3', async () => {
   const finding = f({ severity: 'WARNING', file: 'a.ts', message: 'w' });
   // 2 tools — should not meet threshold of 3
-  const result2 = runBridge({
+  const result2 = await runBridge({
     profile: 'relaxed',
     results: [
       { tool: 'a', findings: [finding] },
@@ -111,7 +111,7 @@ test('runBridge: relaxed profile threshold is 3', () => {
   assert.equal(result2.findings.filter((x) => x.severity === 'WARNING').length, 0);
 
   // 3 tools — meets threshold
-  const result3 = runBridge({
+  const result3 = await runBridge({
     profile: 'relaxed',
     results: [
       { tool: 'a', findings: [finding] },
@@ -122,8 +122,8 @@ test('runBridge: relaxed profile threshold is 3', () => {
   assert.equal(result3.findings.filter((x) => x.severity === 'WARNING').length, 1);
 });
 
-test('runBridge: profile defaults to standard', () => {
-  const result = runBridge({
+test('runBridge: profile defaults to standard', async () => {
+  const result = await runBridge({
     results: [
       { tool: 't', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] },
     ],
@@ -131,8 +131,8 @@ test('runBridge: profile defaults to standard', () => {
   assert.equal(result.profile, 'standard');
 });
 
-test('runBridge: counts map severity to total unique findings seen', () => {
-  const result = runBridge({
+test('runBridge: counts map severity to total unique findings seen', async () => {
+  const result = await runBridge({
     profile: 'strict',
     results: [
       {
@@ -150,8 +150,8 @@ test('runBridge: counts map severity to total unique findings seen', () => {
   assert.equal(result.counts['INFO'], 1);
 });
 
-test('runBridge: summary includes profile name and finding count', () => {
-  const result = runBridge({
+test('runBridge: summary includes profile name and finding count', async () => {
+  const result = await runBridge({
     profile: 'strict',
     results: [
       { tool: 'tool1', findings: [f({ severity: 'WARNING', file: 'a.ts', message: 'w' })] },

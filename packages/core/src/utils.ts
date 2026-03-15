@@ -15,6 +15,8 @@ export async function runCommand(
     env = process.env,
     timeoutMs = 120000,
     killGraceMs = 5000,
+    onStdout: onStdoutCb,
+    onStderr: onStderrCb,
   } = options;
 
   return new Promise((resolve) => {
@@ -50,11 +52,15 @@ export async function runCommand(
     }, timeoutMs);
 
     child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      onStdoutCb?.(text);
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      onStderrCb?.(text);
     });
 
     child.on('error', (error: Error) => {

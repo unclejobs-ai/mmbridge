@@ -19,7 +19,10 @@ export async function ensureBinary(binary: string): Promise<void> {
 export async function invoke(
   command: string,
   args: string[],
-  options: RunCommandOptions = {},
+  options: RunCommandOptions & {
+    onStdout?: (chunk: string) => void;
+    onStderr?: (chunk: string) => void;
+  } = {},
 ): Promise<RunResult> {
   const { runCommand } = await loadCoreUtils();
   return runCommand(command, args, options);

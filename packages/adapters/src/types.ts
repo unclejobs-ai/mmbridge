@@ -6,6 +6,10 @@ export interface ReviewOptions {
   commit?: string;
   changedFiles?: string[];
   sessionId?: string;
+  /** Called with each stdout chunk as it arrives from the adapter process */
+  onStdout?: (chunk: string) => void;
+  /** Called with each stderr chunk as it arrives from the adapter process */
+  onStderr?: (chunk: string) => void;
 }
 
 export interface FollowupOptions {

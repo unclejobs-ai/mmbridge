@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { colors, toolColor, CHARS, ADAPTER_NAMES } from '../theme.js';
+import { Panel } from '../components/Panel.js';
+import { StreamPanel } from '../components/StreamPanel.js';
 import { ProgressSteps } from '../components/ProgressSteps.js';
 import type { StepStatus } from '../components/ProgressSteps.js';
 import { useTui, REVIEW_MODES } from '../store.js';
@@ -11,16 +13,23 @@ const PROGRESS_BAR_WIDTH = 20;
 const PHASE_ORDER = ['context', 'redact', 'review', 'enrich'] as const;
 type ReviewPhase = (typeof PHASE_ORDER)[number];
 
-function buildSteps(phase: ReviewPhase | 'bridge' | null): Array<{ label: string; status: StepStatus }> {
-  const phaseIndex = phase === 'bridge'
-    ? PHASE_ORDER.length // all done in bridge mode
-    : phase != null
-      ? PHASE_ORDER.indexOf(phase as ReviewPhase)
-      : -1;
+function phaseToIndex(phase: ReviewPhase | 'bridge' | null): number {
+  if (phase === 'bridge') return PHASE_ORDER.length;
+  if (phase == null) return -1;
+  return PHASE_ORDER.indexOf(phase as ReviewPhase);
+}
 
+function stepStatus(stepIndex: number, activeIndex: number): StepStatus {
+  if (stepIndex < activeIndex) return 'done';
+  if (stepIndex === activeIndex) return 'active';
+  return 'pending';
+}
+
+function buildSteps(phase: ReviewPhase | 'bridge' | null): Array<{ label: string; status: StepStatus }> {
+  const activeIndex = phaseToIndex(phase);
   return PHASE_ORDER.map((p, i) => ({
     label: p.charAt(0).toUpperCase() + p.slice(1),
-    status: i < phaseIndex ? 'done' : i === phaseIndex ? 'active' : 'pending',
+    status: stepStatus(i, activeIndex),
   }));
 }
 
@@ -40,6 +49,26 @@ function buildProgressBar(steps: Array<{ status: StepStatus }>): string {
   );
 }
 
+type BridgeToolStatus = 'pending' | 'running' | 'done' | 'error';
+
+function bridgeStatusIcon(status: BridgeToolStatus): string {
+  switch (status) {
+    case 'done': return CHARS.installed;
+    case 'error': return CHARS.missing;
+    case 'running': return '⟳';
+    default: return CHARS.radioOff;
+  }
+}
+
+function bridgeStatusColor(status: BridgeToolStatus): string {
+  switch (status) {
+    case 'done': return colors.green;
+    case 'error': return colors.red;
+    case 'running': return colors.yellow;
+    default: return colors.textDim;
+  }
+}
+
 export function ReviewProgress(): React.ReactElement {
   const [state] = useTui();
   const { review } = state;
@@ -54,55 +83,48 @@ export function ReviewProgress(): React.ReactElement {
   const pct = Math.round(fraction * 100);
 
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1} gap={1} flexGrow={1}>
-      {/* Header */}
-      <Box flexDirection="row" gap={1}>
-        <Text color={colors.yellow} bold>REVIEWING</Text>
-        <Text color={toolColor(selectedTool)} bold>{selectedTool}</Text>
-        <Text color={colors.textMuted}>/</Text>
-        <Text color={colors.text}>{selectedMode}</Text>
-      </Box>
+    <Box flexDirection="column" paddingX={1} paddingY={1} gap={1} flexGrow={1}>
+      {/* Header panel with progress */}
+      <Panel title={`REVIEWING ${selectedTool} / ${selectedMode}`} flexGrow={0}>
+        <Box flexDirection="row" gap={2} marginTop={1}>
+          <Text color={colors.accent}>{progressBar}</Text>
+          <Text color={colors.textMuted}>{pct}%</Text>
+          {review.elapsed > 0 && (
+            <Text color={colors.textDim}>⟳ {review.elapsed.toFixed(1)}s</Text>
+          )}
+        </Box>
+        <ProgressSteps steps={steps} />
+      </Panel>
 
-      {/* Steps */}
-      <ProgressSteps steps={steps} />
-
-      {/* Progress bar */}
-      <Box flexDirection="row" gap={2}>
-        <Text color={colors.accent}>{progressBar}</Text>
-        <Text color={colors.textMuted}>{pct}%</Text>
-      </Box>
-
-      {/* Elapsed */}
-      {review.elapsed > 0 && (
-        <Text color={colors.textMuted}>Elapsed: {review.elapsed.toFixed(1)}s</Text>
-      )}
-
-      {/* Current progress message */}
-      <Box flexDirection="row" gap={1}>
+      {/* Current status */}
+      <Box flexDirection="row" gap={1} paddingX={1}>
         <Text color={colors.green}><Spinner type="dots" /></Text>
         <Text color={colors.text}>{review.progress || 'Initializing...'}</Text>
       </Box>
 
       {/* Bridge tool progress (when in bridge mode) */}
       {Object.keys(state.review.bridgeToolProgress).length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text color={colors.textDim} bold>Tool Progress</Text>
-          {Object.entries(state.review.bridgeToolProgress).map(([tool, status]) => {
-            const statusIcon = status === 'done' ? CHARS.installed : status === 'error' ? CHARS.missing : status === 'running' ? '⟳' : CHARS.radioOff;
-            const statusColor = status === 'done' ? colors.green : status === 'error' ? colors.red : status === 'running' ? colors.yellow : colors.textDim;
-            return (
-              <Box key={tool} flexDirection="row" gap={1}>
-                <Text color={statusColor}>{statusIcon}</Text>
-                <Text color={toolColor(tool)}>{tool.padEnd(8)}</Text>
-                <Text color={statusColor}>{status}</Text>
-              </Box>
-            );
-          })}
-        </Box>
+        <Panel title="TOOL PROGRESS" flexGrow={0}>
+          <Box flexDirection="column" marginTop={1}>
+            {Object.entries(state.review.bridgeToolProgress).map(([tool, status]) => {
+              const icon = bridgeStatusIcon(status);
+              const color = bridgeStatusColor(status);
+              return (
+                <Box key={tool} flexDirection="row" gap={1}>
+                  <Text color={color}>{icon}</Text>
+                  <Text color={toolColor(tool)}>{tool.padEnd(8)}</Text>
+                  <Text color={color}>{status}</Text>
+                </Box>
+              );
+            })}
+          </Box>
+        </Panel>
       )}
 
-      {/* Footer */}
-      <Text color={colors.textMuted}>Ctrl+C Cancel</Text>
+      {/* Live streaming output */}
+      {review.streamBuffer.length > 0 && (
+        <StreamPanel lines={review.streamBuffer} maxLines={10} />
+      )}
     </Box>
   );
 }

@@ -1,0 +1,113 @@
+<h2>TUI v3 — Full-Width, No Box Border</h2>
+<p class="subtitle">Ink Box border 대신 수평 라인 구분 + 고정 컬럼 너비</p>
+
+<div class="section">
+  <h3>핵심 변경: 렌더링 전략</h3>
+  <div class="pros-cons">
+    <div class="cons">
+      <h4>문제: Ink Box border</h4>
+      <ul>
+        <li>flexGrow가 터미널 전체를 못 채움</li>
+        <li>border 문자(┌┐└┘)가 너비 계산에 포함되어 불균형</li>
+        <li>결과: 왼쪽 쏠림, 불균형 패널</li>
+      </ul>
+    </div>
+    <div class="pros">
+      <h4>해결: 직접 컬럼 계산</h4>
+      <ul>
+        <li>useStdout().columns로 터미널 너비 가져오기</li>
+        <li>문자열을 .padEnd(columnWidth)로 강제 채우기</li>
+        <li>수평선 '─'.repeat(columns)로 전체 너비 보장</li>
+        <li>Box border 삭제 → 섹션 헤더 + hrule로 구분</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Dashboard — Idle (full-width, 80 columns)</h3>
+  <div class="mockup">
+    <div class="mockup-header" style="font-family: monospace;">Terminal: 80×24</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'Menlo', monospace; font-size: 11.5px; line-height: 1.45; padding: 8px 12px; background: #1e1e2e; letter-spacing: 0;">
+<pre style="color: #cdd6f4; margin: 0;"><span style="color: #b4befe; font-weight: bold;"> mmbridge</span>  <span style="color: #cdd6f4; text-decoration: underline;">Dashboard</span>  Sessions  Config        <span style="color: #6c7086;">main</span><span style="color: #45475a;">(</span><span style="color: #6c7086;">dda16bd</span><span style="color: #45475a;">)</span> <span style="color: #f9e2af;">5△</span>
+<span style="color: #313244;">────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color: #7f849c;">ADAPTERS</span>                                   <span style="color: #7f849c;">PROJECT</span>
+ <span style="color: #a6e3a1;">✓</span> <span style="color: #94e2d5; font-weight: bold;">kimi</span>     <span style="color: #6c7086;">12</span> <span style="color: #94e2d5;">▂▃▅▃▁▂▄</span> <span style="color: #585b70;">3d ago</span>        <span style="color: #585b70;">path</span>     <span style="color: #bac2de;">~/project/my-app</span>
+ <span style="color: #a6e3a1;">✓</span> <span style="color: #cba6f7; font-weight: bold;">qwen</span>     <span style="color: #6c7086;">20</span> <span style="color: #cba6f7;">▁▂▃▅▇▅▃</span> <span style="color: #585b70;">1d ago</span>        <span style="color: #585b70;">branch</span>   <span style="color: #bac2de;">main</span> <span style="color: #585b70;">(dda16bd)</span>
+ <span style="color: #a6e3a1;">✓</span> <span style="color: #89b4fa; font-weight: bold;">codex</span>    <span style="color: #6c7086;">26</span> <span style="color: #89b4fa;">▃▅▇▅▃▂▁</span> <span style="color: #585b70;">1d ago</span>        <span style="color: #585b70;">dirty</span>    <span style="color: #f9e2af;">5 files</span>
+ <span style="color: #a6e3a1;">✓</span> <span style="color: #74c7ec; font-weight: bold;">gemini</span>   <span style="color: #6c7086;"> 7</span> <span style="color: #74c7ec;">▁▁▂▃▁▁▁</span> <span style="color: #585b70;">5d ago</span>        <span style="color: #585b70;">base</span>     <span style="color: #bac2de;">origin/main</span>
+ <span style="color: #45475a;">✗ droid      ·  ───────  ──</span>              <span style="color: #585b70;">commit</span>   <span style="color: #6c7086;">feat: add streaming</span>
+ <span style="color: #45475a;">✗ claude     ·  ───────  ──</span>
+<span style="color: #313244;">────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color: #7f849c;">ACTIVITY</span> <span style="color: #585b70;">7d</span>                                <span style="color: #7f849c;">LAST REVIEW</span>
+ <span style="color: #b4befe;">▁▂▃▅▇▅▃</span>  <span style="color: #6c7086;">avg 4.9/d · 34 total</span>          <span style="color: #cba6f7; font-weight: bold;">qwen</span> <span style="color: #585b70;">/</span> <span style="color: #6c7086;">review</span> <span style="color: #585b70;">/</span> <span style="color: #585b70;">1d ago</span>
+ <span style="color: #f38ba8;">◆41</span>  <span style="color: #f9e2af;">▲43</span>  <span style="color: #89dceb;">●71</span>  <span style="color: #fab387;">◇1</span>                   <span style="color: #f38ba8;">◆0</span> <span style="color: #f9e2af;">▲0</span> <span style="color: #89dceb;">●2</span> <span style="color: #fab387;">◇0</span>  <span style="color: #585b70;">2 findings</span>
+<span style="color: #313244;">────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color: #7f849c;">EVENTS</span>
+ <span style="color: #585b70;">no active review — run</span> <span style="color: #bac2de;">mmbridge review --stream</span> <span style="color: #585b70;">to start</span>
+
+<span style="color: #313244;">────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color: #585b70;">r</span> <span style="color: #6c7086;">Refresh</span>   <span style="color: #585b70;">1-3</span> <span style="color: #6c7086;">Tabs</span>   <span style="color: #585b70;">?</span> <span style="color: #6c7086;">Help</span>   <span style="color: #585b70;">q</span> <span style="color: #6c7086;">Quit</span>                     <span style="color: #45475a;">v0.6.0</span></pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Dashboard — Live Review (full-width, 80 columns)</h3>
+  <div class="mockup">
+    <div class="mockup-header" style="font-family: monospace;">Terminal: 80×24 — LIVE</div>
+    <div class="mockup-body" style="font-family: 'SF Mono', 'Menlo', monospace; font-size: 11.5px; line-height: 1.45; padding: 8px 12px; background: #1e1e2e; letter-spacing: 0;">
+<pre style="color: #cdd6f4; margin: 0;"><span style="color: #b4befe; font-weight: bold;"> mmbridge</span>  <span style="color: #cdd6f4; text-decoration: underline;">Dashboard</span>  Sessions  Config        <span style="color: #6c7086;">main</span><span style="color: #45475a;">(</span><span style="color: #6c7086;">dda16bd</span><span style="color: #45475a;">)</span> <span style="color: #a6e3a1;">● LIVE</span>
+<span style="color: #313244;">────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color: #7f849c;">REVIEW</span>  <span style="color: #94e2d5; font-weight: bold;">kimi</span> <span style="color: #585b70;">·</span> <span style="color: #6c7086;">review</span>                <span style="color: #7f849c;">STREAM</span>
+ <span style="color: #a6e3a1;">■■■■■■■■■■■■■■■■■■</span><span style="color: #313244;">░░░░░░</span> <span style="color: #6c7086;">75%</span>  <span style="color: #a6e3a1;">12.3s</span>    <span style="color: #45475a;">│</span> <span style="color: #585b70;">INF</span> <span style="color: #6c7086;">reading input 4,211</span>
+                                              <span style="color: #45475a;">│</span> <span style="color: #585b70;">INF</span> <span style="color: #6c7086;">chunk 1/3 sent</span>
+ <span style="color: #a6e3a1;">✓</span> <span style="color: #585b70;">context</span>   <span style="color: #585b70;">0.4s · 12 files</span>             <span style="color: #45475a;">│</span> <span style="color: #585b70;">INF</span> <span style="color: #6c7086;">analyzing users.ts</span>
+ <span style="color: #a6e3a1;">✓</span> <span style="color: #585b70;">redact</span>    <span style="color: #585b70;">0.1s · 3 redacted</span>           <span style="color: #45475a;">│</span> <span style="color: #f9e2af;">WRN</span> <span style="color: #f9e2af;">missing auth L15</span>
+ <span style="color: #a6e3a1;">⣾</span> <span style="color: #cdd6f4;">review</span>    <span style="color: #a6e3a1;">11.8s</span>                      <span style="color: #45475a;">│</span> <span style="color: #f38ba8;">CRI</span> <span style="color: #f38ba8;">SQL injection L42</span>
+ <span style="color: #585b70;">○ enrich</span>                                   <span style="color: #45475a;">│</span> <span style="color: #585b70;">INF</span> <span style="color: #6c7086;">checking Form.tsx</span>
+                                              <span style="color: #45475a;">│</span> <span style="color: #585b70;">INF</span> <span style="color: #6c7086;">retry chunk 3...</span>
+<span style="color: #313244;">────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color: #7f849c;">EVENTS</span>
+ <span style="color: #585b70;">12:04.0</span>  review requested — <span style="color: #94e2d5;">kimi</span> (review)
+ <span style="color: #585b70;">12:04.1</span>  context — 12 files, 3 redacted, <span style="color: #585b70;">/tmp/mmctx-a8f2</span>
+ <span style="color: #585b70;">12:04.5</span>  <span style="color: #94e2d5;">kimi</span> dispatched — timeout 300s
+ <span style="color: #585b70;">12:08.2</span>  <span style="color: #94e2d5;">kimi</span> — <span style="color: #f38ba8;">1 CRITICAL</span> found
+ <span style="color: #585b70;">12:11.9</span>  <span style="color: #94e2d5;">kimi</span> — <span style="color: #f9e2af;">1 WARNING</span> found
+<span style="color: #313244;">────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color: #585b70;">r</span> <span style="color: #6c7086;">Refresh</span>   <span style="color: #585b70;">1-3</span> <span style="color: #6c7086;">Tabs</span>   <span style="color: #585b70;">?</span> <span style="color: #6c7086;">Help</span>   <span style="color: #585b70;">q</span> <span style="color: #6c7086;">Quit</span>                     <span style="color: #45475a;">v0.6.0</span></pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>구현 전략</h3>
+  <div style="background: rgba(180, 190, 254, 0.08); border: 1px solid rgba(180, 190, 254, 0.12); border-radius: 8px; padding: 20px;">
+    <div style="font-family: monospace; color: #bac2de; font-size: 13px; line-height: 1.8;">
+      <strong style="color: #b4befe;">1. useStdout().columns</strong> — 터미널 너비 가져오기<br>
+      <strong style="color: #b4befe;">2. HRule 컴포넌트</strong> — '─'.repeat(columns) 으로 전체 너비 수평선<br>
+      <strong style="color: #b4befe;">3. Row 컴포넌트</strong> — 좌/우 컬럼을 고정 비율로 분할 (예: Math.floor(cols * 0.5))<br>
+      <strong style="color: #b4befe;">4. Box border 전면 삭제</strong> — borderStyle="round/single" 안 씀<br>
+      <strong style="color: #b4befe;">5. 섹션 헤더</strong> — <span style="color: #7f849c;">SECTION NAME</span> 라벨만으로 구분<br>
+      <strong style="color: #b4befe;">6. padEnd 강제</strong> — 모든 텍스트 행을 컬럼 너비에 맞춰 패딩
+    </div>
+  </div>
+</div>
+
+<h3>이 방향으로 스펙 작성?</h3>
+<div class="options">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>승인 — 스펙 작성</h3>
+      <p>Box border 제거, full-width hrule 구분, useStdout columns 기반 렌더링</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>터미널에서 피드백</p>
+    </div>
+  </div>
+</div>

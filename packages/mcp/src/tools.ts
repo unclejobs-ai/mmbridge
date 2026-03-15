@@ -4,34 +4,14 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import {
-  createContext,
-  cleanupContext,
-  parseFindings,
-  enrichFindings,
-  orchestrateReview,
-  runBridge,
-  buildContextIndex,
-  buildResultIndex,
+  runReviewPipeline,
   interpretFindings,
 } from '@mmbridge/core';
-import type { Finding, ContextWorkspace } from '@mmbridge/core';
+import type { Finding } from '@mmbridge/core';
 import { runReviewAdapter, runFollowupAdapter, defaultRegistry } from '@mmbridge/adapters';
 import { SessionStore } from '@mmbridge/session-store';
 
 const store = new SessionStore();
-
-function ctxToContextIndex(ctx: ContextWorkspace, projectDir: string, mode: string) {
-  return buildContextIndex({
-    workspace: ctx.workspace,
-    projectDir,
-    mode,
-    baseRef: ctx.baseRef,
-    head: ctx.head,
-    changedFiles: ctx.changedFiles,
-    copiedFileCount: ctx.copiedFileCount,
-    redaction: ctx.redaction,
-  });
-}
 
 const TOOL_DEFINITIONS = [
   {
@@ -116,10 +96,34 @@ const TOOL_DEFINITIONS = [
       properties: {
         tool: { type: 'string', description: 'Filter by tool name' },
         limit: { type: 'number', default: 10, description: 'Max sessions to return' },
+        query: { type: 'string', description: 'Text search in summaries and findings' },
+        severity: { type: 'string', enum: ['CRITICAL', 'WARNING', 'INFO', 'REFACTOR'], description: 'Filter by severity' },
+      },
+    },
+  },
+  {
+    name: 'mmbridge_search',
+    description: 'Search review sessions by query string, file path, or severity filter.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Text to search in findings and summaries' },
+        file: { type: 'string', description: 'Filter findings by file path (substring match)' },
+        severity: { type: 'string', enum: ['CRITICAL', 'WARNING', 'INFO', 'REFACTOR'], description: 'Filter by exact severity level' },
+        tool: { type: 'string', description: 'Filter by tool name' },
+        limit: { type: 'number', default: 20, description: 'Max results to return' },
       },
     },
   },
 ];
+
+function textContent(text: string, isError = false) {
+  return { content: [{ type: 'text' as const, text }], ...(isError && { isError: true }) };
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export function registerToolHandlers(server: Server): void {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -132,148 +136,46 @@ export function registerToolHandlers(server: Server): void {
 
     switch (name) {
       case 'mmbridge_review':
-        return handleReview(safeArgs);
+        return handleReview(safeArgs, server);
       case 'mmbridge_followup':
         return handleFollowup(safeArgs);
       case 'mmbridge_interpret':
         return handleInterpret(safeArgs);
       case 'mmbridge_sessions':
         return handleSessions(safeArgs);
+      case 'mmbridge_search':
+        return handleSearch(safeArgs);
       default:
-        return {
-          content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
-          isError: true,
-        };
+        return textContent(`Unknown tool: ${name}`, true);
     }
   });
 }
 
-async function handleReview(args: Record<string, unknown>) {
+async function handleReview(args: Record<string, unknown>, server: Server) {
   const tool = String(args['tool'] ?? 'kimi');
   const mode = String(args['mode'] ?? 'review');
-  const bridge = String(args['bridge'] ?? 'none');
+  const bridge = String(args['bridge'] ?? 'none') as 'none' | 'standard' | 'interpreted';
   const baseRef = args['baseRef'] as string | undefined;
   const projectDir = process.cwd();
 
   try {
-    const ctxWorkspace = await createContext({ projectDir, mode, baseRef });
-
-    if (tool === 'all' || bridge !== 'none') {
-      const installedTools = await defaultRegistry.listInstalled();
-      if (installedTools.length === 0) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: 'No review tools installed. Run `mmbridge doctor` to check.',
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      const orchResult = await orchestrateReview({
-        tools: installedTools,
-        workspace: ctxWorkspace.workspace,
-        mode,
-        baseRef: ctxWorkspace.baseRef,
-        changedFiles: ctxWorkspace.changedFiles,
-        runAdapter: (t, opts) => runReviewAdapter(t, opts),
-      });
-
-      const isInterpreted = bridge === 'interpreted';
-      const bridgeResult = await runBridge({
-        profile: 'standard',
-        interpret: isInterpreted,
-        workspace: ctxWorkspace.workspace,
-        changedFiles: ctxWorkspace.changedFiles,
-        results: orchResult.results.map((r) => ({
-          tool: r.tool,
-          findings: r.findings,
-          summary: r.summary,
-          skipped: r.skipped,
-        })),
-      });
-
-      const session = await store.save({
-        tool: 'bridge',
-        mode,
-        projectDir,
-        workspace: ctxWorkspace.workspace,
-        summary: bridgeResult.summary,
-        findings: bridgeResult.findings,
-        contextIndex: ctxToContextIndex(ctxWorkspace, projectDir, mode),
-        resultIndex: buildResultIndex({
-          summary: bridgeResult.summary,
-          findings: bridgeResult.findings,
-          bridgeSummary: bridgeResult.summary,
-        }),
-      });
-
-      await cleanupContext(ctxWorkspace.workspace).catch(() => {});
-
-      const result = {
-        sessionId: session.id,
-        summary: bridgeResult.summary,
-        findings: bridgeResult.findings,
-        toolResults: orchResult.results.map((r) => ({
-          tool: r.tool,
-          findingCount: r.findings.length,
-          skipped: r.skipped,
-        })),
-        interpretation: bridgeResult.interpretation ?? null,
-      };
-
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
-    }
-
-    // Single tool review
-    const adapterResult = await runReviewAdapter(tool, {
-      workspace: ctxWorkspace.workspace,
-      cwd: projectDir,
-      mode,
-      baseRef: ctxWorkspace.baseRef,
-      changedFiles: ctxWorkspace.changedFiles,
-    });
-
-    const rawFindings = parseFindings(adapterResult.text);
-    const enriched = enrichFindings(rawFindings, ctxWorkspace.changedFiles);
-
-    const session = await store.save({
+    const result = await runReviewPipeline({
       tool,
       mode,
       projectDir,
-      workspace: ctxWorkspace.workspace,
-      summary: enriched.summary ?? `${enriched.findings.length} findings`,
-      findings: enriched.findings,
-      externalSessionId: adapterResult.externalSessionId,
-      followupSupported: adapterResult.followupSupported,
-      contextIndex: ctxToContextIndex(ctxWorkspace, projectDir, mode),
-      resultIndex: buildResultIndex({
-        summary: adapterResult.text,
-        findings: enriched.findings,
-        followupSupported: adapterResult.followupSupported,
-      }),
-      status: 'complete',
+      baseRef,
+      bridge: tool === 'all' && bridge === 'none' ? 'standard' : bridge,
+      runAdapter: runReviewAdapter,
+      listInstalledTools: () => defaultRegistry.listInstalled(),
+      saveSession: (data) => store.save(data),
+      onProgress: (phase, detail) => {
+        server.sendLoggingMessage({ level: 'info', data: `[${phase}] ${detail}` }).catch(() => {});
+      },
     });
 
-    await cleanupContext(ctxWorkspace.workspace).catch(() => {});
-
-    const result = {
-      sessionId: session.id,
-      summary: enriched.summary ?? `${enriched.findings.length} findings`,
-      findings: enriched.findings,
-      followupSupported: adapterResult.followupSupported,
-      externalSessionId: adapterResult.externalSessionId,
-    };
-
-    return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    return textContent(JSON.stringify(result, null, 2));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      content: [{ type: 'text' as const, text: `Review failed: ${message}` }],
-      isError: true,
-    };
+    return textContent(`Review failed: ${errorMessage(err)}`, true);
   }
 }
 
@@ -289,30 +191,19 @@ async function handleFollowup(args: Record<string, unknown>) {
       prompt,
     });
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            { tool, sessionId, text: result.text, ok: result.ok },
-            null,
-            2,
-          ),
-        },
-      ],
-    };
+    return textContent(JSON.stringify(
+      { tool, sessionId, text: result.text, ok: result.ok },
+      null,
+      2,
+    ));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      content: [{ type: 'text' as const, text: `Followup failed: ${message}` }],
-      isError: true,
-    };
+    return textContent(`Followup failed: ${errorMessage(err)}`, true);
   }
 }
 
 async function handleInterpret(args: Record<string, unknown>) {
   if (!Array.isArray(args['findings'])) {
-    return { content: [{ type: 'text' as const, text: 'findings must be an array' }], isError: true };
+    return textContent('findings must be an array', true);
   }
   const rawFindings = args['findings'] as Array<Record<string, unknown>>;
   const findings: Finding[] = rawFindings.map((f) => ({
@@ -332,21 +223,39 @@ async function handleInterpret(args: Record<string, unknown>) {
       projectContext: '',
       workspace: process.cwd(),
     });
-    return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    return textContent(JSON.stringify(result, null, 2));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      content: [{ type: 'text' as const, text: `Interpret failed: ${message}` }],
-      isError: true,
-    };
+    return textContent(`Interpret failed: ${errorMessage(err)}`, true);
   }
 }
 
 async function handleSessions(args: Record<string, unknown>) {
   const tool = args['tool'] as string | undefined;
   const limit = typeof args['limit'] === 'number' ? args['limit'] : 10;
+  const query = args['query'] as string | undefined;
+  const severity = args['severity'] as string | undefined;
 
-  const sessions = await store.list({ tool });
+  let sessions = await store.list({ tool });
+
+  // Text search filter
+  if (query) {
+    const q = query.toLowerCase();
+    sessions = sessions.filter((s) => {
+      const summaryMatch = s.summary?.toLowerCase().includes(q) ?? false;
+      const findingMatch = (s.findings ?? []).some(
+        (f) => f.message?.toLowerCase().includes(q) || f.file?.toLowerCase().includes(q),
+      );
+      return summaryMatch || findingMatch;
+    });
+  }
+
+  // Severity filter
+  if (severity) {
+    const sev = severity.toUpperCase();
+    sessions = sessions.filter((s) =>
+      (s.findings ?? []).some((f) => f.severity === sev),
+    );
+  }
 
   const result = sessions.slice(0, limit).map((s) => ({
     id: s.id,
@@ -359,5 +268,58 @@ async function handleSessions(args: Record<string, unknown>) {
     externalSessionId: s.externalSessionId ?? null,
   }));
 
-  return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+  return textContent(JSON.stringify(result, null, 2));
+}
+
+async function handleSearch(args: Record<string, unknown>) {
+  const query = args['query'] as string | undefined;
+  const file = args['file'] as string | undefined;
+  const severity = args['severity'] as string | undefined;
+  const tool = args['tool'] as string | undefined;
+  const limit = typeof args['limit'] === 'number' ? args['limit'] : 20;
+
+  if (!query && !file && !severity && !tool) {
+    return textContent('At least one filter (query, file, severity, or tool) is required.', true);
+  }
+
+  const sessions = await store.list({ tool });
+
+  interface SearchResult {
+    sessionId: string;
+    tool: string;
+    mode: string;
+    createdAt: string;
+    finding: { severity: string; file: string; line: number | null; message: string };
+  }
+
+  const results: SearchResult[] = [];
+
+  const q = query?.toLowerCase();
+  const sevUpper = severity?.toUpperCase();
+
+  for (const session of sessions) {
+    for (const finding of session.findings ?? []) {
+      if (q && !finding.message?.toLowerCase().includes(q) && !finding.file?.toLowerCase().includes(q)) continue;
+      if (file && !finding.file?.includes(file)) continue;
+      if (sevUpper && finding.severity !== sevUpper) continue;
+
+      results.push({
+        sessionId: session.id,
+        tool: session.tool,
+        mode: session.mode,
+        createdAt: session.createdAt,
+        finding: {
+          severity: finding.severity,
+          file: finding.file,
+          line: finding.line,
+          message: finding.message,
+        },
+      });
+
+      if (results.length >= limit) break;
+    }
+    if (results.length >= limit) break;
+  }
+
+  return textContent(JSON.stringify(results, null, 2));
 }

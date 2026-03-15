@@ -6,9 +6,13 @@ import type { AdapterDefinition, AdapterResult } from './types.js';
 export async function runGeminiReview({
   workspace,
   changedFiles,
+  onStdout,
+  onStderr,
 }: {
   workspace: string;
   changedFiles: string[];
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }): Promise<AdapterResult> {
   await ensureBinary('opencode');
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'gemini.md'), 'utf8');
@@ -22,7 +26,7 @@ export async function runGeminiReview({
   }
   for (const file of fileArgs) args.push('-f', file);
   args.push(prompt);
-  const result = await invoke('opencode', args, { cwd: workspace, timeoutMs: 300000 });
+  const result = await invoke('opencode', args, { cwd: workspace, timeoutMs: 300000, onStdout, onStderr });
   assertCliSuccess('opencode', result);
   const externalSessionId = parseExternalSessionId(result.combined, null);
   return {
@@ -110,6 +114,6 @@ export const geminiAdapter: AdapterDefinition = {
   name: 'gemini',
   binary: 'opencode',
   review: (options) =>
-    runGeminiReview({ workspace: options.workspace, changedFiles: options.changedFiles ?? [] }),
+    runGeminiReview({ workspace: options.workspace, changedFiles: options.changedFiles ?? [], onStdout: options.onStdout, onStderr: options.onStderr }),
   followup: (options) => runGeminiFollowup(options),
 };
