@@ -1,13 +1,13 @@
 import React, { useCallback, useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useStdout } from 'ink';
 import type { Session } from '@mmbridge/session-store';
 import { colors, toolColor, CHARS } from '../theme.js';
-import { Panel } from '../components/Panel.js';
 import { FindingsPreview } from '../components/FindingsPreview.js';
 import { PromptInput } from '../components/PromptInput.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { SeverityBar } from '../components/SeverityBar.js';
 import { KVRow } from '../components/KVRow.js';
+import { HRuleFull } from '../components/HRuleFull.js';
 import { useTui } from '../store.js';
 import { sessionToFindings } from '../hooks/use-data.js';
 import {
@@ -178,6 +178,8 @@ const PAGE_SIZE = 14;
 export function SessionsView(): React.ReactElement {
   const [state, dispatch] = useTui();
   const { sessions, sessionsLoading, sessionsUi } = state;
+  const { stdout } = useStdout();
+  const cols = stdout?.columns ?? 80;
 
   const selectedIndex = sessionsUi.selectedIndex;
   const clampedIndex = Math.min(selectedIndex, Math.max(0, sessions.length - 1));
@@ -243,13 +245,21 @@ export function SessionsView(): React.ReactElement {
   const visibleSessions = sessions.slice(0, PAGE_SIZE);
   const selectedFindings = selected ? sessionToFindings(selected) : [];
 
+  // Column widths for 3-column layout
+  const listWidth = Math.min(38, Math.floor(cols * 0.28));
+  const gap = 1;
+  const remaining = cols - listWidth - gap * 2;
+  const detailWidth = Math.floor(remaining * 0.5);
+  const findingsWidth = remaining - detailWidth;
+
   return (
-    <Box flexDirection="column" width="100%" paddingY={1}>
+    <Box flexDirection="column" width="100%">
       {/* Main row: list + detail + findings (3-column) */}
-      <Box flexDirection="row" width="100%" gap={1}>
+      <Box flexDirection="row" width="100%">
         {/* Left: Sessions list */}
-        <Panel title="SESSIONS" width={36} minWidth={30}>
-          <Box flexDirection="row" gap={1} marginTop={1} marginBottom={1}>
+        <Box flexDirection="column" width={listWidth} paddingX={1}>
+          <Text color={colors.overlay1} bold>SESSIONS</Text>
+          <Box flexDirection="row" gap={1} marginTop={0} marginBottom={1}>
             <Sparkline data={sparkData} color={colors.accent} width={7} />
             <Text color={colors.textDim}>{sessions.length} total</Text>
           </Box>
@@ -273,10 +283,13 @@ export function SessionsView(): React.ReactElement {
               {visibleSessions.length}/{sessions.length}
             </Text>
           </Box>
-        </Panel>
+        </Box>
+
+        <Box width={gap} />
 
         {/* Center: Detail panel */}
-        <Panel title="DETAIL" flexGrow={1} borderColor={colors.surface1}>
+        <Box flexDirection="column" width={detailWidth} paddingX={1}>
+          <Text color={colors.overlay1} bold>DETAIL</Text>
           {selected != null ? (
             <Box marginTop={1}>
               <DetailPanel session={selected} allSessions={sessions} />
@@ -284,11 +297,17 @@ export function SessionsView(): React.ReactElement {
           ) : (
             <Text color={colors.textDim}>No session selected.</Text>
           )}
-        </Panel>
+        </Box>
+
+        <Box width={gap} />
 
         {/* Right: Findings preview */}
-        <FindingsPreview findings={selectedFindings} maxFiles={6} maxFindings={2} />
+        <Box width={findingsWidth}>
+          <FindingsPreview findings={selectedFindings} maxFiles={6} maxFindings={2} />
+        </Box>
       </Box>
+
+      <HRuleFull />
 
       {/* Followup input */}
       {state.inputMode === 'followup' && state.inputTarget && (

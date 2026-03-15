@@ -10,8 +10,8 @@ function dispatch(state: TuiState, action: TuiAction): TuiState {
 // ─── SWITCH_TAB ──────────────────────────────────────────────────────────────
 
 test('SWITCH_TAB: changes active tab', () => {
-  const next = dispatch(initialState, { type: 'SWITCH_TAB', tab: 'review' });
-  assert.equal(next.activeTab, 'review');
+  const next = dispatch(initialState, { type: 'SWITCH_TAB', tab: 'sessions' });
+  assert.equal(next.activeTab, 'sessions');
 });
 
 test('SWITCH_TAB: resets sidebar selection', () => {
@@ -22,9 +22,9 @@ test('SWITCH_TAB: resets sidebar selection', () => {
 
 // ─── SWITCH_TAB_DELTA ────────────────────────────────────────────────────────
 
-test('SWITCH_TAB_DELTA: moves forward', () => {
+test('SWITCH_TAB_DELTA: moves forward from dashboard', () => {
   const next = dispatch(initialState, { type: 'SWITCH_TAB_DELTA', delta: 1 });
-  assert.equal(next.activeTab, 'review');
+  assert.equal(next.activeTab, 'sessions');
 });
 
 test('SWITCH_TAB_DELTA: clamps at end', () => {
@@ -35,7 +35,7 @@ test('SWITCH_TAB_DELTA: clamps at end', () => {
 
 test('SWITCH_TAB_DELTA: clamps at beginning', () => {
   const next = dispatch(initialState, { type: 'SWITCH_TAB_DELTA', delta: -1 });
-  assert.equal(next.activeTab, 'status');
+  assert.equal(next.activeTab, 'dashboard');
 });
 
 // ─── SET_FOCUS ───────────────────────────────────────────────────────────────
@@ -90,81 +90,6 @@ test('REVIEW_SET_MODE: updates selected mode index', () => {
 test('REVIEW_SET_FOCUS_COLUMN: toggles focus column', () => {
   const next = dispatch(initialState, { type: 'REVIEW_SET_FOCUS_COLUMN', column: 'mode' });
   assert.equal(next.review.focusColumn, 'mode');
-});
-
-test('REVIEW_START: sets running and switches to progress phase', () => {
-  const next = dispatch(initialState, { type: 'REVIEW_START' });
-  assert.equal(next.review.running, true);
-  assert.equal(next.review.progress, '');
-  assert.equal(next.review.progressPhase, 'context');
-  assert.equal(next.review.elapsed, 0);
-  assert.equal(next.review.result, null);
-  assert.equal(next.reviewPhase, 'progress');
-});
-
-test('REVIEW_PROGRESS: updates progress and elapsed', () => {
-  const started = dispatch(initialState, { type: 'REVIEW_START' });
-  const next = dispatch(started, {
-    type: 'REVIEW_PROGRESS',
-    progress: 'Analyzing files...',
-    elapsed: 5.3,
-    phase: 'review',
-  });
-  assert.equal(next.review.progress, 'Analyzing files...');
-  assert.equal(next.review.elapsed, 5.3);
-  assert.equal(next.review.progressPhase, 'review');
-});
-
-test('REVIEW_PROGRESS: preserves existing phase when none specified', () => {
-  const started = dispatch(initialState, { type: 'REVIEW_START' });
-  const withPhase = dispatch(started, {
-    type: 'REVIEW_PROGRESS',
-    progress: 'Redacting...',
-    elapsed: 2,
-    phase: 'redact',
-  });
-  const next = dispatch(withPhase, {
-    type: 'REVIEW_PROGRESS',
-    progress: 'Still redacting...',
-    elapsed: 3,
-  });
-  assert.equal(next.review.progressPhase, 'redact');
-});
-
-test('REVIEW_COMPLETE: with result transitions to results phase', () => {
-  const started = dispatch(initialState, { type: 'REVIEW_START' });
-  const result = { summary: 'Done', findings: [] };
-  const next = dispatch(started, { type: 'REVIEW_COMPLETE', result });
-  assert.equal(next.review.running, false);
-  assert.deepEqual(next.review.result, result);
-  assert.equal(next.reviewPhase, 'results');
-});
-
-test('REVIEW_COMPLETE: with null result transitions to setup phase', () => {
-  const started = dispatch(initialState, { type: 'REVIEW_START' });
-  const next = dispatch(started, { type: 'REVIEW_COMPLETE', result: null });
-  assert.equal(next.review.running, false);
-  assert.equal(next.review.result, null);
-  assert.equal(next.reviewPhase, 'setup');
-});
-
-// ─── REVIEW_TOGGLE_BRIDGE ────────────────────────────────────────────────────
-
-test('REVIEW_TOGGLE_BRIDGE: toggles bridge mode', () => {
-  assert.equal(initialState.review.bridgeMode, false);
-  const next = dispatch(initialState, { type: 'REVIEW_TOGGLE_BRIDGE' });
-  assert.equal(next.review.bridgeMode, true);
-  const back = dispatch(next, { type: 'REVIEW_TOGGLE_BRIDGE' });
-  assert.equal(back.review.bridgeMode, false);
-});
-
-// ─── REVIEW_BRIDGE_TOOL_PROGRESS ─────────────────────────────────────────────
-
-test('REVIEW_BRIDGE_TOOL_PROGRESS: tracks per-tool status', () => {
-  let state = dispatch(initialState, { type: 'REVIEW_BRIDGE_TOOL_PROGRESS', tool: 'kimi', status: 'running' });
-  assert.equal(state.review.bridgeToolProgress['kimi'], 'running');
-  state = dispatch(state, { type: 'REVIEW_BRIDGE_TOOL_PROGRESS', tool: 'kimi', status: 'done' });
-  assert.equal(state.review.bridgeToolProgress['kimi'], 'done');
 });
 
 // ─── CONFIG actions ──────────────────────────────────────────────────────────
@@ -250,11 +175,16 @@ test('COMPLETE_INPUT: resets input mode', () => {
   assert.equal(next.inputTarget, null);
 });
 
-// ─── SET_REVIEW_PHASE ────────────────────────────────────────────────────────
+// ─── initialState defaults ───────────────────────────────────────────────────
 
-test('SET_REVIEW_PHASE: updates review phase', () => {
-  const next = dispatch(initialState, { type: 'SET_REVIEW_PHASE', phase: 'progress' });
-  assert.equal(next.reviewPhase, 'progress');
+test('initialState: activeTab is dashboard', () => {
+  assert.equal(initialState.activeTab, 'dashboard');
+});
+
+test('initialState: TAB_ORDER has 3 tabs', async () => {
+  const { TAB_ORDER } = await import('../dist/store.js');
+  assert.equal(TAB_ORDER.length, 3);
+  assert.deepEqual(TAB_ORDER, ['dashboard', 'sessions', 'config']);
 });
 
 // ─── Unknown action returns unchanged state ──────────────────────────────────

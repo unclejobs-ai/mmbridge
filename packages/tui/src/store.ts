@@ -4,9 +4,9 @@ import type { GroupedFindings } from './hooks/session-analytics.js';
 
 // ─── State shape ──────────────────────────────────────────────────────────────
 
-export type TabId = 'status' | 'review' | 'sessions' | 'config';
+export type TabId = 'dashboard' | 'sessions' | 'config';
 
-export const TAB_ORDER: TabId[] = ['status', 'review', 'sessions', 'config'];
+export const TAB_ORDER: TabId[] = ['dashboard', 'sessions', 'config'];
 
 export const REVIEW_MODES = ['review', 'security', 'architecture'] as const;
 export type ReviewMode = (typeof REVIEW_MODES)[number];
@@ -68,15 +68,6 @@ export interface TuiState {
     selectedTool: number;
     selectedMode: number;
     focusColumn: 'tool' | 'mode';
-    running: boolean;
-    progress: string;
-    progressPhase: 'context' | 'redact' | 'review' | 'enrich' | 'bridge' | null;
-    elapsed: number;
-    result: null | { summary: string; findings: FindingItem[] };
-    bridgeMode: boolean;
-    bridgeToolProgress: Record<string, 'pending' | 'running' | 'done' | 'error'>;
-    /** Ring buffer of recent streaming output lines (max 50) */
-    streamBuffer: string[];
   };
   config: { selectedSection: 'adapters' | 'settings'; selectedIndex: number };
   inputMode: 'none' | 'followup' | 'export';
@@ -87,7 +78,6 @@ export interface TuiState {
   toast: { message: string; type: 'success' | 'error' | 'info'; at: number } | null;
   helpVisible: boolean;
   sessionDetail: SessionDetailData | null;
-  reviewPhase: 'setup' | 'progress' | 'results';
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -106,9 +96,6 @@ export type TuiAction =
   | { type: 'REVIEW_SET_TOOL'; index: number }
   | { type: 'REVIEW_SET_MODE'; index: number }
   | { type: 'REVIEW_SET_FOCUS_COLUMN'; column: 'tool' | 'mode' }
-  | { type: 'REVIEW_START' }
-  | { type: 'REVIEW_PROGRESS'; progress: string; elapsed: number; phase?: 'context' | 'redact' | 'review' | 'enrich' | 'bridge' }
-  | { type: 'REVIEW_COMPLETE'; result: TuiState['review']['result'] }
   | { type: 'CONFIG_SET_SECTION'; section: 'adapters' | 'settings' }
   | { type: 'CONFIG_SELECT'; index: number }
   | { type: 'SESSIONS_SELECT'; index: number }
@@ -117,10 +104,6 @@ export type TuiAction =
   | { type: 'TOGGLE_HELP' }
   | { type: 'SET_SESSION_DETAIL'; detail: SessionDetailData | null }
   | { type: 'CLEAR_SESSION_DETAIL' }
-  | { type: 'SET_REVIEW_PHASE'; phase: 'setup' | 'progress' | 'results' }
-  | { type: 'REVIEW_TOGGLE_BRIDGE' }
-  | { type: 'REVIEW_BRIDGE_TOOL_PROGRESS'; tool: string; status: 'pending' | 'running' | 'done' | 'error' }
-  | { type: 'REVIEW_STREAM_CHUNK'; chunk: string }
   | { type: 'START_FOLLOWUP'; tool: string; sessionId: string }
   | { type: 'START_EXPORT' }
   | { type: 'CANCEL_INPUT' }
@@ -129,7 +112,7 @@ export type TuiAction =
 // ─── Initial state ────────────────────────────────────────────────────────────
 
 export const initialState: TuiState = {
-  activeTab: 'status',
+  activeTab: 'dashboard',
   focusZone: 'sidebar',
   sidebar: { selectedIndex: 0 },
 
@@ -144,21 +127,12 @@ export const initialState: TuiState = {
     selectedTool: 0,
     selectedMode: 0,
     focusColumn: 'tool',
-    running: false,
-    progress: '',
-    progressPhase: null,
-    elapsed: 0,
-    result: null,
-    bridgeMode: false,
-    bridgeToolProgress: {},
-    streamBuffer: [],
   },
   config: { selectedSection: 'adapters', selectedIndex: 0 },
   sessionsUi: { selectedIndex: 0 },
   toast: null,
   helpVisible: false,
   sessionDetail: null,
-  reviewPhase: 'setup',
   inputMode: 'none',
   inputTarget: null,
 };
@@ -221,44 +195,6 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     case 'REVIEW_SET_FOCUS_COLUMN':
       return { ...state, review: { ...state.review, focusColumn: action.column } };
 
-    case 'REVIEW_START':
-      return {
-        ...state,
-        review: { ...state.review, running: true, progress: '', progressPhase: 'context', elapsed: 0, result: null, streamBuffer: [] },
-        reviewPhase: 'progress',
-      };
-
-    case 'REVIEW_PROGRESS':
-      return {
-        ...state,
-        review: {
-          ...state.review,
-          progress: action.progress,
-          progressPhase: action.phase ?? state.review.progressPhase,
-          elapsed: action.elapsed,
-        },
-      };
-
-    case 'REVIEW_STREAM_CHUNK': {
-      const MAX_STREAM_LINES = 50;
-      const newLines = action.chunk.split('\n').filter((l) => l.trim().length > 0);
-      const merged = [...state.review.streamBuffer, ...newLines];
-      const trimmed = merged.length > MAX_STREAM_LINES
-        ? merged.slice(merged.length - MAX_STREAM_LINES)
-        : merged;
-      return {
-        ...state,
-        review: { ...state.review, streamBuffer: trimmed },
-      };
-    }
-
-    case 'REVIEW_COMPLETE':
-      return {
-        ...state,
-        review: { ...state.review, running: false, result: action.result },
-        reviewPhase: action.result ? 'results' : 'setup',
-      };
-
     case 'CONFIG_SET_SECTION':
       return {
         ...state,
@@ -294,24 +230,6 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
 
     case 'CLEAR_SESSION_DETAIL':
       return { ...state, sessionDetail: null };
-
-    case 'SET_REVIEW_PHASE':
-      return { ...state, reviewPhase: action.phase };
-
-    case 'REVIEW_TOGGLE_BRIDGE':
-      return { ...state, review: { ...state.review, bridgeMode: !state.review.bridgeMode } };
-
-    case 'REVIEW_BRIDGE_TOOL_PROGRESS':
-      return {
-        ...state,
-        review: {
-          ...state.review,
-          bridgeToolProgress: {
-            ...state.review.bridgeToolProgress,
-            [action.tool]: action.status,
-          },
-        },
-      };
 
     case 'START_FOLLOWUP':
       return { ...state, inputMode: 'followup', inputTarget: { tool: action.tool, sessionId: action.sessionId } };

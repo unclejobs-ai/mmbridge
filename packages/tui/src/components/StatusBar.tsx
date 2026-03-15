@@ -16,10 +16,9 @@ interface StatusBarProps {
 }
 
 const TAB_HINTS: Record<TabId, string> = {
-  status:   'r Review │ Enter Details │ 1-4 Tabs │ ? Help │ q Quit',
-  review:   'Enter Start │ h/l Column │ j/k Select │ n New │ ? Help │ q Quit',
-  sessions: 'j/k Navigate │ Enter Findings │ f Followup │ e Export │ q Quit',
-  config:   'j/k Select │ Enter Test │ Tab Section │ ? Help │ q Quit',
+  dashboard: 'r Refresh │ 1-3 Tabs │ ? Help │ q Quit',
+  sessions:  'j/k Navigate │ f Followup │ e Export │ q Quit',
+  config:    'j/k Select │ Enter Test │ ? Help │ q Quit',
 };
 
 const TOAST_DURATION_MS = 3000;

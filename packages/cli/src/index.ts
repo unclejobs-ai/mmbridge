@@ -105,10 +105,10 @@ export async function main(): Promise<void> {
   program
     .command('tui')
     .description('Open the interactive TUI hub')
-    .option('--tab <tab>', 'Open directly to a tab (review|config|sessions|diff)')
+    .option('--tab <tab>', 'Open directly to a tab (dashboard|sessions|config)')
     .action(async (opts: { tab?: string }) => {
       const { renderTui } = await import('@mmbridge/tui');
-      await renderTui({ tab: opts.tab as 'status' | 'review' | 'sessions' | 'config' });
+      await renderTui({ tab: opts.tab as 'dashboard' | 'sessions' | 'config' });
     });
 
   // ── diff ──

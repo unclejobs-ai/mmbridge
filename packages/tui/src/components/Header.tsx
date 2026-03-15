@@ -5,10 +5,9 @@ import type { TabId } from '../store.js';
 import { TAB_ORDER } from '../store.js';
 
 const TAB_LABELS: Record<TabId, string> = {
-  status: 'Status',
-  review: 'Review',
-  sessions: 'Sessions',
-  config: 'Config',
+  dashboard: 'Dashboard',
+  sessions:  'Sessions',
+  config:    'Config',
 };
 
 interface HeaderProps {
@@ -62,7 +61,7 @@ export function Header({ activeTab, branch, dirtyCount }: HeaderProps): React.Re
           {branchLabel.length > 0 && (
             <Text color={colors.overlay1}>{branchLabel}</Text>
           )}
-          <Text color={colors.overlay1}>v0.3.0</Text>
+          <Text color={colors.overlay1}>v0.6.0</Text>
         </Box>
       </Box>
       <HRule />
