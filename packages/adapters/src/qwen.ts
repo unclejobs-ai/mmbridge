@@ -23,8 +23,8 @@ export async function runQwenReview({
   assertCliSuccess('qwen', result);
   return {
     tool: 'qwen',
-    externalSessionId: resolvedSessionId,
-    followupSupported: true,
+    externalSessionId: null,
+    followupSupported: false,
     command: 'qwen',
     args,
     ...result,

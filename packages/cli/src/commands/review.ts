@@ -48,6 +48,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
 
   if (options.stream) {
     const renderer = new StreamRenderer(tool, mode);
+    const startedAt = Date.now();
     renderer.start();
 
     try {
@@ -69,7 +70,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
         },
       });
 
-      const elapsedMs = Date.now();
+      const elapsedMs = Date.now() - startedAt;
       const elapsed = elapsedMs < 1000 ? `${elapsedMs}ms` : `${(elapsedMs / 1000).toFixed(1)}s`;
 
       renderer.printFindings(result.findings);

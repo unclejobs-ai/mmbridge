@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
-import { buildCodexExecArgs, buildCodexResumeArgs, requireCodexWorkspace } from '../dist/codex.js';
+import {
+  buildCodexExecArgs,
+  buildCodexResumeArgs,
+  buildCodexReviewPrompt,
+  requireCodexWorkspace,
+} from '../dist/codex.js';
 import { normalizeUuid } from '../dist/qwen.js';
 import { parseExternalSessionId } from '../dist/utils.js';
 
@@ -92,4 +100,23 @@ test('requireCodexWorkspace throws when workspace directory does not exist', asy
 test('requireCodexWorkspace returns workspace path when directory exists', async () => {
   const result = await requireCodexWorkspace('/tmp');
   assert.equal(result, '/tmp');
+});
+
+test('buildCodexReviewPrompt points changed file mirrors at workspace files', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-codex-prompt-'));
+  try {
+    await fs.mkdir(path.join(tmpDir, 'prompt'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'prompt', 'codex.md'), '# Base prompt', 'utf8');
+    await fs.writeFile(path.join(tmpDir, 'context.md'), '# Context', 'utf8');
+
+    const prompt = await buildCodexReviewPrompt({
+      workspace: tmpDir,
+      changedFiles: ['src/user-log.ts'],
+    });
+
+    assert.match(prompt, /files\/src\/user-log\.ts/);
+    assert.doesNotMatch(prompt, /changed-files\/src\/user-log\.ts/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
 });

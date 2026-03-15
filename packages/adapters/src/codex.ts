@@ -87,9 +87,9 @@ export async function buildCodexReviewPrompt({
     fs.readFile(path.join(workspace, 'prompt', 'codex.md'), 'utf8'),
     fs.readFile(path.join(workspace, 'context.md'), 'utf8').catch(() => ''),
   ]);
-  const changedFilesRoot = path.resolve(workspace, 'changed-files');
+  const changedFilesRoot = path.resolve(workspace, 'files');
   const absoluteChangedFiles = changedFiles
-    .map((file) => path.resolve(workspace, 'changed-files', file))
+    .map((file) => path.resolve(workspace, 'files', file))
     .filter((abs) => isPathContained(abs, changedFilesRoot));
   return [
     basePrompt.trim(),
