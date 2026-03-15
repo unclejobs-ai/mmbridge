@@ -37,6 +37,30 @@ export function formatCompactDate(iso: string): string {
   }
 }
 
+/** Replace $HOME prefix with ~ */
+export function shortenPath(p: string): string {
+  const home = process.env.HOME ?? '';
+  if (home && p.startsWith(home)) return `~${p.slice(home.length)}`;
+  return p;
+}
+
+/** Truncate string with ellipsis */
+export function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/** Reverse array (returns copy) */
+export function reversedCounts(counts: number[]): number[] {
+  return [...counts].reverse();
+}
+
+/** Average per day as formatted string */
+export function avgPerDay(counts: number[]): string {
+  if (counts.length === 0) return '0.0';
+  const total = counts.reduce((a, b) => a + b, 0);
+  return (total / counts.length).toFixed(1);
+}
+
 /** Bucket findings by severity. Accepts any object with a `severity` string field. */
 export function countBySeverity(findings: ReadonlyArray<{ severity?: string }>): SeverityCounts {
   const counts: SeverityCounts = { critical: 0, warning: 0, info: 0, refactor: 0 };

@@ -9,7 +9,7 @@ interface KeyBinding {
 }
 
 const NAV_BINDINGS: KeyBinding[] = [
-  { key: '1-4', description: 'Switch tabs directly' },
+  { key: '1-3/d/s/c', description: 'Switch tabs' },
   { key: 'Left/Right', description: 'Previous/next tab' },
   { key: 'j / k', description: 'Move selection down/up' },
   { key: 'Up / Down', description: 'Move selection down/up' },

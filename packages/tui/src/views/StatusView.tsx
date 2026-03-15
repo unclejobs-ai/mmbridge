@@ -10,29 +10,7 @@ import { computeSessionStats } from '../hooks/session-analytics.js';
 import { useTui } from '../store.js';
 import type { AdapterStatus } from '../store.js';
 import { CHARS, colors, toolColor } from '../theme.js';
-import { formatRelativeTime } from '../utils/format.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function shortenPath(p: string): string {
-  const home = process.env.HOME ?? '';
-  if (home && p.startsWith(home)) return `~${p.slice(home.length)}`;
-  return p;
-}
-
-function reversedCounts(counts: number[]): number[] {
-  return [...counts].reverse();
-}
-
-function avgPerDay(counts: number[]): string {
-  if (counts.length === 0) return '0.0';
-  const total = counts.reduce((a, b) => a + b, 0);
-  return (total / counts.length).toFixed(1);
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
-}
+import { avgPerDay, formatRelativeTime, reversedCounts, shortenPath, truncate } from '../utils/format.js';
 
 // ─── Compact adapter row ─────────────────────────────────────────────────────
 
