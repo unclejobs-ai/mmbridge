@@ -4,6 +4,10 @@ import type { AdapterDefinition } from './types.js';
 export class AdapterRegistry {
   private readonly adapters = new Map<string, AdapterDefinition>();
 
+  clear(): void {
+    this.adapters.clear();
+  }
+
   register(adapter: AdapterDefinition): void {
     this.adapters.set(adapter.name, adapter);
   }
@@ -53,7 +57,7 @@ export class AdapterRegistry {
             typeof candidate.followup === 'function'
           ) {
             const adapter: AdapterDefinition = {
-              name: candidate.name,
+              name,
               binary: candidate.binary,
               review: candidate.review as AdapterDefinition['review'],
               followup: candidate.followup as AdapterDefinition['followup'],

@@ -13,16 +13,20 @@ export type {
 // ─── TUI entry point ──────────────────────────────────────────────────────────
 
 export async function renderTui(options?: { tab?: TabId; version?: string }): Promise<void> {
-  // Enter alternate screen buffer (like vim/htop) — prevents leftover content
-  process.stdout.write('\x1B[?1049h');
-  process.stdout.write('\x1B[2J\x1B[H'); // clear + cursor home
+  const isTTY = process.stdout.isTTY;
+
+  if (isTTY) {
+    process.stdout.write('\x1B[?1049h'); // alternate screen buffer
+    process.stdout.write('\x1B[2J\x1B[H'); // clear + cursor home
+  }
 
   try {
     const instance = render(<App initialTab={options?.tab} version={options?.version} />);
     await instance.waitUntilExit();
   } finally {
-    // Always restore original screen buffer, even on crash
-    process.stdout.write('\x1B[?1049l');
+    if (isTTY) {
+      process.stdout.write('\x1B[?1049l'); // restore original screen
+    }
   }
 }
 

@@ -46,6 +46,7 @@ export function shortenPath(p: string): string {
 
 /** Truncate string with ellipsis */
 export function truncate(s: string, max: number): string {
+  if (max <= 1) return s.length > 0 ? '…' : '';
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 

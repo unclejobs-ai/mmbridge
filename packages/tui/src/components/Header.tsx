@@ -26,8 +26,8 @@ export function Header({ activeTab, branch, dirtyCount, version }: HeaderProps):
 
   const title = ' mmbridge ';
   const rightPart = ` ${rightLabel} `;
-  // cols - 2 (outer corners) - 2 (─╮ / ╭─) - title.length - rightPart.length
-  const midLen = Math.max(0, cols - 2 - title.length - rightPart.length - 4);
+  // Top border: ╭─(2) + title + ─×midLen + rightPart + ─╮(2) = cols
+  const midLen = Math.max(0, cols - 4 - title.length - rightPart.length);
 
   return (
     <Box flexDirection="column">
