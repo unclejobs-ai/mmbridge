@@ -91,3 +91,6 @@ export {
   classifyFileWithRules,
   DEFAULT_CLASSIFIERS,
 } from './config.js';
+
+export { writeLiveState, readLiveState, clearLiveState, getLiveStatePath } from './live-state.js';
+export type { LiveState } from './live-state.js';

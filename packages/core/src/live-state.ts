@@ -1,0 +1,44 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+
+export interface LiveState {
+  active: boolean;
+  tool: string;
+  mode: string;
+  phase: string;
+  elapsed: number;
+  startedAt: string;
+  streamLines: string[];
+  events: Array<{ time: string; message: string }>;
+  progress?: number;
+  findingsSoFar?: number;
+}
+
+export function getLiveStatePath(): string {
+  return path.join(os.homedir(), '.mmbridge', '.live.json');
+}
+
+export async function writeLiveState(state: LiveState): Promise<void> {
+  const filePath = getLiveStatePath();
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(state, null, 2), 'utf8');
+}
+
+export async function readLiveState(): Promise<LiveState | null> {
+  try {
+    const filePath = getLiveStatePath();
+    const content = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(content) as LiveState;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearLiveState(): Promise<void> {
+  try {
+    await fs.unlink(getLiveStatePath());
+  } catch {
+    // ignore errors — file may not exist
+  }
+}

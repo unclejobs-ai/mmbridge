@@ -7,6 +7,7 @@ import {
   importSessionStore,
   importTui,
 } from './helpers.js';
+import { StreamRenderer } from '../render/stream-renderer.js';
 
 export interface ReviewCommandOptions {
   tool?: string;
@@ -17,6 +18,7 @@ export interface ReviewCommandOptions {
   project?: string;
   json?: boolean;
   export?: string;
+  stream?: boolean;
 }
 
 export async function runReviewCommand(options: ReviewCommandOptions): Promise<void> {
@@ -45,6 +47,43 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
   }
 
   const sessionStore = new SessionStore(projectDir);
+
+  if (options.stream) {
+    const renderer = new StreamRenderer(tool, mode);
+    renderer.start();
+
+    try {
+      const result = await runReviewPipeline({
+        tool,
+        mode,
+        projectDir,
+        baseRef: options.baseRef,
+        commit: options.commit,
+        bridge: tool === 'all' && bridge === 'none' ? 'standard' : bridge,
+        runAdapter: runReviewAdapter,
+        listInstalledTools: () => defaultRegistry.listInstalled(),
+        saveSession: (data) => sessionStore.save(data),
+        onProgress: (phase, detail) => renderer.phase(phase, detail),
+        onStdout: (_tool, chunk) => {
+          for (const line of chunk.split('\n')) {
+            renderer.streamLine(line);
+          }
+        },
+      });
+
+      const elapsedMs = Date.now();
+      const elapsed =
+        elapsedMs < 1000 ? `${elapsedMs}ms` : `${(elapsedMs / 1000).toFixed(1)}s`;
+
+      renderer.printFindings(result.findings);
+      renderer.printSummary(result.findings, elapsed);
+      renderer.done(result.sessionId);
+    } finally {
+      renderer.cleanup();
+    }
+
+    return;
+  }
 
   const result = await runReviewPipeline({
     tool,

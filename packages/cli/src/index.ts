@@ -34,6 +34,7 @@ export async function main(): Promise<void> {
     .option('-p, --project <dir>', 'Project directory (default: cwd)')
     .option('--json', 'Output JSON instead of TUI')
     .option('--export <path>', 'Export review report to markdown file')
+    .option('-s, --stream', 'Stream real-time output to terminal')
     .action(async (opts: ReviewCommandOptions) => {
       const { runReviewCommand } = await import('./commands/review.js');
       await runReviewCommand(opts);
