@@ -7,10 +7,24 @@ export interface LiveState {
   tool: string;
   mode: string;
   phase: string;
+  currentDetail?: string;
   elapsed: number;
   startedAt: string;
   streamLines: string[];
   events: Array<{ time: string; message: string }>;
+  toolStates?: Array<{
+    tool: string;
+    status: 'pending' | 'running' | 'done' | 'error';
+    detail?: string;
+  }>;
+  telemetry?: {
+    spawnedAgents: number;
+    toolCalls: number;
+    commandExecutions: number;
+    agentMessages: number;
+    startedItems: number;
+    completedItems: number;
+  };
   progress?: number;
   findingsSoFar?: number;
 }

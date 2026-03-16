@@ -1,4 +1,4 @@
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
@@ -6,6 +6,7 @@ import { EventLog } from '../components/EventLog.js';
 import { FullWidthRow } from '../components/FullWidthRow.js';
 import { HRuleFull } from '../components/HRuleFull.js';
 import { LiveMonitor } from '../components/LiveMonitor.js';
+import { Panel } from '../components/Panel.js';
 import { ReviewFlowMap, buildSessionReviewFlow } from '../components/ReviewFlowMap.js';
 import { SeverityBar } from '../components/SeverityBar.js';
 import { Sparkline } from '../components/Sparkline.js';
@@ -15,6 +16,48 @@ import { useTui } from '../store.js';
 import type { AdapterStatus } from '../store.js';
 import { colors, toolColor } from '../theme.js';
 import { avgPerDay, formatRelativeTime, reversedCounts, shortenPath, truncate } from '../utils/format.js';
+
+const HERO_ART = [
+  ' _ __ ___  _ __ ___',
+  "| '_ ` _ \\\\| '_ ` _ \\\\",
+  '| | | | | | | | | | |',
+  '|_| |_| |_|_| |_| |_|',
+  '',
+  'mmbridge',
+];
+
+const DASHBOARD_MENU = [
+  {
+    title: 'Review Live',
+    description: 'Open the live monitor and run `mmbridge review --stream` from shell',
+    command: 'mmbridge review --stream --tool codex',
+  },
+  {
+    title: 'Bridge Interpreted',
+    description: 'Run multi-tool consensus with interpretation enabled',
+    command: 'mmbridge review --tool all --bridge interpreted',
+  },
+  {
+    title: 'Sessions',
+    description: 'Inspect saved findings, followups, and triage state',
+    tab: 'sessions' as const,
+  },
+  {
+    title: 'Config',
+    description: 'Tune adapters, bridge policy, and redaction rules',
+    tab: 'config' as const,
+  },
+  {
+    title: 'Doctor',
+    description: 'Verify binary availability and runtime health',
+    command: 'mmbridge doctor',
+  },
+  {
+    title: 'Followup',
+    description: 'Continue the latest resumable session from shell',
+    command: 'mmbridge followup --tool codex --latest --prompt "re-check finding 1"',
+  },
+] as const;
 
 // ─── Connection row ───────────────────────────────────────────────────────────
 
@@ -161,6 +204,62 @@ function QuickStartSection(): React.ReactElement {
   );
 }
 
+function HeroSection({
+  selectedIndex,
+}: {
+  selectedIndex: number;
+}): React.ReactElement {
+  const selected = DASHBOARD_MENU[selectedIndex] ?? DASHBOARD_MENU[0];
+
+  return (
+    <Panel title="HOME" flexGrow={1} borderColor={colors.surface1}>
+      <Box flexDirection="column" marginTop={1} gap={1}>
+        <Box flexDirection="column">
+          {HERO_ART.map((line, index) => (
+            <Text key={line} color={index === 0 ? colors.green : colors.accent}>
+              {line}
+            </Text>
+          ))}
+        </Box>
+
+        <Box flexDirection="column">
+          <Text color={colors.accentAlt}>https://github.com/EungjePark/mmbridge</Text>
+          <Text color={colors.green}>A terminal-first multi-model review bridge for agentic coding.</Text>
+        </Box>
+
+        <Box flexDirection="column">
+          {DASHBOARD_MENU.map((item, index) => {
+            const isSelected = index === selectedIndex;
+            return (
+              <Box key={item.title} flexDirection="row" gap={1}>
+                <Text color={isSelected ? colors.accent : colors.overlay0}>{isSelected ? '>' : ' '}</Text>
+                <Text color={isSelected ? colors.text : colors.overlay1}>{`${index + 1}.`.padEnd(3)}</Text>
+                <Text color={isSelected ? colors.peach : colors.subtext1} bold={isSelected}>
+                  {item.title.padEnd(18)}
+                </Text>
+                <Text color={isSelected ? colors.text : colors.overlay1}>{item.description}</Text>
+              </Box>
+            );
+          })}
+        </Box>
+
+        <Box flexDirection="column">
+          <Text color={colors.overlay1}>SELECTED</Text>
+          <Text color={colors.subtext0}>{selected.description}</Text>
+          {'command' in selected ? (
+            <Box>
+              <Text color={colors.peach}>$ </Text>
+              <Text color={colors.text}>{selected.command}</Text>
+            </Box>
+          ) : (
+            <Text color={colors.accent}>Open {selected.tab}</Text>
+          )}
+        </Box>
+      </Box>
+    </Panel>
+  );
+}
+
 // ─── Activity section ─────────────────────────────────────────────────────────
 
 interface ActivitySectionProps {
@@ -198,7 +297,7 @@ function ActivitySection({ dailyCounts, aggregateSeverity, totalSessions }: Acti
 // ─── DashboardView ────────────────────────────────────────────────────────────
 
 export function DashboardView(): React.ReactElement {
-  const [state] = useTui();
+  const [state, dispatch] = useTui();
   const { adapters, adaptersLoading, projectInfo, lastReview, sessions } = state;
   const liveState = useLiveState();
 
@@ -211,6 +310,38 @@ export function DashboardView(): React.ReactElement {
     const id = setInterval(() => setFrameIdx((f) => f + 1), 120);
     return () => clearInterval(id);
   }, [liveState]);
+
+  useInput((input, key) => {
+    if (state.activeTab !== 'dashboard' || state.inputMode !== 'none' || liveState) {
+      return;
+    }
+
+    if (input === 'j' || key.downArrow) {
+      dispatch({
+        type: 'SIDEBAR_MOVE',
+        delta: state.sidebar.selectedIndex >= DASHBOARD_MENU.length - 1 ? 0 : 1,
+      });
+    }
+    if (input === 'k' || key.upArrow) {
+      dispatch({
+        type: 'SIDEBAR_MOVE',
+        delta: state.sidebar.selectedIndex <= 0 ? 0 : -1,
+      });
+    }
+    if (key.return) {
+      const item = DASHBOARD_MENU[state.sidebar.selectedIndex] ?? DASHBOARD_MENU[0];
+      if (!item) return;
+      if ('tab' in item) {
+        dispatch({ type: 'SWITCH_TAB', tab: item.tab });
+        return;
+      }
+      dispatch({
+        type: 'SHOW_TOAST',
+        message: `Run: ${item.command}`,
+        toastType: 'info',
+      });
+    }
+  });
 
   if (adaptersLoading) {
     return (
@@ -241,7 +372,10 @@ export function DashboardView(): React.ReactElement {
       ) : (
         <FullWidthRow leftRatio={0.5}>
           {[
-            <QuickStartSection key="quick-start" />,
+            <Box key="home-column" flexDirection="column" gap={1}>
+              <HeroSection selectedIndex={Math.min(state.sidebar.selectedIndex, DASHBOARD_MENU.length - 1)} />
+              <QuickStartSection />
+            </Box>,
             <Box key="right-column" flexDirection="column" gap={1}>
               <ActivitySection
                 dailyCounts={stats.dailyCounts}

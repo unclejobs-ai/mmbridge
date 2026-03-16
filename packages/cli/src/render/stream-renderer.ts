@@ -36,9 +36,23 @@ export class StreamRenderer {
   private readonly mode: string;
   private readonly startedAt: Date;
   private currentPhase = '';
+  private currentDetail = '';
   private streamLines: string[] = [];
   private events: Array<{ time: string; message: string }> = [];
+  private readonly toolStates = new Map<
+    string,
+    { tool: string; status: 'pending' | 'running' | 'done' | 'error'; detail?: string }
+  >();
+  private telemetry = {
+    spawnedAgents: 0,
+    toolCalls: 0,
+    commandExecutions: 0,
+    agentMessages: 0,
+    startedItems: 0,
+    completedItems: 0,
+  };
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(tool: string, mode: string) {
     this.tool = tool;
@@ -49,12 +63,15 @@ export class StreamRenderer {
   start(): void {
     process.stdout.write(`${C.GREEN}${C.BOLD}● mmbridge${C.RESET} ${C.DIM}${this.tool} / ${this.mode}${C.RESET}\n`);
     process.stdout.write(`${C.DIM}│  ${this.renderPhaseMap()}${C.RESET}\n`);
+    this.startHeartbeat();
     this.scheduleLiveStateWrite();
   }
 
   phase(name: string, detail: string): void {
     const phaseChanged = this.currentPhase !== name;
     this.currentPhase = name;
+    this.currentDetail = detail;
+    this.updateToolStateFromPhase(name, detail);
     const elapsed = this.elapsedStr();
     process.stdout.write(
       `${C.DIM}├─${C.RESET} ${C.ACCENT}${name}${C.RESET}  ${C.DIM}${detail} (${elapsed})${C.RESET}\n`,
@@ -73,6 +90,7 @@ export class StreamRenderer {
     if (this.streamLines.length > 20) {
       this.streamLines = this.streamLines.slice(-20);
     }
+    this.updateTelemetry(text);
     this.scheduleLiveStateWrite();
   }
 
@@ -137,6 +155,10 @@ export class StreamRenderer {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     clearLiveState().catch(() => {});
   }
 
@@ -172,16 +194,73 @@ export class StreamRenderer {
       .join(' -> ');
   }
 
+  private updateToolStateFromPhase(name: string, detail: string): void {
+    if (name !== 'review') {
+      return;
+    }
+
+    const match = detail.match(/^([a-z0-9_-]+):\s+(start|done|error)$/i);
+    if (match) {
+      const [, tool, rawStatus] = match;
+      const status = rawStatus === 'start' ? 'running' : (rawStatus as 'done' | 'error');
+      this.toolStates.set(tool, { tool, status, detail: rawStatus });
+      return;
+    }
+
+    if (this.tool !== 'all' && this.toolStates.size === 0) {
+      this.toolStates.set(this.tool, { tool: this.tool, status: 'running', detail: detail.toLowerCase() });
+    }
+  }
+
+  private updateTelemetry(text: string): void {
+    if (!text.startsWith('{')) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(text) as {
+        type?: string;
+        item?: { type?: string; tool?: string };
+      };
+
+      if (parsed.type === 'item.started') {
+        this.telemetry.startedItems += 1;
+      }
+      if (parsed.type === 'item.completed') {
+        this.telemetry.completedItems += 1;
+      }
+
+      const itemType = parsed.item?.type;
+      if (itemType === 'agent_message') {
+        this.telemetry.agentMessages += 1;
+      }
+      if (itemType === 'command_execution') {
+        this.telemetry.commandExecutions += 1;
+      }
+      if (itemType === 'collab_tool_call') {
+        this.telemetry.toolCalls += 1;
+        if (parsed.item?.tool === 'spawn_agent') {
+          this.telemetry.spawnedAgents += 1;
+        }
+      }
+    } catch {
+      // best-effort telemetry only
+    }
+  }
+
   private buildLiveState(): LiveState {
     return {
       active: true,
       tool: this.tool,
       mode: this.mode,
       phase: this.currentPhase,
+      currentDetail: this.currentDetail,
       elapsed: Date.now() - this.startedAt.getTime(),
       startedAt: this.startedAt.toISOString(),
       streamLines: [...this.streamLines],
       events: [...this.events],
+      toolStates: [...this.toolStates.values()],
+      telemetry: { ...this.telemetry },
     };
   }
 
@@ -193,5 +272,14 @@ export class StreamRenderer {
       this.debounceTimer = null;
       writeLiveState(this.buildLiveState()).catch(() => {});
     }, 200);
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+    }
+    this.heartbeatTimer = setInterval(() => {
+      writeLiveState(this.buildLiveState()).catch(() => {});
+    }, 500);
   }
 }

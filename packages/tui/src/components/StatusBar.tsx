@@ -17,6 +17,8 @@ interface StatusBarProps {
 
 const TAB_HINTS: Record<TabId, Array<[string, string]>> = {
   dashboard: [
+    ['j/k', 'Menu'],
+    ['↵', 'Open'],
     ['r', 'Refresh'],
     ['1-3', 'Tabs'],
     ['?', 'Help'],

@@ -90,6 +90,14 @@ function derivePhaseStatus(currentPhase: string, targetPhase: (typeof FLOW_PHASE
 }
 
 function deriveLiveTools(liveState: LiveState): ToolFlow[] {
+  if (liveState.toolStates && liveState.toolStates.length > 0) {
+    return liveState.toolStates.map((state) => ({
+      tool: state.tool,
+      status: state.status,
+      detail: state.detail,
+    }));
+  }
+
   const toolEvents = new Map<string, ToolFlow>();
   for (const event of liveState.events) {
     const match = event.message.match(/^review:\s+([a-z0-9_-]+):\s+(start|done|error)$/i);
