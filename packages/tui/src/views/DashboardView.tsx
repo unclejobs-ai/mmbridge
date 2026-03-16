@@ -6,6 +6,7 @@ import { EventLog } from '../components/EventLog.js';
 import { FullWidthRow } from '../components/FullWidthRow.js';
 import { HRuleFull } from '../components/HRuleFull.js';
 import { LiveMonitor } from '../components/LiveMonitor.js';
+import { ReviewFlowMap, buildSessionReviewFlow } from '../components/ReviewFlowMap.js';
 import { SeverityBar } from '../components/SeverityBar.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { computeSessionStats } from '../hooks/session-analytics.js';
@@ -248,6 +249,20 @@ export function DashboardView(): React.ReactElement {
                 totalSessions={sessions.length}
               />
               <LastReviewSection lastReview={lastReview} />
+              {sessions[0] && (
+                <ReviewFlowMap
+                  {...buildSessionReviewFlow({
+                    tool: sessions[0].tool,
+                    mode: sessions[0].mode,
+                    status: sessions[0].status,
+                    findings: sessions[0].findings ?? [],
+                    toolResults: sessions[0].toolResults,
+                    resultIndex: sessions[0].resultIndex ?? null,
+                    interpretation: sessions[0].interpretation ?? null,
+                    changedFiles: sessions[0].contextIndex?.changedFiles ?? null,
+                  })}
+                />
+              )}
             </Box>,
           ]}
         </FullWidthRow>

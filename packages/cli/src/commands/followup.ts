@@ -78,6 +78,9 @@ export async function runFollowupCommand(options: FollowupCommandOptions): Promi
   });
 
   const report = {
+    tool: options.tool,
+    mode: 'followup',
+    status: result.ok ? 'complete' : 'error',
     localSessionId: savedSession.id,
     externalSessionId: result.externalSessionId ?? sessionId,
     summary: result.text,

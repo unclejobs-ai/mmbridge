@@ -12,6 +12,9 @@ export interface DoctorReport {
 }
 
 export interface ReviewReport {
+  tool?: string;
+  mode?: string;
+  status?: string;
   localSessionId?: string;
   externalSessionId?: string;
   workspace?: string;

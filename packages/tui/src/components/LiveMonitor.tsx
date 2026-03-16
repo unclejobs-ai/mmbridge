@@ -1,38 +1,9 @@
 import type { LiveState } from '@mmbridge/core';
 import { Box, Text } from 'ink';
 import type React from 'react';
-import { CHARS, colors } from '../theme.js';
+import { colors } from '../theme.js';
 import { FullWidthRow } from './FullWidthRow.js';
-
-// ─── Phase step display ───────────────────────────────────────────────────────
-
-const PHASES = ['context', 'redact', 'review', 'enrich'] as const;
-type Phase = (typeof PHASES)[number];
-
-const SPINNER_FRAMES = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
-
-function phaseIcon(phaseName: Phase, currentPhase: string, frameIdx: number): string {
-  const phaseOrder = PHASES.indexOf(phaseName);
-  const currentOrder = PHASES.indexOf(currentPhase as Phase);
-  if (currentOrder === -1) {
-    // phase is done or unknown — treat all as done
-    return CHARS.installed;
-  }
-  if (phaseOrder < currentOrder) return CHARS.installed;
-  if (phaseOrder === currentOrder) return SPINNER_FRAMES[frameIdx % SPINNER_FRAMES.length] ?? '⣾';
-  return CHARS.radioOff;
-}
-
-function phaseColor(phaseName: Phase, currentPhase: string): string {
-  const phaseOrder = PHASES.indexOf(phaseName);
-  const currentOrder = PHASES.indexOf(currentPhase as Phase);
-  if (currentOrder === -1) return colors.green;
-  if (phaseOrder < currentOrder) return colors.green;
-  if (phaseOrder === currentOrder) return colors.yellow;
-  return colors.textDim;
-}
-
-// ─── Progress bar ─────────────────────────────────────────────────────────────
+import { ReviewFlowMap, buildLiveReviewFlow } from './ReviewFlowMap.js';
 
 function ProgressBar({
   progress,
@@ -42,8 +13,8 @@ function ProgressBar({
   const pct = Math.min(100, Math.max(0, progress));
   const filledCount = Math.round((pct / 100) * width);
   const emptyCount = width - filledCount;
-  const filled = CHARS.progressFull.repeat(filledCount);
-  const empty = CHARS.progressEmpty.repeat(emptyCount);
+  const filled = '█'.repeat(filledCount);
+  const empty = '░'.repeat(emptyCount);
   const elapsedStr = `${elapsed.toFixed(1)}s`;
 
   return (
@@ -56,9 +27,8 @@ function ProgressBar({
   );
 }
 
-// ─── Stream line severity coloring ────────────────────────────────────────────
-
 function streamLineColor(line: string): string {
+  if (line.includes('"status":"failed"') || line.includes('Error:')) return colors.red;
   if (line.startsWith('CRI')) return colors.red;
   if (line.startsWith('WRN')) return colors.yellow;
   return colors.textDim;
@@ -70,10 +40,14 @@ function streamLinePrefix(line: string): { prefix: string; rest: string; prefixC
     const rest = line.slice(4);
     return { prefix, rest, prefixColor: streamLineColor(line) };
   }
-  return { prefix: 'INF', rest: line, prefixColor: colors.textDim };
+  if (line.includes('"type":"item.started"')) {
+    return { prefix: 'RUN', rest: line, prefixColor: colors.accent };
+  }
+  if (line.includes('"type":"item.completed"')) {
+    return { prefix: 'DONE', rest: line, prefixColor: colors.green };
+  }
+  return { prefix: 'INF', rest: line, prefixColor: streamLineColor(line) };
 }
-
-// ─── LiveMonitor ──────────────────────────────────────────────────────────────
 
 interface LiveMonitorProps {
   liveState: LiveState;
@@ -84,34 +58,27 @@ interface LiveMonitorProps {
 
 export function LiveMonitor({
   liveState,
-  frameIdx,
+  frameIdx: _frameIdx,
   barWidth = 20,
   streamLines = 7,
 }: LiveMonitorProps): React.ReactElement {
-  const progress = liveState.progress ?? 0;
+  const progress =
+    liveState.progress ??
+    {
+      context: 18,
+      review: 46,
+      bridge: 70,
+      interpret: 84,
+      enrich: 96,
+    }[liveState.phase] ??
+    8;
   const visible = liveState.streamLines.slice(-streamLines);
+  const map = buildLiveReviewFlow(liveState);
 
   const left = (
-    <Box flexDirection="column" paddingX={1} gap={0}>
-      <Box flexDirection="row" gap={1}>
-        <Text color={colors.overlay1}>REVIEW</Text>
-        <Text color={colors.text} bold>
-          {liveState.tool}
-        </Text>
-        <Text color={colors.textDim}>·</Text>
-        <Text color={colors.subtext0}>{liveState.mode}</Text>
-      </Box>
-      <ProgressBar progress={progress} elapsed={liveState.elapsed} width={barWidth} />
-      {PHASES.map((phaseName) => {
-        const icon = phaseIcon(phaseName, liveState.phase, frameIdx);
-        const col = phaseColor(phaseName, liveState.phase);
-        return (
-          <Box key={phaseName} flexDirection="row" gap={1}>
-            <Text color={col}>{icon}</Text>
-            <Text color={col}>{phaseName.padEnd(8)}</Text>
-          </Box>
-        );
-      })}
+    <Box flexDirection="column" paddingX={1} gap={1}>
+      <ProgressBar progress={progress} elapsed={liveState.elapsed / 1000} width={barWidth} />
+      <ReviewFlowMap {...map} />
     </Box>
   );
 
@@ -127,7 +94,9 @@ export function LiveMonitor({
             <Box key={`stream-${line.slice(0, 30)}-${i}`} flexDirection="row" gap={1}>
               <Text color={colors.textDim}>│</Text>
               <Text color={prefixColor}>{prefix}</Text>
-              <Text color={colors.subtext0}>{rest}</Text>
+              <Text color={colors.subtext0} wrap="truncate-end">
+                {rest}
+              </Text>
             </Box>
           );
         })
@@ -135,5 +104,5 @@ export function LiveMonitor({
     </Box>
   );
 
-  return <FullWidthRow leftRatio={0.45}>{[left, right]}</FullWidthRow>;
+  return <FullWidthRow leftRatio={0.52}>{[left, right]}</FullWidthRow>;
 }

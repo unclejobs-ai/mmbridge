@@ -182,4 +182,10 @@ export class ProjectStateStore {
   }
 }
 
-export type { Session, SessionListOptions, ProjectState } from './types.js';
+export type {
+  Session,
+  SessionFindingDecision,
+  SessionListOptions,
+  SessionToolResult,
+  ProjectState,
+} from './types.js';

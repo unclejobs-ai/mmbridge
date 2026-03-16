@@ -48,15 +48,20 @@ export class StreamRenderer {
 
   start(): void {
     process.stdout.write(`${C.GREEN}${C.BOLD}● mmbridge${C.RESET} ${C.DIM}${this.tool} / ${this.mode}${C.RESET}\n`);
+    process.stdout.write(`${C.DIM}│  ${this.renderPhaseMap()}${C.RESET}\n`);
     this.scheduleLiveStateWrite();
   }
 
   phase(name: string, detail: string): void {
+    const phaseChanged = this.currentPhase !== name;
     this.currentPhase = name;
     const elapsed = this.elapsedStr();
     process.stdout.write(
       `${C.DIM}├─${C.RESET} ${C.ACCENT}${name}${C.RESET}  ${C.DIM}${detail} (${elapsed})${C.RESET}\n`,
     );
+    if (phaseChanged) {
+      process.stdout.write(`${C.DIM}│  ${this.renderPhaseMap()}${C.RESET}\n`);
+    }
     this.events.push({ time: new Date().toISOString(), message: `${name}: ${detail}` });
     this.scheduleLiveStateWrite();
   }
@@ -72,6 +77,8 @@ export class StreamRenderer {
   }
 
   done(sessionId: string): void {
+    this.currentPhase = 'enrich';
+    process.stdout.write(`${C.DIM}│  ${this.renderPhaseMap()}${C.RESET}\n`);
     const elapsed = this.elapsedStr();
     process.stdout.write(
       `${C.DIM}└─${C.RESET} ${C.GREEN}done${C.RESET}  ${C.DIM}${elapsed} · session #${sessionId}${C.RESET}\n`,
@@ -139,6 +146,30 @@ export class StreamRenderer {
     const ms = Date.now() - this.startedAt.getTime();
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  private renderPhaseMap(): string {
+    const stages = [
+      { key: 'context', label: 'Context' },
+      { key: 'review', label: this.tool === 'all' ? 'Tools' : this.tool },
+      ...(this.tool === 'all' || this.currentPhase === 'bridge' || this.currentPhase === 'interpret'
+        ? [{ key: 'bridge', label: 'Bridge' }]
+        : []),
+      ...(this.currentPhase === 'interpret' ? [{ key: 'interpret', label: 'Interpret' }] : []),
+      { key: 'enrich', label: 'Findings' },
+    ] as const;
+
+    const order = ['context', 'review', 'bridge', 'interpret', 'enrich'];
+    const currentIndex = order.indexOf(this.currentPhase);
+
+    return stages
+      .map((stage) => {
+        const stageIndex = order.indexOf(stage.key);
+        const icon =
+          currentIndex === -1 ? '○' : stageIndex < currentIndex ? '✓' : stageIndex === currentIndex ? '◉' : '○';
+        return `${icon} ${stage.label}`;
+      })
+      .join(' -> ');
   }
 
   private buildLiveState(): LiveState {

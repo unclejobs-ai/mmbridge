@@ -76,6 +76,20 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
       renderer.printFindings(result.findings);
       renderer.printSummary(result.findings, elapsed);
       renderer.done(result.sessionId);
+
+      await renderReviewConsole({
+        tool: result.toolResults?.length ? 'bridge' : tool,
+        mode,
+        status: 'complete',
+        localSessionId: result.sessionId,
+        summary: result.summary,
+        findings: result.findings,
+        resultIndex: result.resultIndex,
+        externalSessionId: result.externalSessionId ?? undefined,
+        followupSupported: result.followupSupported,
+        toolResults: result.toolResults,
+        interpretation: result.interpretation ?? undefined,
+      });
     } finally {
       renderer.cleanup();
     }
@@ -96,6 +110,9 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
   });
 
   const report = {
+    tool: result.toolResults?.length ? 'bridge' : tool,
+    mode,
+    status: 'complete',
     localSessionId: result.sessionId,
     summary: result.summary,
     findings: result.findings,

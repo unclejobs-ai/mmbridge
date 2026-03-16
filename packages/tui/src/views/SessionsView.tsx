@@ -6,6 +6,7 @@ import { FindingsPreview } from '../components/FindingsPreview.js';
 import { HRuleFull } from '../components/HRuleFull.js';
 import { KVRow } from '../components/KVRow.js';
 import { PromptInput } from '../components/PromptInput.js';
+import { ConsensusSnapshot, ReviewFlowMap, buildSessionReviewFlow } from '../components/ReviewFlowMap.js';
 import { SeverityBar } from '../components/SeverityBar.js';
 import { Sparkline } from '../components/Sparkline.js';
 import {
@@ -90,9 +91,22 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
   const toolResults = Array.isArray(session.toolResults) ? session.toolResults : [];
   const interpretation = session.interpretation ?? null;
   const actionPlan = interpretation?.actionPlan?.split('\n')[0]?.trim() ?? null;
+  const flow = buildSessionReviewFlow({
+    tool: session.tool,
+    mode: session.mode,
+    status: session.status,
+    findings: session.findings ?? [],
+    toolResults,
+    resultIndex,
+    interpretation,
+    changedFiles: contextIndex?.changedFiles ?? null,
+    ancestryChain,
+  });
 
   return (
     <Box flexDirection="column" gap={1}>
+      <ReviewFlowMap {...flow} />
+
       {/* Header: ID + tool / mode */}
       <Box flexDirection="row" gap={1}>
         <Text color={colors.textDim}>#{shortId}</Text>
@@ -246,6 +260,12 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
           )}
         </Box>
       )}
+
+      <ConsensusSnapshot
+        findings={session.findings ?? []}
+        interpretation={interpretation}
+        fallbackTool={session.tool}
+      />
     </Box>
   );
 }

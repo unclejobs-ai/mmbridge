@@ -2,6 +2,7 @@ import { runBridge } from './bridge.js';
 import { loadConfig } from './config.js';
 import { cleanupContext, createContext } from './context.js';
 import { parseFindings } from './finding-parser.js';
+import { interpretFindings } from './interpret.js';
 import { orchestrateReview } from './orchestrate.js';
 import { enrichFindings } from './report.js';
 import { buildContextIndex, buildResultIndex } from './session-index.js';
@@ -207,10 +208,9 @@ async function runBridgePipeline(
 
   // Phase 3: Bridge consensus
   onProgress?.('bridge', 'Running bridge consensus...');
-  const isInterpreted = bridge === 'interpreted';
   const bridgeResult = await runBridge({
     profile: bridgeProfile,
-    interpret: isInterpreted,
+    interpret: false,
     workspace: ctx.workspace,
     changedFiles: ctx.changedFiles,
     results: orchResult.results.map((r) => ({
@@ -220,6 +220,20 @@ async function runBridgePipeline(
       skipped: r.skipped,
     })),
   });
+
+  if (bridge === 'interpreted' && bridgeResult.findings.length > 0) {
+    onProgress?.('interpret', 'Validating consensus findings...');
+    try {
+      bridgeResult.interpretation = await interpretFindings({
+        mergedFindings: bridgeResult.findings,
+        changedFiles: ctx.changedFiles,
+        projectContext: '',
+        workspace: ctx.workspace,
+      });
+    } catch {
+      // Interpretation failure is non-critical — consensus findings still stand.
+    }
+  }
 
   const resultIndex = buildResultIndex({
     summary: bridgeResult.summary,
