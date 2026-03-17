@@ -83,6 +83,9 @@ Create `.mmbridge.config.json` in your project root:
     "extraRules": [
       { "pattern": "INTERNAL_[A-Z]+", "replacement": "[REDACTED]", "label": "Internal tokens" }
     ]
+  },
+  "memory": {
+    "provider": "project"
   }
 }
 ```
@@ -95,6 +98,8 @@ Create `.mmbridge.config.json` in your project root:
 - `--stream` for live terminal output
 
 The legacy `--bridge` flag is still accepted for backward compatibility, but it is no longer the recommended surface.
+
+Project memory defaults to `"project"`. Future backends like `"claude-mem"` and `"serena-mcp"` are selected through config, not extra review flags.
 
 ## Custom Adapters
 

@@ -27,7 +27,7 @@ export interface ReviewCommandOptions {
 
 function normalizeReviewSelection(options: ReviewCommandOptions): {
   tool: string;
-  bridge: 'none' | 'standard' | 'interpreted' | undefined;
+  bridge: 'none' | 'standard' | 'interpreted' | 'managed' | undefined;
 } {
   const bridge = options.bridge as 'none' | 'standard' | 'interpreted' | undefined;
 
@@ -35,10 +35,12 @@ function normalizeReviewSelection(options: ReviewCommandOptions): {
     if (options.tool && options.tool !== 'all') {
       exitWithError('--manager cannot be combined with --tool. Use `mmbridge review --manager` by itself.');
     }
-    if (bridge && bridge !== 'interpreted') {
-      exitWithError('--manager cannot be combined with legacy --bridge modes other than `interpreted`.');
+    if (bridge) {
+      exitWithError(
+        '--manager cannot be combined with legacy --bridge modes. Use `mmbridge review --manager` by itself.',
+      );
     }
-    return { tool: 'all', bridge: 'interpreted' };
+    return { tool: 'all', bridge: 'managed' };
   }
 
   if (options.all) {
@@ -78,7 +80,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
 
   const { buildResultIndex, runReviewPipeline, commandExists } = await importCore();
   const { defaultRegistry, runReviewAdapter } = await importAdapters(projectDir);
-  const { ProjectMemoryStore, SessionStore } = await importSessionStore();
+  const { createMemoryProvider, SessionStore } = await importSessionStore();
   const { renderReviewConsole } = await importTui();
 
   // Validate tool exists (unless 'all')
@@ -94,7 +96,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
   }
 
   const sessionStore = new SessionStore();
-  const memoryStore = new ProjectMemoryStore(sessionStore.baseDir);
+  const memoryStore = await createMemoryProvider({ projectDir, baseDir: sessionStore.baseDir });
   const recall = await memoryStore.buildRecall(projectDir, { mode, tool });
 
   const saveSession = (data: Parameters<typeof sessionStore.save>[0]) =>

@@ -327,6 +327,47 @@ describe('@mmbridge/cli integration', () => {
     }
   });
 
+  it('review --bridge interpreted preserves legacy interpretation mode', async () => {
+    const fixture = await makeFixtureProject();
+    try {
+      const binDir = await createToolOnlyPath(fixture.homeDir);
+      const config = {
+        adapters: {
+          alpha: { module: FAKE_ADAPTER_MODULE },
+          beta: { module: FAKE_ADAPTER_MODULE },
+        },
+      };
+      await fs.writeFile(
+        path.join(fixture.cwd, '.mmbridge.config.json'),
+        `${JSON.stringify(config, null, 2)}\n`,
+        'utf8',
+      );
+
+      const env = { ...process.env, HOME: fixture.homeDir, USERPROFILE: fixture.homeDir, PATH: binDir };
+      const result = runCli(
+        ['review', '--all', '--bridge', 'interpreted', '--project', fixture.cwd, '--base-ref', 'HEAD~1', '--json'],
+        {
+          cwd: fixture.cwd,
+          env,
+        },
+      );
+      const report = parseJsonStdout<{
+        tool: string;
+        findings: Array<{ file: string; severity: string }>;
+        interpretation?: { interpreterTool: string };
+        manager?: unknown;
+      }>(result);
+
+      assert.equal(report.tool, 'bridge');
+      assert.equal(report.findings.length, 1);
+      assert.equal(report.findings[0]?.file, 'src/app.ts');
+      assert.ok(report.interpretation);
+      assert.equal(report.manager ?? null, null);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it('review rejects conflicting --manager and --tool values', async () => {
     const fixture = await makeFixtureProject();
     try {

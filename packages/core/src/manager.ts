@@ -37,7 +37,7 @@ export async function runManagerReview(options: RunManagerReviewOptions): Promis
       return gracefulFallback(options.mergedFindings);
     }
 
-    return parseManagerResponse(result.combined, options.mergedFindings);
+    return parseManagerResponse(result.combined, options.mergedFindings, options.changedFiles);
   } catch {
     return gracefulFallback(options.mergedFindings);
   }
@@ -113,7 +113,7 @@ function buildManagerPrompt(options: RunManagerReviewOptions): string {
   ].join('\n');
 }
 
-function parseManagerResponse(raw: string, findings: Finding[]): ManagerResult {
+function parseManagerResponse(raw: string, findings: Finding[], changedFiles: string[]): ManagerResult {
   const messages = parseCodexAgentMessages(raw);
   const lastMessage = messages.at(-1) ?? '';
   if (!lastMessage) {
@@ -146,13 +146,30 @@ function parseManagerResponse(raw: string, findings: Finding[]): ManagerResult {
     });
 
     const validated = findings.filter((_, index) => validatedIndices.includes(index) && !dismissedIndices.has(index));
-    const promoted = promotedRaw.map((entry) => ({
-      severity: (typeof entry.severity === 'string' ? entry.severity : 'CRITICAL') as Finding['severity'],
-      file: typeof entry.file === 'string' ? entry.file : '',
-      line: typeof entry.line === 'number' ? entry.line : null,
-      message: typeof entry.message === 'string' ? entry.message : '',
-      sources: ['manager-review'],
-    }));
+    const changedFileSet = new Set(changedFiles);
+    const promoted =
+      changedFileSet.size === 0
+        ? []
+        : promotedRaw.flatMap((entry) => {
+            const severity = typeof entry.severity === 'string' ? entry.severity.toUpperCase() : '';
+            const file = typeof entry.file === 'string' ? entry.file.trim() : '';
+            const message = typeof entry.message === 'string' ? entry.message.trim() : '';
+            const line =
+              typeof entry.line === 'number' && Number.isInteger(entry.line) && entry.line > 0 ? entry.line : null;
+
+            if (!['CRITICAL', 'WARNING', 'INFO', 'REFACTOR'].includes(severity)) return [];
+            if (!file || !message || !changedFileSet.has(file)) return [];
+
+            return [
+              {
+                severity: severity as Finding['severity'],
+                file,
+                line,
+                message,
+                sources: ['manager-review'],
+              },
+            ];
+          });
 
     return {
       managerTool: 'codex',

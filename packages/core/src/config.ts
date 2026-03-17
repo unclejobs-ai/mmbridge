@@ -35,11 +35,17 @@ function isMmbridgeConfig(value: unknown): value is MmbridgeConfig {
   if (obj.extendDefaultClassifiers !== undefined && typeof obj.extendDefaultClassifiers !== 'boolean') return false;
   if (obj.adapters !== undefined && (typeof obj.adapters !== 'object' || obj.adapters === null)) return false;
   if (obj.context !== undefined && (typeof obj.context !== 'object' || obj.context === null)) return false;
+  if (obj.memory !== undefined && (typeof obj.memory !== 'object' || obj.memory === null)) return false;
   if (obj.redaction !== undefined && (typeof obj.redaction !== 'object' || obj.redaction === null)) return false;
   if (obj.bridge !== undefined && (typeof obj.bridge !== 'object' || obj.bridge === null)) return false;
 
   const context = obj.context as Record<string, unknown> | undefined;
   if (context?.maxBytes !== undefined && typeof context.maxBytes !== 'number') return false;
+
+  const memory = obj.memory as Record<string, unknown> | undefined;
+  if (memory?.provider !== undefined && !['project', 'claude-mem', 'serena-mcp'].includes(String(memory.provider))) {
+    return false;
+  }
 
   const redaction = obj.redaction as Record<string, unknown> | undefined;
   if (redaction?.extraRules !== undefined && !Array.isArray(redaction.extraRules)) return false;

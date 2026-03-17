@@ -1,9 +1,12 @@
 export { ProjectMemoryStore } from './project-memory.js';
+export { createMemoryProvider } from './providers.js';
 export { ProjectStateStore, SessionStore } from './stores.js';
 
 export type {
+  BuildRecallOptions,
   HandoffArtifact,
   HandoffDocument,
+  MemoryProvider,
   MemoryEntry,
   MemoryEntryType,
   MemorySearchOptions,

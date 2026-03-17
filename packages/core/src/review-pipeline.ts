@@ -30,7 +30,7 @@ export interface ReviewPipelineOptions {
   projectDir: string;
   baseRef?: string;
   commit?: string;
-  bridge?: 'none' | 'standard' | 'interpreted';
+  bridge?: 'none' | 'standard' | 'interpreted' | 'managed';
   bridgeProfile?: 'standard' | 'strict' | 'relaxed';
   recallPromptContext?: string;
   recallSummary?: string;
@@ -238,7 +238,7 @@ async function runBridgePipeline(
   options: ReviewPipelineOptions,
   ctx: ContextWorkspace,
   contextIndex: ReturnType<typeof buildContextIndex>,
-  bridge: 'none' | 'standard' | 'interpreted',
+  bridge: 'none' | 'standard' | 'interpreted' | 'managed',
   bridgeProfile: 'standard' | 'strict' | 'relaxed',
 ): Promise<ReviewPipelineResult> {
   const { mode, projectDir, onProgress, onStdout, runAdapter, listInstalledTools, saveSession } = options;
@@ -268,7 +268,7 @@ async function runBridgePipeline(
   onProgress?.('bridge', 'Running bridge consensus...');
   const bridgeResult = await runBridge({
     profile: bridgeProfile,
-    interpret: false,
+    interpret: bridge === 'interpreted',
     workspace: ctx.workspace,
     changedFiles: ctx.changedFiles,
     results: orchResult.results.map((r) => ({
@@ -282,8 +282,8 @@ async function runBridgePipeline(
   let manager: ManagerResult | null = null;
   let finalFindings = bridgeResult.findings;
 
-  if (bridge === 'interpreted' && bridgeResult.findings.length > 0) {
-    onProgress?.('interpret', 'Running manager synthesis...');
+  if (bridge === 'managed' && bridgeResult.findings.length > 0) {
+    onProgress?.('manager', 'Running manager synthesis...');
     try {
       manager = await (options.runManager ?? runManagerReview)({
         mergedFindings: bridgeResult.findings,
@@ -292,7 +292,7 @@ async function runBridgePipeline(
         workspace: ctx.workspace,
       });
 
-      const managed = enrichFindings([...manager.validated, ...manager.promoted], []);
+      const managed = enrichFindings([...manager.validated, ...manager.promoted], ctx.changedFiles);
       finalFindings = managed.findings;
     } catch {
       manager = null;

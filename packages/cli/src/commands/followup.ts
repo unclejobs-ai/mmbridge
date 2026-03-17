@@ -20,13 +20,13 @@ export interface FollowupCommandOptions {
 export async function runFollowupCommand(options: FollowupCommandOptions): Promise<void> {
   const projectDir = resolveProjectDir(options.projectDir);
 
-  const { ProjectMemoryStore, SessionStore } = await importSessionStore();
+  const { createMemoryProvider, SessionStore } = await importSessionStore();
   const { buildResultIndex, parseFindings } = await importCore();
   const { runFollowupAdapter } = await importAdapters(projectDir);
   const { renderReviewConsole } = await importTui();
 
   const sessionStore = new SessionStore();
-  const memoryStore = new ProjectMemoryStore(sessionStore.baseDir);
+  const memoryStore = await createMemoryProvider({ projectDir, baseDir: sessionStore.baseDir });
 
   let sessionId = options.explicitSessionId;
   let parentSessionId: string | undefined;

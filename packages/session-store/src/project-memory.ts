@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { ContextIndex } from '@mmbridge/core';
 import { SessionStore } from './stores.js';
 import type {
+  BuildRecallOptions,
   HandoffArtifact,
   HandoffDocument,
   MemoryEntry,
@@ -127,7 +128,8 @@ function deriveNextCommand(session: Session, nextPrompt: string): string {
   }
 
   if (session.tool === 'bridge') {
-    return `mmbridge review --tool all --project ${session.projectDir}${session.baseRef ? ` --base-ref ${session.baseRef}` : ''}`;
+    const reviewMode = session.manager ? '--manager' : '--all';
+    return `mmbridge review ${reviewMode} --project ${session.projectDir}${session.baseRef ? ` --base-ref ${session.baseRef}` : ''}`;
   }
 
   return `mmbridge review --tool ${session.tool} --project ${session.projectDir}${session.baseRef ? ` --base-ref ${session.baseRef}` : ''}`;
@@ -851,10 +853,7 @@ export class ProjectMemoryStore {
     });
   }
 
-  async buildRecall(
-    projectDir: string,
-    options: { changedFiles?: string[]; mode?: string; tool?: string; queryText?: string; sessionId?: string },
-  ): Promise<RecallResult> {
+  async buildRecall(projectDir: string, options: BuildRecallOptions): Promise<RecallResult> {
     await this.backfillProject(projectDir);
     const pinnedSessionId = options.sessionId?.trim() || null;
     const latestProjectHandoff = pinnedSessionId ? null : await this.getLatestHandoff(projectDir);

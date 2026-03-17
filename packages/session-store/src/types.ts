@@ -1,4 +1,11 @@
-import type { ContextIndex, Finding, InterpretResult, ManagerResult, ResultIndex } from '@mmbridge/core';
+import type {
+  ContextIndex,
+  Finding,
+  InterpretResult,
+  ManagerResult,
+  MemoryProviderName,
+  ResultIndex,
+} from '@mmbridge/core';
 
 export interface SessionToolResult {
   tool: string;
@@ -135,6 +142,14 @@ export interface MemoryTimelineOptions {
   limit?: number;
 }
 
+export interface BuildRecallOptions {
+  changedFiles?: string[];
+  mode?: string;
+  tool?: string;
+  queryText?: string;
+  sessionId?: string;
+}
+
 export interface RecallEntrySummary {
   id: string;
   type: MemoryEntryType;
@@ -152,4 +167,15 @@ export interface RecallResult {
   blockers: RecallEntrySummary[];
   summary: string;
   promptContext: string;
+}
+
+export interface MemoryProvider {
+  provider: MemoryProviderName;
+  buildRecall(projectDir: string, options: BuildRecallOptions): Promise<RecallResult>;
+  createOrUpdateHandoff(projectDir: string, sessionId: string, recalledMemoryIds?: string[]): Promise<HandoffDocument>;
+  getLatestHandoff(projectDir: string): Promise<HandoffArtifact | null>;
+  getHandoffBySession(projectDir: string, sessionId: string): Promise<HandoffDocument | null>;
+  searchMemory(options: MemorySearchOptions): Promise<MemoryEntry[]>;
+  timelineMemory(options: MemoryTimelineOptions): Promise<MemoryEntry[]>;
+  showMemory(projectDir: string, ids: string[]): Promise<MemoryEntry[]>;
 }

@@ -181,6 +181,35 @@ test('loadConfig: throws on invalid bridge config shape', async () => {
   }
 });
 
+test('loadConfig: accepts supported memory providers', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
+  try {
+    await fs.writeFile(
+      path.join(tmpDir, '.mmbridge.config.json'),
+      JSON.stringify({ memory: { provider: 'claude-mem' } }),
+      'utf8',
+    );
+    const config = await loadConfig(tmpDir);
+    assert.equal(config.memory?.provider, 'claude-mem');
+  } finally {
+    await fs.rm(tmpDir, { recursive: true });
+  }
+});
+
+test('loadConfig: throws on invalid memory provider', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
+  try {
+    await fs.writeFile(
+      path.join(tmpDir, '.mmbridge.config.json'),
+      JSON.stringify({ memory: { provider: 'unsupported' } }),
+      'utf8',
+    );
+    await assert.rejects(() => loadConfig(tmpDir), /Invalid mmbridge config/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true });
+  }
+});
+
 test('saveConfig: writes a new .mmbridge.config.json when none exists', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
   try {

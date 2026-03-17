@@ -1,6 +1,7 @@
 export { ADAPTER_NAMES } from './types.js';
 export type {
   AdapterName,
+  MemoryProviderName,
   Severity,
   Finding,
   HeadMeta,

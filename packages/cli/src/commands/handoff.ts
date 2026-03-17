@@ -58,8 +58,8 @@ function renderHandoffText(document: import('@mmbridge/session-store').HandoffDo
 
 export async function runHandoffCommand(options: HandoffCommandOptions): Promise<void> {
   const projectDir = resolveProjectDir(options.project);
-  const { ProjectMemoryStore } = await importSessionStore();
-  const memoryStore = new ProjectMemoryStore();
+  const { createMemoryProvider } = await importSessionStore();
+  const memoryStore = await createMemoryProvider({ projectDir });
 
   let document: import('@mmbridge/session-store').HandoffDocument | null = null;
   if (options.session) {

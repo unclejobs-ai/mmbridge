@@ -1,6 +1,6 @@
 import { defaultRegistry } from '@mmbridge/adapters';
 import { commandExists, getDefaultBaseRef, getGitStatusSummary, getHead, runCommand } from '@mmbridge/core';
-import { ProjectMemoryStore, SessionStore } from '@mmbridge/session-store';
+import { SessionStore, createMemoryProvider } from '@mmbridge/session-store';
 import { useCallback, useEffect } from 'react';
 import type { AdapterStatus, FindingItem, LastReview, ProjectInfo, TuiAction } from '../store.js';
 import { countBySeverity } from '../utils/format.js';
@@ -11,8 +11,8 @@ export function useLoadData(dispatch: React.Dispatch<TuiAction>): { refresh: () 
     dispatch({ type: 'SET_SESSIONS_LOADING', loading: true });
 
     const store = new SessionStore();
-    const memoryStore = new ProjectMemoryStore(store.baseDir);
     const projectDir = process.cwd();
+    const memoryStore = await createMemoryProvider({ projectDir, baseDir: store.baseDir });
     const registeredNames = defaultRegistry.list();
 
     // Fire all independent I/O in parallel: sessions, binary checks, git info

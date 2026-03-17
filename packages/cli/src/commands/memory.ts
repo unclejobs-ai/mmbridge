@@ -41,8 +41,8 @@ function renderEntries(title: string, entries: import('@mmbridge/session-store')
 
 export async function runMemorySearchCommand(options: MemorySearchCommandOptions): Promise<void> {
   const projectDir = resolveProjectDir(options.project);
-  const { ProjectMemoryStore } = await importSessionStore();
-  const memoryStore = new ProjectMemoryStore();
+  const { createMemoryProvider } = await importSessionStore();
+  const memoryStore = await createMemoryProvider({ projectDir });
   const entries = await memoryStore.searchMemory({
     projectDir,
     query: options.query,
@@ -60,8 +60,8 @@ export async function runMemorySearchCommand(options: MemorySearchCommandOptions
 
 export async function runMemoryTimelineCommand(options: MemoryTimelineCommandOptions): Promise<void> {
   const projectDir = resolveProjectDir(options.project);
-  const { ProjectMemoryStore } = await importSessionStore();
-  const memoryStore = new ProjectMemoryStore();
+  const { createMemoryProvider } = await importSessionStore();
+  const memoryStore = await createMemoryProvider({ projectDir });
   const entries = await memoryStore.timelineMemory({
     projectDir,
     sessionId: options.session,
@@ -79,8 +79,8 @@ export async function runMemoryTimelineCommand(options: MemoryTimelineCommandOpt
 
 export async function runMemoryShowCommand(options: MemoryShowCommandOptions): Promise<void> {
   const projectDir = resolveProjectDir(options.project);
-  const { ProjectMemoryStore } = await importSessionStore();
-  const memoryStore = new ProjectMemoryStore();
+  const { createMemoryProvider } = await importSessionStore();
+  const memoryStore = await createMemoryProvider({ projectDir });
   const entries = await memoryStore.showMemory(
     projectDir,
     options.ids

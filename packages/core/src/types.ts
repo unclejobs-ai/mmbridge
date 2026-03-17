@@ -1,4 +1,5 @@
 export type Severity = 'CRITICAL' | 'WARNING' | 'INFO' | 'REFACTOR';
+export type MemoryProviderName = 'project' | 'claude-mem' | 'serena-mcp';
 
 /** Canonical tool list — single source of truth across all packages */
 export const ADAPTER_NAMES = ['kimi', 'qwen', 'codex', 'gemini', 'droid', 'claude'] as const;
@@ -241,6 +242,10 @@ export interface MmbridgeConfig {
   /** Context workspace limits */
   context?: {
     maxBytes?: number;
+  };
+  /** Project memory backend */
+  memory?: {
+    provider?: MemoryProviderName;
   };
   /** Bridge defaults for multi-tool review */
   bridge?: {
