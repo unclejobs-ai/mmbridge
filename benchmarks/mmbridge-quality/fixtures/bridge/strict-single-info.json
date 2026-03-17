@@ -1,0 +1,37 @@
+{
+  "id": "bridge/strict-single-info",
+  "kind": "bridge",
+  "description": "Strict profile should include single INFO findings because threshold is one.",
+  "input": {
+    "profile": "strict",
+    "results": [
+      {
+        "tool": "claude",
+        "findings": [
+          {
+            "severity": "INFO",
+            "file": "src/cache.ts",
+            "line": 31,
+            "message": "Consider shortening cache key prefix"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "profile": "strict",
+    "totalInputs": 1,
+    "consensusFindings": 1,
+    "counts": {
+      "INFO": 1
+    },
+    "findings": [
+      {
+        "severity": "INFO",
+        "file": "src/cache.ts",
+        "line": 31,
+        "message": "Consider shortening cache key prefix"
+      }
+    ]
+  }
+}

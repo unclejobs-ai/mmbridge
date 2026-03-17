@@ -144,6 +144,15 @@ export interface InterpretResult {
   interpreterTool: string;
 }
 
+export interface ManagerResult {
+  managerTool: string;
+  summary: string;
+  actionPlan: string;
+  validated: Finding[];
+  dismissed: Array<{ finding: Finding; reason: string }>;
+  promoted: Finding[];
+}
+
 export interface BridgeResult {
   profile: string;
   totalInputs: number;

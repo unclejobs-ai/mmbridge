@@ -20,4 +20,5 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
-      - run: node packages/cli/dist/bin/mmbridge.js doctor --json
+      - run: pnpm run bench:quality
+      - run: pnpm run smoke:doctor

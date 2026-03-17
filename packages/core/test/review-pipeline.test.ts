@@ -83,3 +83,46 @@ test('runReviewPipeline: bridgeProfile affects consensus threshold', async () =>
   assert.equal(result.findings.length, 1);
   assert.ok(result.summary.includes('strict'));
 });
+
+test('runReviewPipeline: interpreted bridge applies manager output to final findings', async () => {
+  let savedData: unknown = null;
+
+  const result = await runReviewPipeline({
+    ...baseOptions,
+    tool: 'all',
+    bridge: 'interpreted',
+    bridgeProfile: 'strict',
+    listInstalledTools: async () => ['tool1'],
+    runAdapter: makeMockAdapter('[WARNING] src/a.ts:10 — Missing validation'),
+    runManager: async ({ mergedFindings }) => ({
+      managerTool: 'fixture-manager',
+      summary: 'Manager dismissed the noisy warning and promoted the deeper defect.',
+      actionPlan: '1. Fix the deeper defect first.',
+      validated: [],
+      dismissed: mergedFindings[0] ? [{ finding: mergedFindings[0], reason: 'Too noisy for the final report.' }] : [],
+      promoted: [
+        {
+          severity: 'CRITICAL',
+          file: 'src/a.ts',
+          line: 11,
+          message: 'Escalated validation gap can corrupt persisted state.',
+          sources: ['manager-review'],
+        },
+      ],
+    }),
+    saveSession: async (data) => {
+      savedData = data;
+      return { id: 'manager-123' };
+    },
+  });
+
+  assert.equal(result.sessionId, 'manager-123');
+  assert.equal(result.manager?.managerTool, 'fixture-manager');
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0]?.severity, 'CRITICAL');
+  assert.equal(result.findings[0]?.line, 11);
+  assert.match(result.summary, /Manager dismissed the noisy warning/);
+
+  assert.ok(savedData);
+  assert.equal((savedData as { manager?: { managerTool?: string } }).manager?.managerTool, 'fixture-manager');
+});

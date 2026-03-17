@@ -2,11 +2,18 @@ import { runBridge } from './bridge.js';
 import { loadConfig } from './config.js';
 import { cleanupContext, createContext } from './context.js';
 import { parseFindings } from './finding-parser.js';
-import { interpretFindings } from './interpret.js';
+import { runManagerReview } from './manager.js';
 import { orchestrateReview } from './orchestrate.js';
 import { enrichFindings } from './report.js';
 import { buildContextIndex, buildResultIndex } from './session-index.js';
-import type { ContextWorkspace, Finding, InterpretResult, MmbridgeConfig, ResultIndex } from './types.js';
+import type {
+  ContextWorkspace,
+  Finding,
+  InterpretResult,
+  ManagerResult,
+  MmbridgeConfig,
+  ResultIndex,
+} from './types.js';
 
 interface ReviewToolSummary {
   tool: string;
@@ -65,9 +72,17 @@ export interface ReviewPipelineOptions {
     resultIndex: ResultIndex;
     toolResults?: ReviewToolSummary[];
     interpretation?: InterpretResult | null;
+    manager?: ManagerResult | null;
     followupSupported?: boolean;
     status?: string;
   }) => Promise<{ id: string }>;
+  /** Optional manager runner for interpreted bridge mode */
+  runManager?: (options: {
+    mergedFindings: Finding[];
+    toolResults: Array<{ tool: string; findings: Finding[]; summary: string; skipped: boolean; error?: string }>;
+    changedFiles: string[];
+    workspace: string;
+  }) => Promise<ManagerResult>;
 }
 
 export interface ReviewPipelineResult {
@@ -79,6 +94,7 @@ export interface ReviewPipelineResult {
   contextIndex: ReturnType<typeof buildContextIndex>;
   toolResults?: Array<{ tool: string; findingCount: number; skipped: boolean; error?: string }>;
   interpretation?: InterpretResult | null;
+  manager?: ManagerResult | null;
   resultIndex: ResultIndex;
 }
 
@@ -263,23 +279,29 @@ async function runBridgePipeline(
     })),
   });
 
+  let manager: ManagerResult | null = null;
+  let finalFindings = bridgeResult.findings;
+
   if (bridge === 'interpreted' && bridgeResult.findings.length > 0) {
-    onProgress?.('interpret', 'Validating consensus findings...');
+    onProgress?.('interpret', 'Running manager synthesis...');
     try {
-      bridgeResult.interpretation = await interpretFindings({
+      manager = await (options.runManager ?? runManagerReview)({
         mergedFindings: bridgeResult.findings,
+        toolResults: orchResult.results,
         changedFiles: ctx.changedFiles,
-        projectContext: '',
         workspace: ctx.workspace,
       });
+
+      const managed = enrichFindings([...manager.validated, ...manager.promoted], []);
+      finalFindings = managed.findings;
     } catch {
-      // Interpretation failure is non-critical — consensus findings still stand.
+      manager = null;
     }
   }
 
   const resultIndex = buildResultIndex({
-    summary: bridgeResult.summary,
-    findings: bridgeResult.findings,
+    summary: manager?.summary ? `${bridgeResult.summary} · ${manager.summary}` : bridgeResult.summary,
+    findings: finalFindings,
     bridgeSummary: bridgeResult.summary,
   });
 
@@ -290,8 +312,8 @@ async function runBridgePipeline(
         mode,
         projectDir,
         workspace: ctx.workspace,
-        summary: bridgeResult.summary,
-        findings: bridgeResult.findings,
+        summary: manager?.summary ? `${bridgeResult.summary} · ${manager.summary}` : bridgeResult.summary,
+        findings: finalFindings,
         contextIndex,
         resultIndex,
         toolResults: orchResult.results.map((r) => ({
@@ -301,13 +323,14 @@ async function runBridgePipeline(
           error: r.error,
         })),
         interpretation: bridgeResult.interpretation ?? null,
+        manager,
       })
     : { id: 'unsaved' };
 
   return {
     sessionId: session.id,
-    summary: bridgeResult.summary,
-    findings: bridgeResult.findings,
+    summary: manager?.summary ? `${bridgeResult.summary} · ${manager.summary}` : bridgeResult.summary,
+    findings: finalFindings,
     contextIndex,
     toolResults: orchResult.results.map((r) => ({
       tool: r.tool,
@@ -316,6 +339,7 @@ async function runBridgePipeline(
       error: r.error,
     })),
     interpretation: bridgeResult.interpretation ?? null,
+    manager,
     resultIndex,
   };
 }

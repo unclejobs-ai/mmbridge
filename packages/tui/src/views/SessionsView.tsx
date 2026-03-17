@@ -90,7 +90,8 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
   const topFiles = resultIndex?.topFiles?.slice(0, 3) ?? null;
   const toolResults = Array.isArray(session.toolResults) ? session.toolResults : [];
   const interpretation = session.interpretation ?? null;
-  const actionPlan = interpretation?.actionPlan?.split('\n')[0]?.trim() ?? null;
+  const manager = session.manager ?? null;
+  const actionPlan = (manager?.actionPlan ?? interpretation?.actionPlan)?.split('\n')[0]?.trim() ?? null;
   const flow = buildSessionReviewFlow({
     tool: session.tool,
     mode: session.mode,
@@ -99,6 +100,7 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
     toolResults,
     resultIndex,
     interpretation,
+    manager,
     changedFiles: contextIndex?.changedFiles ?? null,
     ancestryChain,
   });
@@ -255,6 +257,26 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
           <KVRow label="promoted" value={String(interpretation.promoted.length)} labelWidth={10} />
           {actionPlan && (
             <Text color={colors.subtext1} wrap="truncate-end">
+              {actionPlan}
+            </Text>
+          )}
+        </Box>
+      )}
+
+      {manager != null && (
+        <Box flexDirection="column">
+          <Text color={colors.textDim} bold>
+            Manager
+          </Text>
+          <KVRow label="tool" value={manager.managerTool} labelWidth={10} />
+          <KVRow label="kept" value={String(manager.validated.length)} labelWidth={10} />
+          <KVRow label="dismissed" value={String(manager.dismissed.length)} labelWidth={10} />
+          <KVRow label="promoted" value={String(manager.promoted.length)} labelWidth={10} />
+          <Text color={colors.subtext1} wrap="truncate-end">
+            {manager.summary}
+          </Text>
+          {actionPlan && (
+            <Text color={colors.textDim} wrap="truncate-end">
               {actionPlan}
             </Text>
           )}

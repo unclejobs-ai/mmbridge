@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 
 import type { DiffCommandOptions } from './commands/diff.js';
 import type { DoctorOptions } from './commands/doctor.js';
@@ -74,10 +74,12 @@ export async function main(): Promise<void> {
   // ── review ──
   program
     .command('review')
-    .description('Run a code review with the specified AI tool')
-    .option('-t, --tool <tool>', 'AI tool to use (kimi|qwen|codex|gemini|droid|claude|all)', 'kimi')
+    .description('Run a code review. Use --all for consensus or --manager for supervised consensus.')
+    .option('-t, --tool <tool>', 'AI tool to use (kimi|qwen|codex|gemini|droid|claude)')
+    .option('--all', 'Run all installed review tools in parallel and merge by consensus')
+    .option('--manager', 'Run supervisor-managed consensus review (implies --all)')
     .option('-m, --mode <mode>', 'Review mode (review|security|architecture)', 'review')
-    .option('--bridge <profile>', 'Bridge aggregation profile')
+    .addOption(new Option('--bridge <profile>', 'Legacy bridge mode (standard|interpreted)').hideHelp())
     .option('--base-ref <ref>', 'Git base ref for diff (default: HEAD~1)')
     .option('--commit <sha>', 'Specific commit to review')
     .option('-p, --project <dir>', 'Project directory (default: cwd)')

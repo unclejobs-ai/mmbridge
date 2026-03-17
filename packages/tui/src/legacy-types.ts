@@ -1,6 +1,6 @@
 // ─── Legacy domain interfaces (preserved for backward compatibility) ──────────
 
-import type { Finding, InterpretResult, ResultIndex } from '@mmbridge/core';
+import type { Finding, InterpretResult, ManagerResult, ResultIndex } from '@mmbridge/core';
 import type { HandoffArtifact, RecallEntrySummary } from '@mmbridge/session-store';
 
 export interface DoctorReport {
@@ -32,6 +32,7 @@ export interface ReviewReport {
     error?: string;
   }>;
   interpretation?: InterpretResult;
+  manager?: ManagerResult;
   recalledMemorySummary?: string;
   recalledMemoryHits?: RecallEntrySummary[];
   handoff?: HandoffArtifact | null;

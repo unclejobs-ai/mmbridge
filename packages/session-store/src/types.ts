@@ -1,4 +1,4 @@
-import type { ContextIndex, Finding, InterpretResult, ResultIndex } from '@mmbridge/core';
+import type { ContextIndex, Finding, InterpretResult, ManagerResult, ResultIndex } from '@mmbridge/core';
 
 export interface SessionToolResult {
   tool: string;
@@ -36,6 +36,7 @@ export interface Session {
   resultIndex?: ResultIndex | null;
   toolResults?: SessionToolResult[];
   interpretation?: InterpretResult | null;
+  manager?: ManagerResult | null;
   findingDecisions?: SessionFindingDecision[];
   recalledMemoryIds?: string[];
   handoffId?: string | null;
@@ -95,6 +96,7 @@ export interface HandoffDocument {
   contextDigest?: string | null;
   contextSummary?: string | null;
   bridgeSummary?: string | null;
+  managerSummary?: string | null;
   interpretationSummary?: string | null;
   recalledMemoryIds: string[];
   recalledMemorySummary?: string | null;

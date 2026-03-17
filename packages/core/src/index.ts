@@ -19,6 +19,7 @@ export type {
   BridgeResult,
   BridgeOptions,
   InterpretResult,
+  ManagerResult,
   EnrichResult,
   BuildContextIndexInput,
   BuildResultIndexInput,
@@ -81,6 +82,8 @@ export { runReviewPipeline } from './review-pipeline.js';
 export type { ReviewPipelineOptions, ReviewPipelineResult } from './review-pipeline.js';
 
 export { interpretFindings } from './interpret.js';
+export { runManagerReview } from './manager.js';
+export type { RunManagerReviewOptions } from './manager.js';
 
 export { exportReport } from './export.js';
 export type { ExportableReport } from './export.js';

@@ -63,6 +63,21 @@ function summarizeInterpretation(session: Session): string | null {
   ].join(' · ');
 }
 
+function summarizeManager(session: Session): string | null {
+  if (!session.manager) return null;
+  const bits = [
+    session.manager.summary,
+    `${session.manager.validated.length} kept`,
+    `${session.manager.dismissed.length} dismissed`,
+    `${session.manager.promoted.length} promoted`,
+  ].filter(Boolean);
+  return bits.join(' · ');
+}
+
+function getActionPlan(session: Session): string {
+  return session.manager?.actionPlan ?? session.interpretation?.actionPlan ?? '';
+}
+
 function summarizeContext(contextIndex: ContextIndex | null | undefined): string | null {
   if (!contextIndex) return null;
   const changed = contextIndex.changedFiles;
@@ -80,8 +95,9 @@ function collectOpenBlockers(session: Session): string[] {
       return `[${finding.severity}] ${location} - ${finding.message}`;
     });
 
-  const actionBlockers = session.interpretation?.actionPlan
-    ? session.interpretation.actionPlan
+  const actionPlan = getActionPlan(session);
+  const actionBlockers = actionPlan
+    ? actionPlan
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => /block|follow-?up|todo|next/i.test(line))
@@ -228,8 +244,9 @@ function deriveSessionMemoryEntries(session: Session, projectKey: string): Memor
     );
   }
 
-  if (session.interpretation?.actionPlan) {
-    for (const rawLine of session.interpretation.actionPlan.split('\n')) {
+  const actionPlan = getActionPlan(session);
+  if (actionPlan) {
+    for (const rawLine of actionPlan.split('\n')) {
       const line = rawLine.trim();
       if (!line) continue;
       entries.push(
@@ -471,6 +488,7 @@ export class ProjectMemoryStore {
       contextSummary: summarizeContext(session.contextIndex),
       bridgeSummary: session.resultIndex?.bridgeSummary ?? null,
       interpretationSummary: summarizeInterpretation(session),
+      managerSummary: summarizeManager(session),
       recalledMemoryIds,
       recalledMemory,
       recalledMemorySummary:
@@ -526,6 +544,7 @@ export class ProjectMemoryStore {
       document.summary,
       '',
       ...(document.bridgeSummary ? ['## Bridge', '', document.bridgeSummary, ''] : []),
+      ...(document.managerSummary ? ['## Manager', '', document.managerSummary, ''] : []),
       ...(document.interpretationSummary ? ['## Interpretation', '', document.interpretationSummary, ''] : []),
       '## Findings',
       '',

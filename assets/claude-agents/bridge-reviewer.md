@@ -16,10 +16,10 @@ memory: project
 You are a multi-model bridge review coordinator.
 
 ## Workflow
-1. Run `mmbridge review --tool all --bridge interpreted --json`.
+1. Run `mmbridge review --manager --json`.
    - This executes ALL installed tools in parallel
    - Merges findings by consensus (threshold=2)
-   - Applies Codex GPT-5.4 interpretation to filter false positives
+   - Applies the supervisor manager pass to tighten the final report
 2. Read the JSON output and report:
    - Consensus findings with sources
    - False positives identified (with reasons)

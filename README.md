@@ -1,11 +1,12 @@
 # mmbridge
 
-Multi-model AI code review bridge. Run code reviews across multiple AI tools (Kimi, Qwen, Codex, Gemini) and aggregate findings with consensus-based filtering.
+Multi-model AI code review bridge. Run a single-tool review, a multi-tool consensus review, or a supervisor-managed review without juggling a pile of flags.
 
 ## Features
 
-- **Multi-tool review**: Run reviews with Kimi, Qwen, Codex, or Gemini CLI tools
-- **Finding aggregation**: Bridge mode compares findings across tools, surfaces consensus issues
+- **Single or multi-tool review**: Run one tool with `--tool`, all installed tools with `--all`, or a supervisor-managed run with `--manager`
+- **Finding aggregation**: Consensus mode compares findings across tools and surfaces shared issues
+- **Manager pass**: `--manager` adds a supervisor layer that tightens the final findings set
 - **Finding parser**: Extracts structured findings from raw AI output
 - **Diff overlay**: View git diff annotated with review findings (`mmbridge diff`)
 - **Secret redaction**: Auto-redacts API keys, tokens, passwords from context
@@ -27,11 +28,17 @@ pnpm add -g @mmbridge/cli
 # Initialize config
 mmbridge init
 
-# Run a review with Kimi
+# Run a review with one tool
 mmbridge review --tool kimi
 
-# Run with Qwen and export report
-mmbridge review --tool qwen --export review.md
+# Run a multi-tool consensus review
+mmbridge review --all
+
+# Run a supervisor-managed consensus review
+mmbridge review --manager
+
+# Add streaming output to any review
+mmbridge review --manager --stream
 
 # View diff with annotated findings
 mmbridge diff
@@ -42,15 +49,15 @@ mmbridge followup --tool kimi --prompt "explain the CRITICAL finding in detail"
 # Check environment
 mmbridge doctor
 
-# Bridge mode: aggregate multiple reviews
-mmbridge review --tool kimi --bridge standard
+# Export a single-tool review
+mmbridge review --tool qwen --export review.md
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `mmbridge review` | Run code review with specified AI tool |
+| `mmbridge review` | Run a review. Use `--tool`, `--all`, or `--manager` |
 | `mmbridge diff` | Show git diff annotated with review findings |
 | `mmbridge followup` | Send follow-up prompt to existing session |
 | `mmbridge dashboard` | Open TUI dashboard for session history |
@@ -79,6 +86,15 @@ Create `.mmbridge.config.json` in your project root:
   }
 }
 ```
+
+`mmbridge review` keeps the runtime surface intentionally small:
+
+- `--tool <name>` for one tool
+- `--all` for consensus across installed tools
+- `--manager` for supervisor-managed consensus
+- `--stream` for live terminal output
+
+The legacy `--bridge` flag is still accepted for backward compatibility, but it is no longer the recommended surface.
 
 ## Custom Adapters
 

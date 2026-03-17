@@ -1,5 +1,5 @@
 import type { LiveState } from '@mmbridge/core';
-import type { Finding, InterpretResult, ResultIndex } from '@mmbridge/core';
+import type { Finding, InterpretResult, ManagerResult, ResultIndex } from '@mmbridge/core';
 import type { SessionToolResult } from '@mmbridge/session-store';
 import { Box, Text } from 'ink';
 import type React from 'react';
@@ -212,6 +212,7 @@ export function buildSessionReviewFlow(input: {
   toolResults?: SessionToolResult[];
   resultIndex?: ResultIndex | null;
   interpretation?: InterpretResult | null;
+  manager?: ManagerResult | null;
   changedFiles?: number | null;
   ancestryChain?: string[];
 }): ReviewFlowMapProps {
@@ -235,6 +236,7 @@ export function buildSessionReviewFlow(input: {
         ];
 
   const interpretation = input.interpretation;
+  const manager = input.manager;
   const footer =
     input.ancestryChain && input.ancestryChain.length > 1
       ? `chain ${input.ancestryChain.map((id) => `#${id.slice(0, 6)}`).join(' -> ')}`
@@ -277,7 +279,14 @@ export function buildSessionReviewFlow(input: {
             detail: `${interpretation.validated.length} valid · ${interpretation.falsePositives.length} false+`,
             accentColor: colors.peach,
           }
-        : null,
+        : manager != null
+          ? {
+              label: 'Manager',
+              status,
+              detail: `${manager.validated.length} kept · ${manager.dismissed.length} dismissed`,
+              accentColor: colors.peach,
+            }
+          : null,
     findings: {
       label: 'Findings',
       status,

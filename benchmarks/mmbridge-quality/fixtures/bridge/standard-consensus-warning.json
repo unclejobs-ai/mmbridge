@@ -1,0 +1,48 @@
+{
+  "id": "bridge/standard-consensus-warning",
+  "kind": "bridge",
+  "description": "Standard profile requires two matching tool findings for consensus.",
+  "input": {
+    "profile": "standard",
+    "results": [
+      {
+        "tool": "codex",
+        "findings": [
+          {
+            "severity": "WARNING",
+            "file": "src/session.ts",
+            "line": 88,
+            "message": "Missing tenant boundary check"
+          }
+        ]
+      },
+      {
+        "tool": "gemini",
+        "findings": [
+          {
+            "severity": "WARNING",
+            "file": "src/session.ts",
+            "line": 88,
+            "message": "Missing tenant boundary check"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "profile": "standard",
+    "totalInputs": 2,
+    "consensusFindings": 1,
+    "counts": {
+      "WARNING": 1
+    },
+    "findings": [
+      {
+        "severity": "WARNING",
+        "file": "src/session.ts",
+        "line": 88,
+        "message": "Missing tenant boundary check"
+      }
+    ]
+  }
+}

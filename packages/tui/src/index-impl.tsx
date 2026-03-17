@@ -63,6 +63,9 @@ export async function renderReviewConsole(report: import('./legacy-types.js').Re
   const interpretDetail = report.interpretation
     ? `${report.interpretation.validated.length} valid · ${report.interpretation.falsePositives.length} false+`
     : null;
+  const managerDetail = report.manager
+    ? `${report.manager.validated.length} kept · ${report.manager.dismissed.length} dismissed`
+    : null;
   const findingDetail =
     [
       severity.critical > 0 ? `${severity.critical} CRI` : null,
@@ -87,6 +90,10 @@ export async function renderReviewConsole(report: import('./legacy-types.js').Re
   if (interpretDetail) {
     flowLines.push('│');
     flowLines.push(`✓ Interpret  ${interpretDetail}`);
+  }
+  if (managerDetail) {
+    flowLines.push('│');
+    flowLines.push(`✓ Manager    ${managerDetail}`);
   }
   flowLines.push('│');
   flowLines.push(`✓ Findings   ${findingDetail}`);
@@ -121,6 +128,7 @@ export async function renderReviewConsole(report: import('./legacy-types.js').Re
     '',
     'Summary',
     summary,
+    ...(report.manager?.summary ? ['', 'Manager', report.manager.summary] : []),
     consensusLines.length > 0 ? '' : null,
     consensusLines.length > 0 ? 'Consensus' : null,
     ...(consensusLines.length > 0 ? consensusLines : []),

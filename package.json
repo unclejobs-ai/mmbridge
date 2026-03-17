@@ -8,7 +8,12 @@
     "typecheck": "tsc -b",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "test:benchmark": "node --test benchmarks/mmbridge-quality/test/*.test.mjs",
+    "bench:quality": "node benchmarks/mmbridge-quality/run.mjs",
+    "bench:quality:update-baseline": "node benchmarks/mmbridge-quality/run.mjs --update-baseline",
     "test": "pnpm -r run test",
+    "smoke:doctor": "node packages/cli/dist/bin/mmbridge.js doctor --json",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run clean && pnpm run test && pnpm run build && pnpm run test:benchmark && pnpm run bench:quality && pnpm run smoke:doctor",
     "clean": "pnpm -r run clean",
     "changeset": "changeset",
     "release": "changeset version && pnpm install && pnpm run build && changeset publish"

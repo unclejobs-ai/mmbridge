@@ -33,9 +33,9 @@ const DASHBOARD_MENU = [
     command: 'mmbridge review --stream --tool codex',
   },
   {
-    title: 'Bridge Interpreted',
-    description: 'Run multi-tool consensus with interpretation enabled',
-    command: 'mmbridge review --tool all --bridge interpreted',
+    title: 'Manager Review',
+    description: 'Run supervisor-managed multi-tool consensus review',
+    command: 'mmbridge review --manager',
   },
   {
     title: 'Latest Handoff',
@@ -454,6 +454,7 @@ export function DashboardView(): React.ReactElement {
                     toolResults: sessions[0].toolResults,
                     resultIndex: sessions[0].resultIndex ?? null,
                     interpretation: sessions[0].interpretation ?? null,
+                    manager: sessions[0].manager ?? null,
                     changedFiles: sessions[0].contextIndex?.changedFiles ?? null,
                   })}
                 />

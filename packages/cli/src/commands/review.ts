@@ -13,6 +13,8 @@ import {
 
 export interface ReviewCommandOptions {
   tool?: string;
+  all?: boolean;
+  manager?: boolean;
   mode?: string;
   bridge?: string;
   baseRef?: string;
@@ -21,6 +23,35 @@ export interface ReviewCommandOptions {
   json?: boolean;
   export?: string;
   stream?: boolean;
+}
+
+function normalizeReviewSelection(options: ReviewCommandOptions): {
+  tool: string;
+  bridge: 'none' | 'standard' | 'interpreted' | undefined;
+} {
+  const bridge = options.bridge as 'none' | 'standard' | 'interpreted' | undefined;
+
+  if (options.manager) {
+    if (options.tool && options.tool !== 'all') {
+      exitWithError('--manager cannot be combined with --tool. Use `mmbridge review --manager` by itself.');
+    }
+    if (bridge && bridge !== 'interpreted') {
+      exitWithError('--manager cannot be combined with legacy --bridge modes other than `interpreted`.');
+    }
+    return { tool: 'all', bridge: 'interpreted' };
+  }
+
+  if (options.all) {
+    if (options.tool && options.tool !== 'all') {
+      exitWithError('--all cannot be combined with --tool. Use either `--tool <name>` or `--all`.');
+    }
+    return { tool: 'all', bridge };
+  }
+
+  return {
+    tool: options.tool ?? 'kimi',
+    bridge,
+  };
 }
 
 type ReviewConsoleReport = ReviewReport & {
@@ -43,8 +74,7 @@ function formatContextDigest(contextIndex: {
 export async function runReviewCommand(options: ReviewCommandOptions): Promise<void> {
   const projectDir = resolveProjectDir(options.project);
   const mode = options.mode ?? 'review';
-  const tool = options.tool ?? 'kimi';
-  const bridge = options.bridge as 'none' | 'standard' | 'interpreted' | undefined;
+  const { tool, bridge } = normalizeReviewSelection(options);
 
   const { buildResultIndex, runReviewPipeline, commandExists } = await importCore();
   const { defaultRegistry, runReviewAdapter } = await importAdapters(projectDir);
@@ -90,6 +120,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
       followupSupported: result.followupSupported,
       toolResults: result.toolResults,
       interpretation: result.interpretation ?? undefined,
+      manager: result.manager ?? undefined,
       recalledMemorySummary: recall.summary,
       recalledMemoryHits: recall.memoryHits,
       handoff: handoff.artifact,
