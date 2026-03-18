@@ -1,18 +1,40 @@
+import { randomUUID } from 'node:crypto';
 import { runBridge } from './bridge.js';
 import { loadConfig } from './config.js';
 import { cleanupContext, createContext } from './context.js';
 import { parseFindings } from './finding-parser.js';
 import { interpretFindings } from './interpret.js';
+import { deriveRunStatus } from './operations.js';
 import { orchestrateReview } from './orchestrate.js';
 import { enrichFindings } from './report.js';
 import { buildContextIndex, buildResultIndex } from './session-index.js';
-import type { ContextWorkspace, Finding, InterpretResult, MmbridgeConfig, ResultIndex } from './types.js';
+import type { ContextWorkspace, Finding, InterpretResult, MmbridgeConfig, ResultIndex, ReviewRun } from './types.js';
+import { nowIso } from './utils.js';
 
 interface ReviewToolSummary {
   tool: string;
   findingCount: number;
   skipped: boolean;
   error?: string;
+}
+
+function countFindingsAcrossLanes(run: ReviewRun): number {
+  return run.lanes.reduce((total, lane) => total + lane.findingCount, 0);
+}
+
+async function persistRun(
+  options: ReviewPipelineOptions,
+  run: ReviewRun,
+  patch?: Partial<ReviewRun>,
+): Promise<ReviewRun> {
+  const nextRun: ReviewRun = {
+    ...run,
+    ...(patch ?? {}),
+  };
+  nextRun.findingsSoFar = countFindingsAcrossLanes(nextRun);
+  nextRun.status = deriveRunStatus(nextRun.lanes);
+  await options.persistRun?.(nextRun);
+  return nextRun;
 }
 
 // ─── Public interfaces ──────────────────────────────────────────────────────
@@ -58,6 +80,7 @@ export interface ReviewPipelineOptions {
     mode: string;
     projectDir: string;
     workspace: string;
+    runId?: string | null;
     externalSessionId?: string | null;
     summary: string;
     findings: Finding[];
@@ -67,10 +90,14 @@ export interface ReviewPipelineOptions {
     interpretation?: InterpretResult | null;
     followupSupported?: boolean;
     status?: string;
+    diffDigest?: string | null;
   }) => Promise<{ id: string }>;
+  /** Persist the current review-run snapshot */
+  persistRun?: (run: ReviewRun) => Promise<void>;
 }
 
 export interface ReviewPipelineResult {
+  runId: string;
   sessionId: string;
   summary: string;
   findings: Finding[];
@@ -85,8 +112,18 @@ export interface ReviewPipelineResult {
 // ─── Pipeline ────────────────────────────────────────────────────────────────
 
 function buildCtxIndex(ctx: ContextWorkspace, projectDir: string, mode: string): ReturnType<typeof buildContextIndex> {
-  const { workspace, baseRef, head, changedFiles, copiedFileCount, redaction } = ctx;
-  return buildContextIndex({ workspace, projectDir, mode, baseRef, head, changedFiles, copiedFileCount, redaction });
+  const { workspace, baseRef, diffDigest, head, changedFiles, copiedFileCount, redaction } = ctx;
+  return buildContextIndex({
+    workspace,
+    projectDir,
+    mode,
+    baseRef,
+    diffDigest,
+    head,
+    changedFiles,
+    copiedFileCount,
+    redaction,
+  });
 }
 
 export async function runReviewPipeline(options: ReviewPipelineOptions): Promise<ReviewPipelineResult> {
@@ -95,6 +132,39 @@ export async function runReviewPipeline(options: ReviewPipelineOptions): Promise
   const defaultBridgeMode = config.bridge?.mode ?? 'standard';
   const bridge = options.bridge ?? (tool === 'all' ? defaultBridgeMode : 'none');
   const bridgeProfile = options.bridgeProfile ?? config.bridge?.profile ?? 'standard';
+  let run: ReviewRun = {
+    id: randomUUID(),
+    tool: tool === 'all' ? 'bridge' : tool,
+    mode,
+    projectDir,
+    baseRef: options.baseRef ?? options.commit ?? null,
+    diffDigest: null,
+    changedFiles: 0,
+    status: 'queued',
+    phase: 'context',
+    startedAt: nowIso(),
+    completedAt: null,
+    findingsSoFar: 0,
+    warnings: [],
+    sessionId: null,
+    lanes:
+      tool === 'all'
+        ? []
+        : [
+            {
+              tool,
+              status: 'queued',
+              attempt: 1,
+              startedAt: null,
+              completedAt: null,
+              error: null,
+              findingCount: 0,
+              externalSessionId: null,
+              followupSupported: false,
+            },
+          ],
+  };
+  await options.persistRun?.(run);
 
   // Phase 1: Create context
   onProgress?.('context', 'Building review context...');
@@ -109,6 +179,13 @@ export async function runReviewPipeline(options: ReviewPipelineOptions): Promise
 
   try {
     const contextIndex = buildCtxIndex(ctx, projectDir, mode);
+    run = await persistRun(options, run, {
+      baseRef: ctx.baseRef ?? null,
+      diffDigest: ctx.diffDigest,
+      changedFiles: ctx.changedFiles.length,
+      phase: 'review',
+      status: 'running',
+    });
     options.onContextReady?.(contextIndex);
 
     if (ctx.changedFiles.length === 0 && (options.baseRef || options.commit)) {
@@ -126,16 +203,31 @@ export async function runReviewPipeline(options: ReviewPipelineOptions): Promise
             mode,
             projectDir,
             workspace: ctx.workspace,
+            runId: run.id,
             summary,
             findings: [],
             contextIndex,
             resultIndex,
             followupSupported: false,
             status: 'complete',
+            diffDigest: ctx.diffDigest,
           })
         : { id: 'unsaved' };
+      run = await persistRun(options, run, {
+        phase: 'handoff',
+        completedAt: nowIso(),
+        sessionId: session.id,
+        lanes: run.lanes.map((lane) => ({
+          ...lane,
+          status: 'done',
+          completedAt: nowIso(),
+          findingCount: 0,
+          followupSupported: false,
+        })),
+      });
 
       return {
+        runId: run.id,
         sessionId: session.id,
         summary,
         findings: [],
@@ -147,11 +239,34 @@ export async function runReviewPipeline(options: ReviewPipelineOptions): Promise
 
     // Bridge mode (tool='all' or explicit bridge)
     if (tool === 'all' || bridge !== 'none') {
-      return await runBridgePipeline(options, ctx, contextIndex, bridge, bridgeProfile);
+      if (run.lanes.length === 0) {
+        const installedTools = options.listInstalledTools ? await options.listInstalledTools() : [];
+        run = await persistRun(options, run, {
+          lanes: installedTools.map((laneTool) => ({
+            tool: laneTool,
+            status: 'queued',
+            attempt: 1,
+            startedAt: null,
+            completedAt: null,
+            error: null,
+            findingCount: 0,
+            externalSessionId: null,
+            followupSupported: false,
+          })),
+        });
+      }
+      return await runBridgePipeline(options, ctx, contextIndex, bridge, bridgeProfile, run);
     }
 
     // Single tool mode
-    return await runSingleToolPipeline(options, ctx, contextIndex);
+    return await runSingleToolPipeline(options, ctx, contextIndex, run);
+  } catch (error) {
+    run = await persistRun(options, run, {
+      phase: run.phase,
+      status: 'failed',
+      completedAt: nowIso(),
+    });
+    throw error;
   } finally {
     await cleanupContext(ctx.workspace).catch(() => {});
   }
@@ -161,19 +276,40 @@ async function runSingleToolPipeline(
   options: ReviewPipelineOptions,
   ctx: ContextWorkspace,
   contextIndex: ReturnType<typeof buildContextIndex>,
+  run: ReviewRun,
 ): Promise<ReviewPipelineResult> {
   const { tool, mode, projectDir, onProgress, onStdout, runAdapter, saveSession } = options;
+  const startedAt = nowIso();
+  run = await persistRun(options, run, {
+    phase: 'review',
+    status: 'running',
+    lanes: run.lanes.map((lane) =>
+      lane.tool === tool ? { ...lane, status: 'running', startedAt, error: null } : lane,
+    ),
+  });
 
   // Phase 2: Run adapter
   onProgress?.('review', `Running ${tool}...`);
-  const adapterResult = await runAdapter(tool, {
-    workspace: ctx.workspace,
-    cwd: projectDir,
-    mode,
-    baseRef: ctx.baseRef,
-    changedFiles: ctx.changedFiles,
-    onStdout: onStdout ? (chunk: string) => onStdout(tool, chunk) : undefined,
-  });
+  let adapterResult;
+  try {
+    adapterResult = await runAdapter(tool, {
+      workspace: ctx.workspace,
+      cwd: projectDir,
+      mode,
+      baseRef: ctx.baseRef,
+      changedFiles: ctx.changedFiles,
+      onStdout: onStdout ? (chunk: string) => onStdout(tool, chunk) : undefined,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await persistRun(options, run, {
+      completedAt: nowIso(),
+      lanes: run.lanes.map((lane) =>
+        lane.tool === tool ? { ...lane, status: 'error', completedAt: nowIso(), error: message } : lane,
+      ),
+    });
+    throw error;
+  }
 
   // Phase 3: Parse and enrich
   onProgress?.('enrich', 'Parsing findings...');
@@ -197,6 +333,7 @@ async function runSingleToolPipeline(
         mode,
         projectDir,
         workspace: ctx.workspace,
+        runId: run.id,
         externalSessionId: adapterResult.externalSessionId,
         summary: enriched.summary ?? `${enriched.findings.length} findings`,
         findings: enriched.findings,
@@ -204,10 +341,29 @@ async function runSingleToolPipeline(
         resultIndex,
         followupSupported: adapterResult.followupSupported,
         status: 'complete',
+        diffDigest: ctx.diffDigest,
       })
     : { id: 'unsaved' };
+  run = await persistRun(options, run, {
+    phase: 'handoff',
+    completedAt: nowIso(),
+    sessionId: session.id,
+    lanes: run.lanes.map((lane) =>
+      lane.tool === tool
+        ? {
+            ...lane,
+            status: 'done',
+            completedAt: nowIso(),
+            findingCount: enriched.findings.length,
+            externalSessionId: adapterResult.externalSessionId,
+            followupSupported: adapterResult.followupSupported,
+          }
+        : lane,
+    ),
+  });
 
   return {
+    runId: run.id,
     sessionId: session.id,
     summary: enriched.summary ?? `${enriched.findings.length} findings`,
     findings: enriched.findings,
@@ -224,6 +380,7 @@ async function runBridgePipeline(
   contextIndex: ReturnType<typeof buildContextIndex>,
   bridge: 'none' | 'standard' | 'interpreted',
   bridgeProfile: 'standard' | 'strict' | 'relaxed',
+  run: ReviewRun,
 ): Promise<ReviewPipelineResult> {
   const { mode, projectDir, onProgress, onStdout, runAdapter, listInstalledTools, saveSession } = options;
 
@@ -243,13 +400,48 @@ async function runBridgePipeline(
     changedFiles: ctx.changedFiles,
     runAdapter: (t, opts) => runAdapter(t, opts),
     onStdout,
-    onToolProgress: (tool, status) => {
+    onToolProgress: async (tool, status, result) => {
       onProgress?.('review', `${tool}: ${status}`);
+      const resultPayload =
+        result && typeof result === 'object'
+          ? (result as {
+              findings?: Finding[];
+              error?: string;
+              externalSessionId?: string | null;
+              followupSupported?: boolean;
+            })
+          : null;
+      if (status === 'start') {
+        const startedAt = nowIso();
+        run = await persistRun(options, run, {
+          phase: 'review',
+          lanes: run.lanes.map((lane) =>
+            lane.tool === tool ? { ...lane, status: 'running', startedAt, error: null } : lane,
+          ),
+        });
+        return;
+      }
+
+      run = await persistRun(options, run, {
+        lanes: run.lanes.map((lane) => {
+          if (lane.tool !== tool) return lane;
+          return {
+            ...lane,
+            status: status === 'done' ? 'done' : 'error',
+            completedAt: nowIso(),
+            error: status === 'error' ? (resultPayload?.error ?? 'Tool execution failed') : null,
+            findingCount: resultPayload?.findings?.length ?? 0,
+            externalSessionId: resultPayload?.externalSessionId ?? null,
+            followupSupported: resultPayload?.followupSupported ?? false,
+          };
+        }),
+      });
     },
   });
 
   // Phase 3: Bridge consensus
   onProgress?.('bridge', 'Running bridge consensus...');
+  run = await persistRun(options, run, { phase: 'bridge', status: 'running' });
   const bridgeResult = await runBridge({
     profile: bridgeProfile,
     interpret: false,
@@ -265,6 +457,7 @@ async function runBridgePipeline(
 
   if (bridge === 'interpreted' && bridgeResult.findings.length > 0) {
     onProgress?.('interpret', 'Validating consensus findings...');
+    run = await persistRun(options, run, { phase: 'interpret', status: 'running' });
     try {
       bridgeResult.interpretation = await interpretFindings({
         mergedFindings: bridgeResult.findings,
@@ -290,6 +483,7 @@ async function runBridgePipeline(
         mode,
         projectDir,
         workspace: ctx.workspace,
+        runId: run.id,
         summary: bridgeResult.summary,
         findings: bridgeResult.findings,
         contextIndex,
@@ -301,10 +495,17 @@ async function runBridgePipeline(
           error: r.error,
         })),
         interpretation: bridgeResult.interpretation ?? null,
+        diffDigest: ctx.diffDigest,
       })
     : { id: 'unsaved' };
+  run = await persistRun(options, run, {
+    phase: 'handoff',
+    completedAt: nowIso(),
+    sessionId: session.id,
+  });
 
   return {
+    runId: run.id,
     sessionId: session.id,
     summary: bridgeResult.summary,
     findings: bridgeResult.findings,

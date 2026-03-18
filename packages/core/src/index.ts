@@ -25,6 +25,42 @@ export type {
   BuildProjectContextOptions,
   FileClassifierRule,
   MmbridgeConfig,
+  ReviewRunStatus,
+  ReviewRunPhase,
+  ToolLaneStatus,
+  ToolLane,
+  ReviewRun,
+  GateStatus,
+  GateWarningCode,
+  GateWarning,
+  GateResult,
+  GateCurrentSnapshot,
+  GateSessionSnapshot,
+  GateHandoffSnapshot,
+  GateEvaluationInput,
+  ResumeAction,
+  ResumeRecommendation,
+  ResumeSessionSnapshot,
+  ResumeRecommendationInput,
+  ResumeResult,
+  ResearchType,
+  InsightConfidence,
+  ResearchInsight,
+  ResearchReport,
+  ResearchRunPhase,
+  DebateRoundType,
+  DebatePosition,
+  DebateRound,
+  DebateVerdict,
+  DebateTranscript,
+  DebateRunPhase,
+  SecuritySeverity,
+  SecurityScope,
+  CweMapping,
+  SecurityFinding,
+  AttackSurfaceEntry,
+  SecurityReport,
+  SecurityRunPhase,
 } from './types.js';
 
 export {
@@ -38,6 +74,7 @@ export {
   safeRead,
   limitBytes,
   nowIso,
+  shortDigest,
   parseCodexAgentMessages,
 } from './utils.js';
 
@@ -80,6 +117,25 @@ export type { OrchestrateOptions, OrchestrateResult, ToolResult } from './orches
 export { runReviewPipeline } from './review-pipeline.js';
 export type { ReviewPipelineOptions, ReviewPipelineResult } from './review-pipeline.js';
 
+export { runResearchPipeline } from './research-pipeline.js';
+export type { ResearchPipelineOptions, ResearchPipelineResult } from './research-pipeline.js';
+
+export { runDebatePipeline } from './debate-pipeline.js';
+export type { DebatePipelineOptions, DebatePipelineResult } from './debate-pipeline.js';
+
+export { buildRoundPrompt, parsePositions, computeVerdict } from './debate-rounds.js';
+
+export { synthesizeResearch } from './research-synthesize.js';
+export type { SynthesizeInput } from './research-synthesize.js';
+
+export {
+  deriveRunStatus,
+  evaluateGate,
+  hasUnresolvedCritical,
+  isFreshRun,
+  recommendResumeAction,
+} from './operations.js';
+
 export { interpretFindings } from './interpret.js';
 
 export { exportReport } from './export.js';
@@ -95,3 +151,24 @@ export {
 
 export { writeLiveState, readLiveState, clearLiveState, getLiveStatePath } from './live-state.js';
 export type { LiveState } from './live-state.js';
+
+export { runSecurityPipeline } from './security-pipeline.js';
+export type { SecurityPipelineOptions, SecurityPipelineResult } from './security-pipeline.js';
+
+export { classifyFindings, buildAttackSurface, CWE_DATABASE } from './security-cwe.js';
+export type { CweEntry } from './security-cwe.js';
+
+export { runEmbracePipeline } from './embrace-pipeline.js';
+export type { EmbracePipelineOptions, EmbracePipelineResult } from './embrace-pipeline.js';
+
+// Embrace types
+export type {
+  EmbracePhaseType,
+  EmbracePhaseStatus,
+  EmbracePhaseGate,
+  EmbracePhase,
+  EmbraceCheckpoint,
+  EmbraceConfig,
+  EmbraceRun,
+  EmbraceReport,
+} from './types.js';

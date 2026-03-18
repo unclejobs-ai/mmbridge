@@ -1,4 +1,4 @@
-import type { Finding } from '@mmbridge/core';
+import type { Finding, ReviewRun } from '@mmbridge/core';
 import type { ReviewReport } from '@mmbridge/tui';
 import { StreamRenderer } from '../render/stream-renderer.js';
 import {
@@ -48,7 +48,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
 
   const { buildResultIndex, runReviewPipeline, commandExists } = await importCore();
   const { defaultRegistry, runReviewAdapter } = await importAdapters(projectDir);
-  const { ProjectMemoryStore, SessionStore } = await importSessionStore();
+  const { ProjectMemoryStore, RunStore, SessionStore } = await importSessionStore();
   const { renderReviewConsole } = await importTui();
 
   // Validate tool exists (unless 'all')
@@ -64,7 +64,9 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
   }
 
   const sessionStore = new SessionStore();
+  const runStore = new RunStore(sessionStore.baseDir);
   const memoryStore = new ProjectMemoryStore(sessionStore.baseDir);
+  let lastRun: ReviewRun | null = null;
   const recall = await memoryStore.buildRecall(projectDir, { mode, tool });
 
   const saveSession = (data: Parameters<typeof sessionStore.save>[0]) =>
@@ -73,6 +75,9 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
       recalledMemoryIds: recall.recalledMemoryIds,
       contextDigest: data.contextIndex ? formatContextDigest(data.contextIndex) : null,
     });
+  const persistRun = async (run: ReviewRun): Promise<void> => {
+    lastRun = await runStore.save(run);
+  };
 
   const finalizeReport = async (
     result: Awaited<ReturnType<typeof runReviewPipeline>>,
@@ -106,6 +111,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
       mode,
       projectDir,
       workspace: projectDir,
+      runId: lastRun?.id ?? null,
       summary: message,
       findings: [],
       resultIndex: buildResultIndex({
@@ -117,6 +123,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
       status: 'error',
       recalledMemoryIds: recall.recalledMemoryIds,
       contextDigest: null,
+      diffDigest: lastRun?.diffDigest ?? null,
     });
     const handoff = await memoryStore.createOrUpdateHandoff(projectDir, failedSession.id, recall.recalledMemoryIds);
     return {
@@ -156,6 +163,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
         runAdapter: runReviewAdapter,
         listInstalledTools: () => defaultRegistry.listInstalled(),
         saveSession,
+        persistRun,
         onContextReady: (contextIndex) => renderer.setContextIndex(contextIndex),
         onProgress: (phase, detail) => renderer.phase(phase, detail),
         onStdout: (_tool, chunk) => {
@@ -205,6 +213,7 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
       runAdapter: runReviewAdapter,
       listInstalledTools: () => defaultRegistry.listInstalled(),
       saveSession,
+      persistRun,
       onContextReady: () => {},
     });
     report = await finalizeReport(result);

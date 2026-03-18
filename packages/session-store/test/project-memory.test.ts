@@ -33,6 +33,7 @@ test('ProjectMemoryStore creates handoff artifacts and indexes memory', async ()
       projectSlug: 'repo',
       mode: 'review',
       baseRef: 'HEAD~1',
+      diffDigest: 'digest-1',
       head: { sha: 'abc1234', branch: 'main' },
       changedFiles: 2,
       copiedFiles: 2,

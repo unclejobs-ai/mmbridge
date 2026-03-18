@@ -7,7 +7,7 @@ import { getChangedFiles, getDefaultBaseRef, getDiff, getHead } from './git.js';
 import { redactWorkspace } from './redaction.js';
 import { ADAPTER_NAMES } from './types.js';
 import type { ContextWorkspace, CreateContextOptions } from './types.js';
-import { ensureDir, isBinaryExtension, isPotentialSecretFile, limitBytes, projectSlug } from './utils.js';
+import { ensureDir, isBinaryExtension, isPotentialSecretFile, limitBytes, projectSlug, shortDigest } from './utils.js';
 
 const DEFAULT_MAX_CONTEXT_BYTES = 2 * 1024 * 1024; // 2 MB
 
@@ -28,6 +28,26 @@ const MODE_INSTRUCTIONS: Record<string, string> = {
     'Focus on: SOLID violations, dependency direction, layer boundary crossings,',
     'module coupling, separation of concerns, and scalability implications.',
     'Flag over-engineering and under-abstraction equally.',
+  ].join('\n'),
+  research: [
+    'Conduct in-depth research on the given topic.',
+    'Provide structured insights with evidence and confidence levels.',
+    'Classify each insight by category: consensus (agreed by multiple sources), unique (novel perspective), or contradiction (conflicting views).',
+    'Include source attribution for each insight.',
+  ].join('\n'),
+  debate: [
+    'Analyze the given proposition from your assigned perspective.',
+    'State your stance (for, against, or nuanced) with clear arguments and evidence.',
+    'In cross-examination rounds, directly address and critique other positions.',
+    'In synthesis rounds, identify areas of agreement and persistent disagreement.',
+  ].join('\n'),
+  'security-audit': [
+    'Perform a comprehensive security audit of the codebase.',
+    'Focus on: OWASP Top 10, CWE classifications, authentication/authorization flaws,',
+    'injection vulnerabilities, data exposure, cryptographic weaknesses, and supply chain risks.',
+    'Classify each finding with severity (P0-P3), exploitability, and specific CWE IDs.',
+    'Provide actionable remediation for each finding with code snippets where possible.',
+    'Map the attack surface: entry points, data flows, and trust boundaries.',
   ].join('\n'),
 };
 
@@ -138,8 +158,9 @@ export async function createContext(options: CreateContextOptions = {}): Promise
 
   // Write diff
   const diffContent = await getDiff(baseRef, projectDir);
+  const limitedDiffContent = limitBytes(diffContent, maxContextBytes);
   const diffPath = path.join(workspace, 'diff.patch');
-  await fs.writeFile(diffPath, limitBytes(diffContent, maxContextBytes), 'utf8');
+  await fs.writeFile(diffPath, limitedDiffContent, 'utf8');
 
   // Write context index file
   const contextPath = path.join(workspace, 'context.md');
@@ -188,6 +209,7 @@ export async function createContext(options: CreateContextOptions = {}): Promise
     mode,
     projectDir,
     baseRef,
+    diffDigest: shortDigest(limitedDiffContent),
     changedFiles,
     copiedFileCount,
     contextPath,

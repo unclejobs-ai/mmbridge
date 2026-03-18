@@ -1,5 +1,11 @@
 import { defaultRegistry, runFollowupAdapter, runReviewAdapter } from '@mmbridge/adapters';
-import { interpretFindings, runReviewPipeline } from '@mmbridge/core';
+import {
+  interpretFindings,
+  runDebatePipeline,
+  runResearchPipeline,
+  runReviewPipeline,
+  runSecurityPipeline,
+} from '@mmbridge/core';
 import type { Finding } from '@mmbridge/core';
 import { SessionStore } from '@mmbridge/session-store';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -117,6 +123,59 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    name: 'mmbridge_research',
+    description: 'Research a topic using multiple AI models with insight synthesis and consensus detection.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        topic: { type: 'string', description: 'Research topic or question' },
+        type: { type: 'string', enum: ['code-aware', 'open'], default: 'open', description: 'Research type' },
+        tools: { type: 'string', description: 'Comma-separated tool names (default: all)' },
+      },
+      required: ['topic'],
+    },
+  },
+  {
+    name: 'mmbridge_debate',
+    description: 'Multi-round debate between AI models on a proposition with verdict synthesis.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        proposition: { type: 'string', description: 'Proposition to debate' },
+        rounds: { type: 'number', default: 3, description: 'Number of debate rounds' },
+        teams: { type: 'string', description: 'Team spec "for_tools:against_tools"' },
+      },
+      required: ['proposition'],
+    },
+  },
+  {
+    name: 'mmbridge_security',
+    description: 'Comprehensive security audit with CWE classification, severity mapping, and attack surface analysis.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        scope: { type: 'string', enum: ['auth', 'api', 'infra', 'all'], default: 'all', description: 'Audit scope' },
+        tools: { type: 'string', description: 'Comma-separated tool names' },
+        compliance: { type: 'string', description: 'Comma-separated compliance frameworks' },
+        bridge: { type: 'string', enum: ['none', 'standard', 'interpreted'], default: 'standard' },
+      },
+    },
+  },
+  {
+    name: 'mmbridge_embrace',
+    description: 'Full development lifecycle: research → debate → checkpoint → review → security → report.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        task: { type: 'string', description: 'Task description for the full lifecycle' },
+        resumeId: { type: 'string', description: 'ID of paused embrace run to resume' },
+        resolveCheckpoint: { type: 'string', description: 'Response to resolve a checkpoint' },
+        skipPhases: { type: 'string', description: 'Comma-separated phases to skip' },
+      },
+      required: ['task'],
+    },
+  },
 ];
 
 function textContent(text: string, isError = false) {
@@ -147,6 +206,14 @@ export function registerToolHandlers(server: Server): void {
         return handleSessions(safeArgs);
       case 'mmbridge_search':
         return handleSearch(safeArgs);
+      case 'mmbridge_research':
+        return handleResearch(safeArgs, server);
+      case 'mmbridge_debate':
+        return handleDebate(safeArgs, server);
+      case 'mmbridge_security':
+        return handleSecurity(safeArgs, server);
+      case 'mmbridge_embrace':
+        return handleEmbrace(safeArgs, server);
       default:
         return textContent(`Unknown tool: ${name}`, true);
     }
@@ -297,4 +364,127 @@ async function handleSearch(args: Record<string, unknown>) {
   }
 
   return textContent(JSON.stringify(results, null, 2));
+}
+
+async function handleResearch(args: Record<string, unknown>, server: Server) {
+  const topic = String(args.topic);
+  const type = String(args.type ?? 'open') as 'code-aware' | 'open';
+  const toolsStr = args.tools as string | undefined;
+  const tools = toolsStr ? toolsStr.split(',').map((t) => t.trim()) : await defaultRegistry.listInstalled();
+  const projectDir = process.cwd();
+
+  try {
+    const result = await runResearchPipeline({
+      topic,
+      type,
+      tools,
+      projectDir,
+      runAdapter: runReviewAdapter,
+      listInstalledTools: () => defaultRegistry.listInstalled(),
+      saveSession: (data) => store.save(data),
+      onProgress: (phase, detail) => {
+        server.sendLoggingMessage({ level: 'info', data: `[${phase}] ${detail}` }).catch(() => {});
+      },
+    });
+    return textContent(JSON.stringify(result.report, null, 2));
+  } catch (err) {
+    return textContent(`Research failed: ${errorMessage(err)}`, true);
+  }
+}
+
+async function handleDebate(args: Record<string, unknown>, server: Server) {
+  const proposition = String(args.proposition);
+  const rounds = typeof args.rounds === 'number' ? args.rounds : 3;
+  const teamsStr = args.teams as string | undefined;
+  const tools = await defaultRegistry.listInstalled();
+  const projectDir = process.cwd();
+
+  let teams: { for: string[]; against: string[] } | undefined;
+  if (teamsStr) {
+    const [forStr, againstStr] = teamsStr.split(':');
+    teams = {
+      for: (forStr ?? '').split(',').map((t) => t.trim()),
+      against: (againstStr ?? '').split(',').map((t) => t.trim()),
+    };
+  }
+
+  try {
+    const result = await runDebatePipeline({
+      proposition,
+      rounds,
+      tools,
+      teams,
+      projectDir,
+      runAdapter: runReviewAdapter,
+      listInstalledTools: () => defaultRegistry.listInstalled(),
+      saveSession: (data) => store.save(data),
+      onProgress: (phase, detail) => {
+        server.sendLoggingMessage({ level: 'info', data: `[${phase}] ${detail}` }).catch(() => {});
+      },
+    });
+    return textContent(JSON.stringify(result.transcript, null, 2));
+  } catch (err) {
+    return textContent(`Debate failed: ${errorMessage(err)}`, true);
+  }
+}
+
+async function handleSecurity(args: Record<string, unknown>, server: Server) {
+  const scope = String(args.scope ?? 'all') as 'auth' | 'api' | 'infra' | 'all';
+  const toolsStr = args.tools as string | undefined;
+  const tools = toolsStr ? toolsStr.split(',').map((t) => t.trim()) : await defaultRegistry.listInstalled();
+  const complianceStr = args.compliance as string | undefined;
+  const compliance = complianceStr ? complianceStr.split(',').map((c) => c.trim()) : undefined;
+  const bridge = args.bridge === undefined ? undefined : (String(args.bridge) as 'none' | 'standard' | 'interpreted');
+  const projectDir = process.cwd();
+
+  try {
+    const result = await runSecurityPipeline({
+      scope,
+      tools,
+      projectDir,
+      compliance,
+      bridge: bridge ?? 'standard',
+      runAdapter: runReviewAdapter,
+      listInstalledTools: () => defaultRegistry.listInstalled(),
+      saveSession: (data) => store.save(data),
+      onProgress: (phase, detail) => {
+        server.sendLoggingMessage({ level: 'info', data: `[${phase}] ${detail}` }).catch(() => {});
+      },
+    });
+    return textContent(JSON.stringify(result.report, null, 2));
+  } catch (err) {
+    return textContent(`Security audit failed: ${errorMessage(err)}`, true);
+  }
+}
+
+async function handleEmbrace(args: Record<string, unknown>, server: Server) {
+  const task = String(args.task);
+  const resumeId = args.resumeId as string | undefined;
+  const resolveCheckpoint = args.resolveCheckpoint as string | undefined;
+  const skipPhasesStr = args.skipPhases as string | undefined;
+  const skipPhases = skipPhasesStr ? skipPhasesStr.split(',').map((p) => p.trim()) : undefined;
+  const projectDir = process.cwd();
+  const tools = await defaultRegistry.listInstalled();
+
+  try {
+    const { runEmbracePipeline } = await import('@mmbridge/core');
+    const result = await runEmbracePipeline({
+      task,
+      projectDir,
+      tools,
+      resumeId,
+      resolveCheckpoint,
+      skipPhases: skipPhases as import('@mmbridge/core').EmbracePhaseType[] | undefined,
+      nonInteractive: true,
+      runAdapter: runReviewAdapter,
+      listInstalledTools: () => defaultRegistry.listInstalled(),
+      saveSession: (data: Parameters<typeof store.save>[0]) => store.save(data),
+      onProgress: (phase: string, _status: string, detail: string) => {
+        server.sendLoggingMessage({ level: 'info', data: `[${phase}] ${detail}` }).catch(() => {});
+      },
+    });
+    return textContent(JSON.stringify(result.report, null, 2));
+  } catch (err) {
+    return textContent(`Embrace failed: ${errorMessage(err)}`, true);
+  }
 }

@@ -202,6 +202,14 @@ function DetailPanel({ session, allSessions }: DetailPanelProps): React.ReactEle
         valueColor={session.status === 'error' ? colors.red : colors.green}
       />
 
+      {session.runId != null && <KVRow label="Run" value={`#${session.runId.slice(0, 8)}`} labelWidth={6} />}
+
+      {session.resumeAction != null && <KVRow label="Resume" value={session.resumeAction} labelWidth={6} />}
+
+      {session.resumeSourceSessionId != null && (
+        <KVRow label="Source" value={`#${session.resumeSourceSessionId.slice(0, 8)}`} labelWidth={6} />
+      )}
+
       {findings.length > 0 && (
         <Box flexDirection="column">
           <Text color={colors.textDim} bold>

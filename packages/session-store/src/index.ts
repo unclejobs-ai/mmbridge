@@ -1,4 +1,7 @@
+export { EmbraceRunStore } from './embrace-runs.js';
+export type { EmbraceRunListOptions } from './embrace-runs.js';
 export { ProjectMemoryStore } from './project-memory.js';
+export { RunStore } from './runs.js';
 export { ProjectStateStore, SessionStore } from './stores.js';
 
 export type {

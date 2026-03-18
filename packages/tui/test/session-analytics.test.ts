@@ -155,6 +155,7 @@ test('parseContextIndex: valid context index', () => {
     projectSlug: 'test',
     mode: 'review',
     baseRef: 'main',
+    diffDigest: 'digest-1',
     head: { sha: 'abc123', branch: 'main' },
     changedFiles: 5,
     copiedFiles: 3,

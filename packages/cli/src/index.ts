@@ -3,9 +3,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 
+import type { DebateCommandOptions } from './commands/debate.js';
 import type { DiffCommandOptions } from './commands/diff.js';
 import type { DoctorOptions } from './commands/doctor.js';
+import type { EmbraceCommandOptions } from './commands/embrace.js';
 import type { FollowupCommandOptions } from './commands/followup.js';
+import type { GateCommandOptions } from './commands/gate.js';
 import type { HandoffCommandOptions } from './commands/handoff.js';
 import type { HookCommandOptions } from './commands/hook.js';
 import type { InitCommandOptions } from './commands/init.js';
@@ -14,7 +17,10 @@ import type {
   MemoryShowCommandOptions,
   MemoryTimelineCommandOptions,
 } from './commands/memory.js';
+import type { ResearchCommandOptions } from './commands/research.js';
+import type { ResumeCommandOptions } from './commands/resume.js';
 import type { ReviewCommandOptions } from './commands/review.js';
+import type { SecurityCommandOptions } from './commands/security.js';
 import type { SyncAgentsOptions } from './commands/sync-agents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,7 +28,9 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-
 
 export type {
   ReviewCommandOptions,
+  ResumeCommandOptions,
   FollowupCommandOptions,
+  GateCommandOptions,
   HandoffCommandOptions,
   DoctorOptions,
   MemorySearchCommandOptions,
@@ -32,6 +40,10 @@ export type {
   InitCommandOptions,
   DiffCommandOptions,
   HookCommandOptions,
+  ResearchCommandOptions,
+  DebateCommandOptions,
+  SecurityCommandOptions,
+  EmbraceCommandOptions,
 };
 
 function supportsInteractiveTui(): boolean {
@@ -120,6 +132,20 @@ export async function main(): Promise<void> {
       },
     );
 
+  // ── resume ──
+  program
+    .command('resume')
+    .description('Continue the latest review workflow with a recommended next action')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--session <id>', 'Specific local session ID')
+    .option('--action <action>', 'Action to run (followup|rerun|bridge-rerun)')
+    .option('-y, --yes', 'Execute without interactive confirmation')
+    .option('--json', 'Output JSON instead of TUI/text')
+    .action(async (opts: ResumeCommandOptions) => {
+      const { runResumeCommand } = await import('./commands/resume.js');
+      await runResumeCommand(opts);
+    });
+
   // ── doctor ──
   program
     .command('doctor')
@@ -129,6 +155,19 @@ export async function main(): Promise<void> {
     .action(async (opts: DoctorOptions) => {
       const { runDoctorCommand } = await import('./commands/doctor.js');
       await runDoctorCommand(opts);
+    });
+
+  // ── gate ──
+  program
+    .command('gate')
+    .description('Evaluate whether the current diff has fresh review coverage')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--base-ref <ref>', 'Git base ref for diff')
+    .option('-m, --mode <mode>', 'Review mode to evaluate (review|security|architecture)')
+    .option('--format <format>', 'Output format (compact|json)', 'compact')
+    .action(async (opts: GateCommandOptions) => {
+      const { runGateCommand } = await import('./commands/gate.js');
+      await runGateCommand(opts);
     });
 
   // ── handoff ──
@@ -226,6 +265,69 @@ export async function main(): Promise<void> {
     .action(async (opts: DiffCommandOptions) => {
       const { runDiffCommand } = await import('./commands/diff.js');
       await runDiffCommand(opts);
+    });
+
+  // ── research ──
+  program
+    .command('research <topic>')
+    .description('Research a topic using multiple AI models with insight synthesis')
+    .option('-t, --type <type>', 'Research type (code-aware|open)', 'open')
+    .option('--tool <tools>', 'Comma-separated tools (default: all installed)')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--json', 'Output JSON')
+    .option('-s, --stream', 'Stream real-time output')
+    .action(async (topic: string, opts: Omit<ResearchCommandOptions, 'topic'>) => {
+      const { runResearchCommand } = await import('./commands/research.js');
+      await runResearchCommand({ ...opts, topic });
+    });
+
+  // ── debate ──
+  program
+    .command('debate <proposition>')
+    .description('Multi-round debate between AI models on a proposition')
+    .option('-r, --rounds <n>', 'Number of debate rounds', '3')
+    .option('--teams <spec>', 'Team assignment "for_tools:against_tools"')
+    .option('--tool <tools>', 'Comma-separated tools (default: all installed)')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--json', 'Output JSON')
+    .option('-s, --stream', 'Stream real-time output')
+    .action(async (proposition: string, opts: Omit<DebateCommandOptions, 'proposition'>) => {
+      const { runDebateCommand } = await import('./commands/debate.js');
+      await runDebateCommand({ ...opts, proposition });
+    });
+
+  // ── security ──
+  program
+    .command('security')
+    .description('Run a comprehensive security audit with CWE classification')
+    .option('--scope <scope>', 'Audit scope (auth|api|infra|all)', 'all')
+    .option('--tool <tools>', 'Comma-separated tools (default: all installed)')
+    .option('--compliance <list>', 'Compliance frameworks (GDPR,SOC2,HIPAA,PCI-DSS)')
+    .option('--bridge <mode>', 'Bridge mode (none|standard|interpreted)', 'standard')
+    .option('--base-ref <ref>', 'Git base ref for diff')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--json', 'Output JSON')
+    .option('-s, --stream', 'Stream real-time output')
+    .action(async (opts: SecurityCommandOptions) => {
+      const { runSecurityCommand } = await import('./commands/security.js');
+      await runSecurityCommand(opts);
+    });
+
+  // ── embrace ──
+  program
+    .command('embrace <task>')
+    .description('Full lifecycle orchestrator: research → debate → checkpoint → review → security')
+    .option('--resume [id]', 'Resume a paused embrace run')
+    .option('--resolve <text>', 'Resolve a checkpoint with this response')
+    .option('--skip-phases <phases>', 'Comma-separated phases to skip')
+    .option('--tool <tools>', 'Comma-separated tools (default: all installed)')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--json', 'Output JSON')
+    .option('-s, --stream', 'Stream real-time output')
+    .option('--non-interactive', 'Auto-proceed through checkpoints')
+    .action(async (task: string, opts: Omit<EmbraceCommandOptions, 'task'>) => {
+      const { runEmbraceCommand } = await import('./commands/embrace.js');
+      await runEmbraceCommand({ ...opts, task });
     });
 
   // ── hook ──

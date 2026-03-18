@@ -239,6 +239,40 @@ function MemoryPreviewSection({
   );
 }
 
+function OperationsSection({
+  gate,
+  resume,
+}: {
+  gate: import('../store.js').GatePreview | null;
+  resume: import('../store.js').ResumePreview | null;
+}): React.ReactElement {
+  return (
+    <Box flexDirection="column" paddingX={1} gap={0}>
+      <Text color={colors.overlay1} bold>
+        OPERATIONS
+      </Text>
+      {gate ? (
+        <>
+          <Text color={gate.status === 'warn' ? colors.yellow : colors.green}>gate: {gate.status.toUpperCase()}</Text>
+          <Text color={colors.subtext0}>
+            {gate.warnings.length > 0 ? gate.warnings.join(', ') : 'no active warnings'}
+          </Text>
+        </>
+      ) : (
+        <Text color={colors.textDim}>No gate state</Text>
+      )}
+      {resume ? (
+        <>
+          <Text color={colors.peach}>resume: {resume.action ?? 'none'}</Text>
+          <Text color={colors.overlay0}>{truncate(resume.summary, 44)}</Text>
+        </>
+      ) : (
+        <Text color={colors.textDim}>No resume recommendation</Text>
+      )}
+    </Box>
+  );
+}
+
 // ─── Quick Start section ──────────────────────────────────────────────────────
 
 const QUICK_START_COMMANDS = [
@@ -357,7 +391,17 @@ function ActivitySection({ dailyCounts, aggregateSeverity, totalSessions }: Acti
 
 export function DashboardView(): React.ReactElement {
   const [state, dispatch] = useTui();
-  const { adapters, adaptersLoading, projectInfo, lastReview, latestHandoff, memoryPreview, sessions } = state;
+  const {
+    adapters,
+    adaptersLoading,
+    projectInfo,
+    lastReview,
+    latestHandoff,
+    memoryPreview,
+    gatePreview,
+    resumePreview,
+    sessions,
+  } = state;
   const liveState = useLiveState();
 
   const stats = useMemo(() => computeSessionStats(sessions), [sessions]);
@@ -441,6 +485,7 @@ export function DashboardView(): React.ReactElement {
                 aggregateSeverity={stats.aggregateSeverity}
                 totalSessions={sessions.length}
               />
+              <OperationsSection gate={gatePreview} resume={resumePreview} />
               <LastReviewSection lastReview={lastReview} />
               <LatestHandoffSection handoff={latestHandoff} />
               <MemoryPreviewSection items={memoryPreview} />

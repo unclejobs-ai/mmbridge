@@ -25,6 +25,9 @@ export interface Session {
   workspace: string;
   externalSessionId?: string | null;
   parentSessionId?: string | null;
+  runId?: string | null;
+  resumeSourceSessionId?: string | null;
+  resumeAction?: 'followup' | 'rerun' | 'bridge-rerun' | null;
   command?: string;
   args?: string[];
   baseRef?: string;
@@ -41,6 +44,7 @@ export interface Session {
   handoffId?: string | null;
   handoffPath?: string | null;
   contextDigest?: string | null;
+  diffDigest?: string | null;
   handoffSummary?: string | null;
   followupSupported?: boolean;
   status?: string;

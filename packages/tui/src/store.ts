@@ -60,6 +60,18 @@ export interface MemoryPreviewItem {
   createdAt: string;
 }
 
+export interface GatePreview {
+  status: 'pass' | 'warn';
+  warnings: string[];
+  nextCommand: string | null;
+}
+
+export interface ResumePreview {
+  action: 'followup' | 'rerun' | 'bridge-rerun' | null;
+  reason: string | null;
+  summary: string;
+}
+
 export interface SessionDetailData {
   sessionId: string;
   contextIndex: import('@mmbridge/core').ContextIndex | null;
@@ -80,6 +92,8 @@ export interface TuiState {
   lastReview: LastReview | null;
   latestHandoff: LatestHandoffPreview | null;
   memoryPreview: MemoryPreviewItem[];
+  gatePreview: GatePreview | null;
+  resumePreview: ResumePreview | null;
   sessions: Session[];
   sessionsLoading: boolean;
 
@@ -117,6 +131,8 @@ export type TuiAction =
   | { type: 'SET_LAST_REVIEW'; review: LastReview | null }
   | { type: 'SET_LATEST_HANDOFF'; handoff: LatestHandoffPreview | null }
   | { type: 'SET_MEMORY_PREVIEW'; items: MemoryPreviewItem[] }
+  | { type: 'SET_GATE_PREVIEW'; gate: GatePreview | null }
+  | { type: 'SET_RESUME_PREVIEW'; resume: ResumePreview | null }
   | { type: 'SET_SESSIONS'; sessions: Session[] }
   | { type: 'SET_SESSIONS_LOADING'; loading: boolean }
   | { type: 'REVIEW_SET_TOOL'; index: number }
@@ -156,6 +172,8 @@ export const initialState: TuiState = {
   lastReview: null,
   latestHandoff: null,
   memoryPreview: [],
+  gatePreview: null,
+  resumePreview: null,
   sessions: [],
   sessionsLoading: true,
 
@@ -228,6 +246,12 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
 
     case 'SET_MEMORY_PREVIEW':
       return { ...state, memoryPreview: action.items };
+
+    case 'SET_GATE_PREVIEW':
+      return { ...state, gatePreview: action.gate };
+
+    case 'SET_RESUME_PREVIEW':
+      return { ...state, resumePreview: action.resume };
 
     case 'SET_SESSIONS':
       return { ...state, sessions: action.sessions, sessionsLoading: false };

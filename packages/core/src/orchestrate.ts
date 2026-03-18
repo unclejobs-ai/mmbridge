@@ -4,6 +4,8 @@ import type { Finding } from './types.js';
 
 export interface AdapterRunResult {
   text: string;
+  externalSessionId?: string | null;
+  followupSupported?: boolean;
 }
 
 export interface OrchestrateOptions {
@@ -24,7 +26,7 @@ export interface OrchestrateOptions {
       onStderr?: (chunk: string) => void;
     },
   ) => Promise<AdapterRunResult>;
-  onToolProgress?: (tool: string, status: 'start' | 'done' | 'error', result?: unknown) => void;
+  onToolProgress?: (tool: string, status: 'start' | 'done' | 'error', result?: unknown) => void | Promise<void>;
   /** Streaming callback for adapter stdout — receives (tool, chunk) */
   onStdout?: (tool: string, chunk: string) => void;
 }
@@ -35,6 +37,8 @@ export interface ToolResult {
   summary: string;
   skipped: boolean;
   error?: string;
+  externalSessionId?: string | null;
+  followupSupported?: boolean;
 }
 
 export interface OrchestrateResult {
@@ -46,7 +50,7 @@ export async function orchestrateReview(options: OrchestrateOptions): Promise<Or
   const startTime = Date.now();
 
   const promises = options.tools.map(async (tool): Promise<ToolResult> => {
-    options.onToolProgress?.(tool, 'start');
+    await options.onToolProgress?.(tool, 'start');
     try {
       const adapterResult = await options.runAdapter(tool, {
         workspace: options.workspace,
@@ -65,9 +69,11 @@ export async function orchestrateReview(options: OrchestrateOptions): Promise<Or
         findings: enriched.findings,
         summary: adapterResult.text,
         skipped: false,
+        externalSessionId: adapterResult.externalSessionId ?? null,
+        followupSupported: adapterResult.followupSupported ?? false,
       };
 
-      options.onToolProgress?.(tool, 'done', result);
+      await options.onToolProgress?.(tool, 'done', result);
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -78,7 +84,7 @@ export async function orchestrateReview(options: OrchestrateOptions): Promise<Or
         skipped: true,
         error: message,
       };
-      options.onToolProgress?.(tool, 'error', result);
+      await options.onToolProgress?.(tool, 'error', result);
       return result;
     }
   });

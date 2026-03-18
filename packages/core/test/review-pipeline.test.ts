@@ -77,7 +77,7 @@ test('runReviewPipeline: bridgeProfile affects consensus threshold', async () =>
     bridge: 'standard',
     bridgeProfile: 'strict',
     listInstalledTools: async () => ['tool1'],
-    runAdapter: makeMockAdapter('[WARNING] src/a.ts:10 — Missing validation'),
+    runAdapter: makeMockAdapter('[WARNING] Missing validation'),
   });
 
   assert.equal(result.findings.length, 1);

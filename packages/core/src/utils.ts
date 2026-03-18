@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { DEFAULT_CLASSIFIERS, classifyFileWithRules } from './config.js';
@@ -157,6 +158,10 @@ export function limitBytes(text: string, maxBytes: number): string {
 
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+export function shortDigest(text: string, length = 12): string {
+  return crypto.createHash('sha256').update(text).digest('hex').slice(0, length);
 }
 
 /** Extract agent_message texts from codex exec --json output (newline-delimited JSON). */

@@ -185,6 +185,7 @@ export function parseContextIndex(raw: unknown): ContextIndex | null {
     projectSlug: typeof obj.projectSlug === 'string' ? obj.projectSlug : null,
     mode: typeof obj.mode === 'string' ? obj.mode : null,
     baseRef: typeof obj.baseRef === 'string' ? obj.baseRef : null,
+    diffDigest: typeof obj.diffDigest === 'string' ? obj.diffDigest : null,
     head: parsedHead,
     changedFiles: obj.changedFiles as number,
     copiedFiles: obj.copiedFiles as number,

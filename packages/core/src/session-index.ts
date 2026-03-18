@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import type {
   BuildContextIndexInput,
   BuildResultIndexInput,
@@ -9,6 +8,7 @@ import type {
   TopFile,
 } from './types.js';
 import { classifyFile } from './utils.js';
+import { shortDigest } from './utils.js';
 
 export function buildContextIndex(input: BuildContextIndexInput): ContextIndex {
   const changedFiles = input.changedFiles ?? [];
@@ -25,6 +25,7 @@ export function buildContextIndex(input: BuildContextIndexInput): ContextIndex {
     projectSlug: input.projectDir ? input.projectDir.replace(/[\\/]/g, '-').replace(/^-/, '') : null,
     mode: input.mode ?? null,
     baseRef: input.baseRef ?? null,
+    diffDigest: input.diffDigest ?? null,
     head: input.head ?? null,
     changedFiles: changedFiles.length,
     copiedFiles: input.copiedFileCount ?? 0,
@@ -61,9 +62,7 @@ export function buildResultIndex(input: BuildResultIndexInput): ResultIndex {
 
   const filesTouched = Object.keys(fileCounts).length;
 
-  const outputDigest = input.rawOutput
-    ? crypto.createHash('sha256').update(input.rawOutput).digest('hex').slice(0, 12)
-    : null;
+  const outputDigest = input.rawOutput ? shortDigest(input.rawOutput) : null;
 
   return {
     summary: input.summary ?? '',
