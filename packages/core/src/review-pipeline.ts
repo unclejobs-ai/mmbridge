@@ -276,21 +276,21 @@ async function runSingleToolPipeline(
   options: ReviewPipelineOptions,
   ctx: ContextWorkspace,
   contextIndex: ReturnType<typeof buildContextIndex>,
-  run: ReviewRun,
+  initialRun: ReviewRun,
 ): Promise<ReviewPipelineResult> {
   const { tool, mode, projectDir, onProgress, onStdout, runAdapter, saveSession } = options;
   const startedAt = nowIso();
-  run = await persistRun(options, run, {
+  let run = await persistRun(options, initialRun, {
     phase: 'review',
     status: 'running',
-    lanes: run.lanes.map((lane) =>
+    lanes: initialRun.lanes.map((lane) =>
       lane.tool === tool ? { ...lane, status: 'running', startedAt, error: null } : lane,
     ),
   });
 
   // Phase 2: Run adapter
   onProgress?.('review', `Running ${tool}...`);
-  let adapterResult;
+  let adapterResult: { text: string; externalSessionId: string | null; followupSupported: boolean };
   try {
     adapterResult = await runAdapter(tool, {
       workspace: ctx.workspace,
@@ -380,9 +380,10 @@ async function runBridgePipeline(
   contextIndex: ReturnType<typeof buildContextIndex>,
   bridge: 'none' | 'standard' | 'interpreted',
   bridgeProfile: 'standard' | 'strict' | 'relaxed',
-  run: ReviewRun,
+  initialRun: ReviewRun,
 ): Promise<ReviewPipelineResult> {
   const { mode, projectDir, onProgress, onStdout, runAdapter, listInstalledTools, saveSession } = options;
+  let run = initialRun;
 
   const installedTools = listInstalledTools ? await listInstalledTools() : [];
 
