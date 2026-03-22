@@ -9,6 +9,7 @@ import {
   buildCodexReviewPrompt,
   requireCodexWorkspace,
 } from '../dist/codex.js';
+import { buildGeminiReviewArgs } from '../dist/gemini.js';
 import { normalizeUuid } from '../dist/qwen.js';
 import { parseExternalSessionId } from '../dist/utils.js';
 
@@ -116,6 +117,46 @@ test('buildCodexReviewPrompt points changed file mirrors at workspace files', as
 
     assert.match(prompt, /files\/src\/user-log\.ts/);
     assert.doesNotMatch(prompt, /changed-files\/src\/user-log\.ts/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('buildGeminiReviewArgs puts the prompt before file attachments', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-gemini-args-'));
+  try {
+    await fs.mkdir(path.join(tmpDir, 'files', 'src'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'files', 'src', 'user-log.ts'), 'export const x = 1;\n', 'utf8');
+
+    const args = await buildGeminiReviewArgs({
+      workspace: tmpDir,
+      changedFiles: ['src/user-log.ts'],
+      prompt: '# Review prompt',
+    });
+
+    assert.equal(args[0], 'run');
+    assert.equal(args[1], '# Review prompt');
+    assert.ok(args.indexOf('# Review prompt') < args.indexOf('-f'));
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('buildGeminiReviewArgs attaches changed files from workspace files directory', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-gemini-files-'));
+  try {
+    await fs.mkdir(path.join(tmpDir, 'files', 'src'), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, 'files', 'src', 'user-log.ts'), 'export const x = 1;\n', 'utf8');
+
+    const args = await buildGeminiReviewArgs({
+      workspace: tmpDir,
+      changedFiles: ['src/user-log.ts'],
+      prompt: '# Review prompt',
+    });
+
+    const argText = args.join(' ');
+    assert.match(argText, /files\/src\/user-log\.ts/);
+    assert.doesNotMatch(argText, /changed-files\/src\/user-log\.ts/);
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }

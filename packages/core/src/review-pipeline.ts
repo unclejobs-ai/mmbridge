@@ -384,12 +384,21 @@ async function runBridgePipeline(
 ): Promise<ReviewPipelineResult> {
   const { mode, projectDir, onProgress, onStdout, runAdapter, listInstalledTools, saveSession } = options;
   let run = initialRun;
+  let runUpdateQueue: Promise<void> = Promise.resolve();
 
   const installedTools = listInstalledTools ? await listInstalledTools() : [];
 
   if (installedTools.length === 0) {
     throw new Error('No review tools installed. Run `mmbridge doctor` to check.');
   }
+
+  const queueRunUpdate = (buildPatch: (currentRun: ReviewRun) => Partial<ReviewRun>): Promise<void> => {
+    const next = runUpdateQueue.then(async () => {
+      run = await persistRun(options, run, buildPatch(run));
+    });
+    runUpdateQueue = next.catch(() => {});
+    return next;
+  };
 
   // Phase 2: Orchestrate parallel reviews
   onProgress?.('review', `Running ${installedTools.length} tools in parallel...`);
@@ -414,17 +423,17 @@ async function runBridgePipeline(
           : null;
       if (status === 'start') {
         const startedAt = nowIso();
-        run = await persistRun(options, run, {
+        await queueRunUpdate((currentRun) => ({
           phase: 'review',
-          lanes: run.lanes.map((lane) =>
+          lanes: currentRun.lanes.map((lane) =>
             lane.tool === tool ? { ...lane, status: 'running', startedAt, error: null } : lane,
           ),
-        });
+        }));
         return;
       }
 
-      run = await persistRun(options, run, {
-        lanes: run.lanes.map((lane) => {
+      await queueRunUpdate((currentRun) => ({
+        lanes: currentRun.lanes.map((lane) => {
           if (lane.tool !== tool) return lane;
           return {
             ...lane,
@@ -436,7 +445,7 @@ async function runBridgePipeline(
             followupSupported: resultPayload?.followupSupported ?? false,
           };
         }),
-      });
+      }));
     },
   });
 

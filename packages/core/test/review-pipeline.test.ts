@@ -83,3 +83,29 @@ test('runReviewPipeline: bridgeProfile affects consensus threshold', async () =>
   assert.equal(result.findings.length, 1);
   assert.ok(result.summary.includes('strict'));
 });
+
+test('runReviewPipeline: bridge mode serializes persistRun updates', async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+
+  await runReviewPipeline({
+    ...baseOptions,
+    tool: 'all',
+    bridge: 'standard',
+    bridgeProfile: 'strict',
+    listInstalledTools: async () => ['tool1', 'tool2'],
+    runAdapter: async (tool: string) => ({
+      text: `[WARNING] src/a.ts:10 — ${tool} found an issue`,
+      externalSessionId: `${tool}-session`,
+      followupSupported: true,
+    }),
+    persistRun: async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight--;
+    },
+  });
+
+  assert.equal(maxInFlight, 1);
+});

@@ -23,16 +23,7 @@ export async function runGeminiReview({
 }): Promise<AdapterResult> {
   await ensureBinary('opencode');
   const prompt = await fs.readFile(path.join(workspace, 'prompt', 'gemini.md'), 'utf8');
-  const args = ['run', '--model', 'google/gemini-3.1-pro-preview', '--format', 'json'];
-  const fileArgs: string[] = [path.join(workspace, 'context.md')];
-  const changedFilesRoot = path.resolve(workspace, 'changed-files');
-  for (const file of changedFiles.slice(0, 12)) {
-    const candidate = path.resolve(workspace, 'changed-files', file);
-    if (!isPathContained(candidate, changedFilesRoot)) continue;
-    if (await fileExists(candidate)) fileArgs.push(candidate);
-  }
-  for (const file of fileArgs) args.push('-f', file);
-  args.push(prompt);
+  const args = await buildGeminiReviewArgs({ workspace, changedFiles, prompt });
   const result = await invoke('opencode', args, { cwd: workspace, timeoutMs: 300000, onStdout, onStderr });
   assertCliSuccess('opencode', result);
   const externalSessionId = parseExternalSessionId(result.combined, null);
@@ -45,6 +36,27 @@ export async function runGeminiReview({
     ...result,
     text: extractTextFromOpencode(result.combined),
   };
+}
+
+export async function buildGeminiReviewArgs({
+  workspace,
+  changedFiles,
+  prompt,
+}: {
+  workspace: string;
+  changedFiles: string[];
+  prompt: string;
+}): Promise<string[]> {
+  const args = ['run', prompt, '--model', 'google/gemini-3.1-pro-preview', '--format', 'json'];
+  const fileArgs: string[] = [path.join(workspace, 'context.md')];
+  const changedFilesRoot = path.resolve(workspace, 'files');
+  for (const file of changedFiles.slice(0, 12)) {
+    const candidate = path.resolve(workspace, 'files', file);
+    if (!isPathContained(candidate, changedFilesRoot)) continue;
+    if (await fileExists(candidate)) fileArgs.push(candidate);
+  }
+  for (const file of fileArgs) args.push('-f', file);
+  return args;
 }
 
 export async function runGeminiFollowup({
