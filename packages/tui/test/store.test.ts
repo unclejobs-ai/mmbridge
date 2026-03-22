@@ -60,7 +60,7 @@ test('SIDEBAR_MOVE: clamps at 0', () => {
 // ─── SET_ADAPTERS ────────────────────────────────────────────────────────────
 
 test('SET_ADAPTERS: sets adapters and clears loading', () => {
-  const adapters = [{ name: 'kimi', binary: 'kimi', installed: true, sessionCount: 5, lastSessionDate: null }];
+  const adapters = [{ name: 'kimi', binary: 'kimi', installed: true }];
   const next = dispatch(initialState, { type: 'SET_ADAPTERS', adapters });
   assert.equal(next.adapters.length, 1);
   assert.equal(next.adaptersLoading, false);
@@ -73,6 +73,29 @@ test('SET_SESSIONS: sets sessions and clears loading', () => {
   const next = dispatch(initialState, { type: 'SET_SESSIONS', sessions: sessions as TuiState['sessions'] });
   assert.equal(next.sessions.length, 1);
   assert.equal(next.sessionsLoading, false);
+});
+
+test('SET_OPERATIONS: stores the latest raw gate and resume results', () => {
+  const next = dispatch(initialState, {
+    type: 'SET_OPERATIONS',
+    operations: {
+      gateResult: {
+        status: 'warn',
+        warnings: [{ code: 'stale-review', message: 'stale', nextCommand: 'mmbridge review' }],
+      },
+      resumeResult: {
+        recommended: {
+          action: 'followup',
+          reason: 'Resume the latest thread',
+        },
+        alternatives: [],
+        summary: 'Continue from the last finding',
+        readOnly: false,
+      },
+    },
+  });
+  assert.equal(next.operations.gateResult?.status, 'warn');
+  assert.equal(next.operations.resumeResult?.recommended?.action, 'followup');
 });
 
 // ─── REVIEW actions ──────────────────────────────────────────────────────────

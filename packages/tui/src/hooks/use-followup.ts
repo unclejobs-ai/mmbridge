@@ -3,7 +3,7 @@ import { buildResultIndex, parseFindings } from '@mmbridge/core';
 import { SessionStore } from '@mmbridge/session-store';
 import { useCallback } from 'react';
 import type { TuiAction } from '../store.js';
-import { countBySeverity } from '../utils/format.js';
+import { applyTuiData, loadTuiData } from './use-data.js';
 
 export function useFollowup(dispatch: React.Dispatch<TuiAction>) {
   const submit = useCallback(
@@ -40,16 +40,8 @@ export function useFollowup(dispatch: React.Dispatch<TuiAction>) {
         });
         const sessions = await store.list({ projectDir: process.cwd() });
         dispatch({ type: 'SET_SESSIONS', sessions });
-        dispatch({
-          type: 'SET_LAST_REVIEW',
-          review: {
-            tool,
-            mode: 'followup',
-            date: saved.createdAt,
-            findingCounts: countBySeverity(findings),
-            summary: result.text,
-          },
-        });
+        const refreshed = await loadTuiData(process.cwd());
+        applyTuiData(dispatch, refreshed);
         dispatch({ type: 'SESSIONS_SELECT', index: 0 });
         dispatch({
           type: 'SHOW_TOAST',

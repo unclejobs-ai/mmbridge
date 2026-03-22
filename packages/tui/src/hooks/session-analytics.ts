@@ -1,6 +1,8 @@
+import type { GateResult, ResumeResult } from '@mmbridge/core';
 import type { ContextIndex, ResultIndex } from '@mmbridge/core';
 import type { Session } from '@mmbridge/session-store';
-import type { FindingItem } from '../store.js';
+import type { AdapterStatus, FindingItem, GatePreview, LastReview, OperationsState, ResumePreview } from '../store.js';
+import { countBySeverity } from '../utils/format.js';
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
 
@@ -16,6 +18,16 @@ export interface SessionStats {
 export interface GroupedFindings {
   file: string;
   findings: FindingItem[];
+}
+
+export interface AdapterActivity {
+  sessionCount: number;
+  lastSessionDate: string | null;
+}
+
+export interface OperationsPreview {
+  gate: GatePreview | null;
+  resume: ResumePreview | null;
 }
 
 // ─── computeSessionStats ─────────────────────────────────────────────────────
@@ -69,6 +81,71 @@ export function computeSessionStats(sessions: Session[]): SessionStats {
     aggregateSeverity.critical + aggregateSeverity.warning + aggregateSeverity.info + aggregateSeverity.refactor;
 
   return { dailyCounts, totalFindings, aggregateSeverity, toolDistribution };
+}
+
+export function deriveAdapterActivity(sessions: Session[]): Record<string, AdapterActivity> {
+  const activity: Record<string, AdapterActivity> = {};
+
+  for (const session of sessions) {
+    const current = activity[session.tool] ?? { sessionCount: 0, lastSessionDate: null };
+    const nextLastSessionDate =
+      current.lastSessionDate == null || session.createdAt > current.lastSessionDate
+        ? session.createdAt
+        : current.lastSessionDate;
+
+    activity[session.tool] = {
+      sessionCount: current.sessionCount + 1,
+      lastSessionDate: nextLastSessionDate,
+    };
+  }
+
+  return activity;
+}
+
+export function deriveLastReview(sessions: Session[]): LastReview | null {
+  const latestSession = sessions[0];
+  if (!latestSession) {
+    return null;
+  }
+
+  const findings = latestSession.findings ?? [];
+  return {
+    tool: latestSession.tool,
+    mode: latestSession.mode,
+    date: latestSession.createdAt,
+    findingCounts: countBySeverity(findings),
+    summary: latestSession.summary ?? 'No summary available',
+  };
+}
+
+export function deriveOperationsPreview(
+  gateResult: GateResult | null,
+  resumeResult: ResumeResult | null,
+): OperationsPreview {
+  return {
+    gate: gateResult
+      ? {
+          status: gateResult.status,
+          warnings: gateResult.warnings.map((warning) => warning.code),
+          nextCommand: gateResult.warnings[0]?.nextCommand ?? null,
+        }
+      : null,
+    resume: resumeResult
+      ? {
+          action: resumeResult.recommended?.action ?? null,
+          reason: resumeResult.recommended?.reason ?? null,
+          summary: resumeResult.summary,
+        }
+      : null,
+  };
+}
+
+export function getAdapterSessionInfo(adapters: AdapterStatus[], activity: Record<string, AdapterActivity>) {
+  return adapters.map((adapter) => ({
+    ...adapter,
+    sessionCount: activity[adapter.name]?.sessionCount ?? 0,
+    lastSessionDate: activity[adapter.name]?.lastSessionDate ?? null,
+  }));
 }
 
 // ─── buildAncestryChain ──────────────────────────────────────────────────────

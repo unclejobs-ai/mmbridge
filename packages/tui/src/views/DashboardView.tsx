@@ -10,7 +10,13 @@ import { Panel } from '../components/Panel.js';
 import { ReviewFlowMap, buildSessionReviewFlow } from '../components/ReviewFlowMap.js';
 import { SeverityBar } from '../components/SeverityBar.js';
 import { Sparkline } from '../components/Sparkline.js';
-import { computeSessionStats } from '../hooks/session-analytics.js';
+import {
+  computeSessionStats,
+  deriveAdapterActivity,
+  deriveLastReview,
+  deriveOperationsPreview,
+  getAdapterSessionInfo,
+} from '../hooks/session-analytics.js';
 import { useLiveState } from '../hooks/use-live-state.js';
 import { useTui } from '../store.js';
 import type { AdapterStatus } from '../store.js';
@@ -72,7 +78,7 @@ const DASHBOARD_MENU = [
 // ─── Connection row ───────────────────────────────────────────────────────────
 
 interface ConnectionRowProps {
-  adapter: AdapterStatus;
+  adapter: AdapterStatus & { sessionCount: number; lastSessionDate: string | null };
 }
 
 function ConnectionRow({ adapter }: ConnectionRowProps): React.ReactElement {
@@ -107,7 +113,7 @@ function ConnectionRow({ adapter }: ConnectionRowProps): React.ReactElement {
 // ─── Connections section ──────────────────────────────────────────────────────
 
 interface ConnectionsSectionProps {
-  adapters: AdapterStatus[];
+  adapters: Array<AdapterStatus & { sessionCount: number; lastSessionDate: string | null }>;
 }
 
 function ConnectionsSection({ adapters }: ConnectionsSectionProps): React.ReactElement {
@@ -391,28 +397,29 @@ function ActivitySection({ dailyCounts, aggregateSeverity, totalSessions }: Acti
 
 export function DashboardView(): React.ReactElement {
   const [state, dispatch] = useTui();
-  const {
-    adapters,
-    adaptersLoading,
-    projectInfo,
-    lastReview,
-    latestHandoff,
-    memoryPreview,
-    gatePreview,
-    resumePreview,
-    sessions,
-  } = state;
+  const { adapters, adaptersLoading, projectInfo, latestHandoff, memoryPreview, operations, sessions } = state;
   const liveState = useLiveState();
 
   const stats = useMemo(() => computeSessionStats(sessions), [sessions]);
+  const adapterActivity = useMemo(() => deriveAdapterActivity(sessions), [sessions]);
+  const adaptersWithActivity = useMemo(
+    () => getAdapterSessionInfo(adapters, adapterActivity),
+    [adapters, adapterActivity],
+  );
+  const lastReview = useMemo(() => deriveLastReview(sessions), [sessions]);
+  const operationsPreview = useMemo(
+    () => deriveOperationsPreview(operations.gateResult, operations.resumeResult),
+    [operations],
+  );
+  const isLiveActive = liveState != null;
 
   // Spinner frame for live phase icon animation
   const [frameIdx, setFrameIdx] = useState(0);
   useEffect(() => {
-    if (!liveState) return;
+    if (!isLiveActive) return;
     const id = setInterval(() => setFrameIdx((f) => f + 1), 120);
     return () => clearInterval(id);
-  }, [liveState]);
+  }, [isLiveActive]);
 
   useInput((input, key) => {
     if (state.activeTab !== 'dashboard' || state.inputMode !== 'none' || liveState) {
@@ -462,7 +469,7 @@ export function DashboardView(): React.ReactElement {
       {/* Row 1: Connections + Project */}
       <FullWidthRow leftRatio={0.5}>
         {[
-          <ConnectionsSection key="connections" adapters={adapters} />,
+          <ConnectionsSection key="connections" adapters={adaptersWithActivity} />,
           <ProjectSection key="project" projectInfo={projectInfo} />,
         ]}
       </FullWidthRow>
@@ -485,7 +492,7 @@ export function DashboardView(): React.ReactElement {
                 aggregateSeverity={stats.aggregateSeverity}
                 totalSessions={sessions.length}
               />
-              <OperationsSection gate={gatePreview} resume={resumePreview} />
+              <OperationsSection gate={operationsPreview.gate} resume={operationsPreview.resume} />
               <LastReviewSection lastReview={lastReview} />
               <LatestHandoffSection handoff={latestHandoff} />
               <MemoryPreviewSection items={memoryPreview} />

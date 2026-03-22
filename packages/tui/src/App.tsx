@@ -93,7 +93,11 @@ export function App({ initialTab, version }: AppProps): React.ReactElement {
           {state.activeTab === 'sessions' && <SessionsView />}
           {state.activeTab === 'config' && <ConfigView />}
         </Box>
-        <StatusBar toast={state.toast} activeTab={state.activeTab} />
+        <StatusBar
+          toast={state.toast}
+          activeTab={state.activeTab}
+          onToastExpired={() => dispatch({ type: 'CLEAR_TOAST' })}
+        />
         {state.helpVisible && <HelpOverlay />}
       </Box>
     </TuiContext.Provider>

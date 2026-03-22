@@ -6,7 +6,12 @@ import { KVRow } from '../components/KVRow.js';
 import { Panel } from '../components/Panel.js';
 import { SeverityBar } from '../components/SeverityBar.js';
 import { Sparkline } from '../components/Sparkline.js';
-import { computeSessionStats } from '../hooks/session-analytics.js';
+import {
+  computeSessionStats,
+  deriveAdapterActivity,
+  deriveLastReview,
+  getAdapterSessionInfo,
+} from '../hooks/session-analytics.js';
 import { useTui } from '../store.js';
 import type { AdapterStatus } from '../store.js';
 import { CHARS, colors, toolColor } from '../theme.js';
@@ -15,7 +20,7 @@ import { avgPerDay, formatRelativeTime, reversedCounts, shortenPath, truncate } 
 // ─── Compact adapter row ─────────────────────────────────────────────────────
 
 interface AdapterRowProps {
-  adapter: AdapterStatus;
+  adapter: AdapterStatus & { sessionCount: number; lastSessionDate: string | null };
   toolDailyCounts: number[];
 }
 
@@ -48,7 +53,7 @@ function AdapterRow({ adapter, toolDailyCounts }: AdapterRowProps): React.ReactE
 // ─── Panels ───────────────────────────────────────────────────────────────────
 
 interface AdaptersPanelProps {
-  adapters: AdapterStatus[];
+  adapters: Array<AdapterStatus & { sessionCount: number; lastSessionDate: string | null }>;
   toolDistribution: Record<string, number>;
   sessionDailyCounts: number[];
   totalSessions: number;
@@ -178,9 +183,15 @@ function LastReviewPanel({ lastReview }: LastReviewPanelProps): React.ReactEleme
 
 export function StatusView(): React.ReactElement {
   const [state] = useTui();
-  const { adapters, adaptersLoading, projectInfo, lastReview, sessions } = state;
+  const { adapters, adaptersLoading, projectInfo, sessions } = state;
 
   const stats = useMemo(() => computeSessionStats(sessions), [sessions]);
+  const adapterActivity = useMemo(() => deriveAdapterActivity(sessions), [sessions]);
+  const adaptersWithActivity = useMemo(
+    () => getAdapterSessionInfo(adapters, adapterActivity),
+    [adapters, adapterActivity],
+  );
+  const lastReview = useMemo(() => deriveLastReview(sessions), [sessions]);
 
   if (adaptersLoading) {
     return (
@@ -198,7 +209,7 @@ export function StatusView(): React.ReactElement {
       {/* Row 1: Adapters + Project */}
       <Box flexDirection="row" gap={1}>
         <AdaptersPanel
-          adapters={adapters}
+          adapters={adaptersWithActivity}
           toolDistribution={stats.toolDistribution}
           sessionDailyCounts={stats.dailyCounts}
           totalSessions={sessions.length}

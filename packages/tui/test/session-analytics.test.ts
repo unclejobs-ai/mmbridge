@@ -4,6 +4,9 @@ import type { Session } from '@mmbridge/session-store';
 import {
   buildAncestryChain,
   computeSessionStats,
+  deriveAdapterActivity,
+  deriveLastReview,
+  deriveOperationsPreview,
   groupFindingsByFile,
   parseContextIndex,
   parseResultIndex,
@@ -71,6 +74,93 @@ test('computeSessionStats: sessions older than 7 days excluded from daily counts
   assert.ok(stats.dailyCounts.every((c) => c === 0));
   // But tool distribution still counts
   assert.equal(stats.toolDistribution.kimi, 1);
+});
+
+test('deriveAdapterActivity: counts sessions and keeps latest timestamp per tool', () => {
+  const sessions = [
+    makeSession({ id: '1', tool: 'kimi', createdAt: '2026-03-17T10:00:00.000Z' }),
+    makeSession({ id: '2', tool: 'qwen', createdAt: '2026-03-17T11:00:00.000Z' }),
+    makeSession({ id: '3', tool: 'kimi', createdAt: '2026-03-18T09:00:00.000Z' }),
+  ];
+
+  const activity = deriveAdapterActivity(sessions);
+
+  assert.deepEqual(activity.kimi, {
+    sessionCount: 2,
+    lastSessionDate: '2026-03-18T09:00:00.000Z',
+  });
+  assert.deepEqual(activity.qwen, {
+    sessionCount: 1,
+    lastSessionDate: '2026-03-17T11:00:00.000Z',
+  });
+});
+
+test('deriveLastReview: returns latest session summary projection', () => {
+  const sessions = [
+    makeSession({
+      id: 'latest',
+      tool: 'kimi',
+      mode: 'followup',
+      createdAt: '2026-03-18T12:00:00.000Z',
+      summary: 'Latest summary',
+      findings: [{ severity: 'WARNING', file: 'a.ts', line: 1, message: 'warn' }],
+    }),
+    makeSession({
+      id: 'older',
+      tool: 'qwen',
+      mode: 'review',
+      createdAt: '2026-03-17T12:00:00.000Z',
+      summary: 'Older summary',
+    }),
+  ];
+
+  const review = deriveLastReview(sessions);
+
+  assert.notEqual(review, null);
+  assert.equal(review?.tool, 'kimi');
+  assert.equal(review?.mode, 'followup');
+  assert.equal(review?.date, '2026-03-18T12:00:00.000Z');
+  assert.equal(review?.summary, 'Latest summary');
+  assert.equal(review?.findingCounts.warning, 1);
+});
+
+test('deriveLastReview: returns null when no sessions exist', () => {
+  assert.equal(deriveLastReview([]), null);
+});
+
+test('deriveOperationsPreview: maps gate and resume results to view data', () => {
+  const preview = deriveOperationsPreview(
+    {
+      status: 'warn',
+      warnings: [
+        {
+          code: 'stale-review',
+          message: 'stale',
+          nextCommand: 'mmbridge review',
+        },
+      ],
+    },
+    {
+      recommended: {
+        action: 'followup',
+        reason: 'Resume the latest thread',
+      },
+      alternatives: [],
+      summary: 'Continue from the last finding',
+      readOnly: false,
+    },
+  );
+
+  assert.deepEqual(preview.gate, {
+    status: 'warn',
+    warnings: ['stale-review'],
+    nextCommand: 'mmbridge review',
+  });
+  assert.deepEqual(preview.resume, {
+    action: 'followup',
+    reason: 'Resume the latest thread',
+    summary: 'Continue from the last finding',
+  });
 });
 
 // ─── buildAncestryChain ──────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import type { TabId } from '../store.js';
 import { colors, statusColor } from '../theme.js';
 
@@ -13,6 +13,7 @@ interface ToastInfo {
 interface StatusBarProps {
   toast?: ToastInfo | null;
   activeTab: TabId;
+  onToastExpired: () => void;
 }
 
 const TAB_HINTS: Record<TabId, Array<[string, string]>> = {
@@ -43,26 +44,27 @@ const TAB_HINTS: Record<TabId, Array<[string, string]>> = {
 
 const TOAST_DURATION_MS = 3000;
 
-export function StatusBar({ toast, activeTab }: StatusBarProps): React.ReactElement {
-  const [showToast, setShowToast] = useState(false);
+export function isToastVisible(toast?: ToastInfo | null, now = Date.now()): boolean {
+  return toast != null && now - toast.at < TOAST_DURATION_MS;
+}
 
+export function StatusBar({ toast, activeTab, onToastExpired }: StatusBarProps): React.ReactElement {
   useEffect(() => {
     if (!toast) {
-      setShowToast(false);
       return;
     }
-    setShowToast(true);
     const elapsed = Date.now() - toast.at;
     const remaining = TOAST_DURATION_MS - elapsed;
     if (remaining <= 0) {
-      setShowToast(false);
+      onToastExpired();
       return;
     }
-    const timer = setTimeout(() => setShowToast(false), remaining);
+    const timer = setTimeout(onToastExpired, remaining);
     return () => clearTimeout(timer);
-  }, [toast]);
+  }, [onToastExpired, toast]);
 
   const hints = TAB_HINTS[activeTab];
+  const showToast = isToastVisible(toast);
 
   return (
     <Box paddingX={1} paddingY={0}>

@@ -1,3 +1,4 @@
+import type { GateResult, ResumeResult } from '@mmbridge/core';
 import type { Session } from '@mmbridge/session-store';
 import React from 'react';
 import type { GroupedFindings } from './hooks/session-analytics.js';
@@ -24,8 +25,6 @@ export interface AdapterStatus {
   name: string;
   binary: string;
   installed: boolean;
-  sessionCount: number;
-  lastSessionDate: string | null;
 }
 
 export interface ProjectInfo {
@@ -72,6 +71,11 @@ export interface ResumePreview {
   summary: string;
 }
 
+export interface OperationsState {
+  gateResult: GateResult | null;
+  resumeResult: ResumeResult | null;
+}
+
 export interface SessionDetailData {
   sessionId: string;
   contextIndex: import('@mmbridge/core').ContextIndex | null;
@@ -89,11 +93,9 @@ export interface TuiState {
   adapters: AdapterStatus[];
   adaptersLoading: boolean;
   projectInfo: ProjectInfo | null;
-  lastReview: LastReview | null;
   latestHandoff: LatestHandoffPreview | null;
   memoryPreview: MemoryPreviewItem[];
-  gatePreview: GatePreview | null;
-  resumePreview: ResumePreview | null;
+  operations: OperationsState;
   sessions: Session[];
   sessionsLoading: boolean;
 
@@ -128,11 +130,9 @@ export type TuiAction =
   | { type: 'SET_ADAPTERS'; adapters: AdapterStatus[] }
   | { type: 'SET_ADAPTERS_LOADING'; loading: boolean }
   | { type: 'SET_PROJECT_INFO'; info: ProjectInfo | null }
-  | { type: 'SET_LAST_REVIEW'; review: LastReview | null }
   | { type: 'SET_LATEST_HANDOFF'; handoff: LatestHandoffPreview | null }
   | { type: 'SET_MEMORY_PREVIEW'; items: MemoryPreviewItem[] }
-  | { type: 'SET_GATE_PREVIEW'; gate: GatePreview | null }
-  | { type: 'SET_RESUME_PREVIEW'; resume: ResumePreview | null }
+  | { type: 'SET_OPERATIONS'; operations: OperationsState }
   | { type: 'SET_SESSIONS'; sessions: Session[] }
   | { type: 'SET_SESSIONS_LOADING'; loading: boolean }
   | { type: 'REVIEW_SET_TOOL'; index: number }
@@ -169,11 +169,12 @@ export const initialState: TuiState = {
   adapters: [],
   adaptersLoading: true,
   projectInfo: null,
-  lastReview: null,
   latestHandoff: null,
   memoryPreview: [],
-  gatePreview: null,
-  resumePreview: null,
+  operations: {
+    gateResult: null,
+    resumeResult: null,
+  },
   sessions: [],
   sessionsLoading: true,
 
@@ -238,20 +239,14 @@ export function tuiReducer(state: TuiState, action: TuiAction): TuiState {
     case 'SET_PROJECT_INFO':
       return { ...state, projectInfo: action.info };
 
-    case 'SET_LAST_REVIEW':
-      return { ...state, lastReview: action.review };
-
     case 'SET_LATEST_HANDOFF':
       return { ...state, latestHandoff: action.handoff };
 
     case 'SET_MEMORY_PREVIEW':
       return { ...state, memoryPreview: action.items };
 
-    case 'SET_GATE_PREVIEW':
-      return { ...state, gatePreview: action.gate };
-
-    case 'SET_RESUME_PREVIEW':
-      return { ...state, resumePreview: action.resume };
+    case 'SET_OPERATIONS':
+      return { ...state, operations: action.operations };
 
     case 'SET_SESSIONS':
       return { ...state, sessions: action.sessions, sessionsLoading: false };

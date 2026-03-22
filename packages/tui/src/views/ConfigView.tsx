@@ -4,10 +4,11 @@ import type { MmbridgeConfig } from '@mmbridge/core';
 import { Box, Text, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KVRow } from '../components/KVRow.js';
 import { Panel } from '../components/Panel.js';
 import { PromptInput } from '../components/PromptInput.js';
+import { deriveAdapterActivity } from '../hooks/session-analytics.js';
 import { useTui } from '../store.js';
 import { ADAPTER_NAMES, CHARS, colors, toolColor } from '../theme.js';
 
@@ -15,12 +16,21 @@ const SETTINGS_ITEMS = ['classifiers', 'redaction', 'context', 'bridge'] as cons
 const DEFAULT_MAX_CONTEXT_BYTES = 2 * 1024 * 1024;
 
 type SettingsItem = (typeof SETTINGS_ITEMS)[number];
+type ConfigStatus = 'loading' | 'ready' | 'error';
 type EditorState = {
   kind: 'adapter-command' | 'context-max-bytes' | 'redaction-rule';
   label: string;
   initialValue?: string;
   placeholder?: string;
 } | null;
+
+export function canBeginConfigInteraction(input: {
+  configStatus: ConfigStatus;
+  saving: boolean;
+  testing: boolean;
+}): boolean {
+  return input.configStatus === 'ready' && !input.saving && !input.testing;
+}
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) {
@@ -91,18 +101,29 @@ export function ConfigView(): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [configData, setConfigData] = useState<MmbridgeConfig>({});
+  const [configStatus, setConfigStatus] = useState<ConfigStatus>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState>(null);
+  const reloadIdRef = useRef(0);
 
   const projectDir = process.cwd();
+  const adapterActivity = useMemo(() => deriveAdapterActivity(sessions), [sessions]);
+  const canMutateConfig = canBeginConfigInteraction({ configStatus, saving, testing });
 
   const reloadConfig = useCallback(async (): Promise<void> => {
+    const reloadId = reloadIdRef.current + 1;
+    reloadIdRef.current = reloadId;
+    setConfigStatus('loading');
     try {
       const nextConfig = await loadConfig(projectDir);
+      if (reloadId !== reloadIdRef.current) return;
       setConfigData(nextConfig);
+      setConfigStatus('ready');
       setLoadError(null);
     } catch (err) {
+      if (reloadId !== reloadIdRef.current) return;
       setConfigData({});
+      setConfigStatus('error');
       setLoadError(err instanceof Error ? err.message : 'Failed to load config');
     }
   }, [projectDir]);
@@ -134,6 +155,7 @@ export function ConfigView(): React.ReactElement {
   const bridgeReady = installedAdapterCount >= 2;
   const classifierCategories = [...new Set(resolvedClassifiers.map((rule) => rule.category))];
   const selectedAdapterInfo = adapters.find((adapter) => adapter.name === selectedAdapter);
+  const selectedAdapterActivity = adapterActivity[selectedAdapter] ?? { sessionCount: 0, lastSessionDate: null };
 
   const refreshAdapterStatuses = async (): Promise<void> => {
     const adapterStatuses = await Promise.all(
@@ -141,13 +163,10 @@ export function ConfigView(): React.ReactElement {
         const adapter = defaultRegistry.get(name);
         const binary = adapter?.binary ?? name;
         const installed = await commandExists(binary).catch(() => false);
-        const toolSessions = sessions.filter((session) => session.tool === name);
         return {
           name,
           binary,
           installed,
-          sessionCount: toolSessions.length,
-          lastSessionDate: toolSessions[0]?.createdAt ?? null,
         };
       }),
     );
@@ -177,6 +196,17 @@ export function ConfigView(): React.ReactElement {
   };
 
   const beginEdit = (nextEditor: NonNullable<EditorState>): void => {
+    if (!canMutateConfig) {
+      dispatch({
+        type: 'SHOW_TOAST',
+        message:
+          configStatus === 'error'
+            ? 'Fix config load error before editing settings'
+            : 'Wait for config to finish loading',
+        toastType: 'error',
+      });
+      return;
+    }
     setEditor(nextEditor);
     dispatch({ type: 'START_CONFIG_EDIT' });
   };
@@ -211,7 +241,7 @@ export function ConfigView(): React.ReactElement {
   };
 
   const handleEditorSubmit = async (value: string): Promise<void> => {
-    if (!editor) return;
+    if (!editor || !canMutateConfig) return;
 
     if (editor.kind === 'adapter-command') {
       const nextConfig: MmbridgeConfig = {
@@ -278,7 +308,7 @@ export function ConfigView(): React.ReactElement {
   };
 
   const clearAdapterOverride = async (): Promise<void> => {
-    if (!selectedAdapterConfig?.command || saving) return;
+    if (!selectedAdapterConfig?.command || !canMutateConfig) return;
 
     const nextAdapters = { ...(configData.adapters ?? {}) };
     const { command: _removed, ...nextSelected } = {
@@ -290,7 +320,7 @@ export function ConfigView(): React.ReactElement {
   };
 
   const clearRedactionRules = async (): Promise<void> => {
-    if (customRedactionRules.length === 0 || saving) return;
+    if (customRedactionRules.length === 0 || !canMutateConfig) return;
     await persistConfig(
       {
         ...configData,
@@ -303,7 +333,7 @@ export function ConfigView(): React.ReactElement {
   };
 
   const resetContextLimit = async (): Promise<void> => {
-    if (configData.context?.maxBytes === undefined || saving) return;
+    if (configData.context?.maxBytes === undefined || !canMutateConfig) return;
     await persistConfig(
       {
         ...configData,
@@ -317,7 +347,7 @@ export function ConfigView(): React.ReactElement {
   };
 
   const toggleBridgeMode = async (): Promise<void> => {
-    if (saving) return;
+    if (!canMutateConfig) return;
     const nextMode = bridgeMode === 'interpreted' ? 'standard' : 'interpreted';
     await persistConfig(
       {
@@ -332,7 +362,7 @@ export function ConfigView(): React.ReactElement {
   };
 
   const cycleBridgeProfile = async (): Promise<void> => {
-    if (saving) return;
+    if (!canMutateConfig) return;
     const profiles: Array<'standard' | 'strict' | 'relaxed'> = ['standard', 'strict', 'relaxed'];
     const currentIndex = profiles.indexOf(bridgeProfile);
     const nextProfile = profiles[(currentIndex + 1) % profiles.length] ?? 'standard';
@@ -350,7 +380,7 @@ export function ConfigView(): React.ReactElement {
   };
 
   const toggleClassifierDefaults = async (): Promise<void> => {
-    if (saving) return;
+    if (!canMutateConfig) return;
     const nextValue = configData.extendDefaultClassifiers === false;
     await persistConfig(
       {
@@ -516,6 +546,14 @@ export function ConfigView(): React.ReactElement {
           title={config.selectedSection === 'adapters' ? selectedAdapter.toUpperCase() : selectedSetting.toUpperCase()}
         >
           <Box flexDirection="column" marginTop={1}>
+            {configStatus === 'loading' && (
+              <Box flexDirection="row" gap={1}>
+                <Text color={colors.yellow}>
+                  <Spinner type="dots" />
+                </Text>
+                <Text color={colors.yellow}>Loading config...</Text>
+              </Box>
+            )}
             {loadError && <Text color={colors.red}>Config load error: {loadError}</Text>}
 
             {config.selectedSection === 'adapters' ? (
@@ -527,7 +565,7 @@ export function ConfigView(): React.ReactElement {
                   valueColor={(selectedAdapterInfo?.installed ?? false) ? colors.green : colors.red}
                   labelWidth={16}
                 />
-                <KVRow label="Sessions" value={String(selectedAdapterInfo?.sessionCount ?? 0)} labelWidth={16} />
+                <KVRow label="Sessions" value={String(selectedAdapterActivity.sessionCount)} labelWidth={16} />
                 <KVRow
                   label="Override"
                   value={selectedAdapterConfig?.command ?? '(default)'}
@@ -676,6 +714,7 @@ export function ConfigView(): React.ReactElement {
       {editor && (
         <Box marginTop={1}>
           <PromptInput
+            key={`${editor.label}:${editor.initialValue ?? ''}:${configStatus}`}
             label={editor.label}
             initialValue={editor.initialValue}
             placeholder={editor.placeholder}
