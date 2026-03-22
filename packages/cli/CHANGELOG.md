@@ -1,5 +1,12 @@
 # @mmbridge/cli
 
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [81bc0ec]
+  - @mmbridge/tui@0.6.2
+
 ## 0.6.1
 
 ### Patch Changes

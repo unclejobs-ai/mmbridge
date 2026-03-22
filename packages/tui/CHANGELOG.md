@@ -1,5 +1,11 @@
 # @mmbridge/tui
 
+## 0.6.2
+
+### Patch Changes
+
+- 81bc0ec: Improve TUI dashboard and config state handling with derived session analytics, safer config editing, and toast lifecycle fixes.
+
 ## 0.6.1
 
 ### Patch Changes
