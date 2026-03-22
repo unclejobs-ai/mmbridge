@@ -1,6 +1,6 @@
 {
   "name": "@mmbridge/core",
-  "version": "0.6.1",
+  "version": "0.6.3",
   "description": "Core pipelines, orchestration, and shared models for mmbridge",
   "type": "module",
   "main": "dist/index.js",

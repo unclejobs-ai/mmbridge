@@ -1,6 +1,6 @@
 {
   "name": "@mmbridge/mcp",
-  "version": "0.6.1",
+  "version": "0.6.3",
   "description": "MCP server exposing mmbridge control-plane tools",
   "type": "module",
   "bin": {

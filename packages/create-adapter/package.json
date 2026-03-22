@@ -1,6 +1,6 @@
 {
   "name": "@mmbridge/create-adapter",
-  "version": "0.6.0",
+  "version": "0.6.3",
   "description": "Scaffold new mmbridge adapters from the template",
   "type": "module",
   "bin": {

@@ -1,6 +1,6 @@
 {
   "name": "@mmbridge/adapters",
-  "version": "0.6.1",
+  "version": "0.6.3",
   "description": "Built-in adapters and registry for mmbridge model tools",
   "type": "module",
   "main": "dist/index.js",
