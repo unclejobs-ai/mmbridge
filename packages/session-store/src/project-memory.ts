@@ -817,7 +817,9 @@ export class ProjectMemoryStore {
     const normalized = Array.from(new Set(sessionIds.filter(Boolean)));
     if (normalized.length === 0) return [];
 
-    const families = await Promise.all(normalized.map((sessionId) => this.sessionStore.getFamily(projectDir, sessionId)));
+    const families = await Promise.all(
+      normalized.map((sessionId) => this.sessionStore.getFamily(projectDir, sessionId)),
+    );
     return Array.from(new Set(families.flat().map((session) => session.id)));
   }
 
