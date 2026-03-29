@@ -21,6 +21,14 @@ See [VISION.md](./VISION.md) for the external product vision and [docs/vision/co
 - **Finding aggregation**: Compare findings across tools and surface consensus issues
 - **Diff overlay**: View git diff annotated with review findings using `mmbridge diff`
 
+### Context Broker
+
+- **Context tree**: Append-only lineage tracking of all mmbridge tasks (Pi-inspired session tree)
+- **Recall engine**: Multi-source recall with relevance scoring across sessions, memory, handoffs, and context tree
+- **Context packet**: Assembled context with always-on memory, recall budget, gate signals, and suggested commands
+- **Compaction**: LLM-based subtree summarization to manage growing context trees
+- **Event hooks**: Lifecycle events (before_context, after_context, on_recall) for monitoring and extension
+
 ### Workflow Continuity
 
 - **Review follow-up**: Continue an existing session with targeted prompts
@@ -98,6 +106,13 @@ mmbridge security --tool all --bridge standard
 | `mmbridge handoff` | Inspect or export the latest session handoff artifact |
 | `mmbridge memory` | Search and inspect project memory |
 
+### Context Broker
+
+| Command | Description |
+|---------|-------------|
+| `mmbridge context tree` | Show recent context tree nodes for a project |
+| `mmbridge context packet` | Assemble and preview a ContextPacket for a task |
+
 ### Operations
 
 | Command | Description |
@@ -150,13 +165,14 @@ See [packages/create-adapter](./packages/create-adapter) for the template.
 | `@mmbridge/session-store` | Local session persistence and memory storage |
 | `@mmbridge/integrations` | Claude Code integration and agent sync utilities |
 | `@mmbridge/tui` | Terminal UI rendering for the control plane |
+| `@mmbridge/context-broker` | Context tree, recall engine, assembler, compaction, and event hooks |
 | `@mmbridge/mcp` | MCP server exposing mmbridge control-plane tools |
 | `@mmbridge/create-adapter` | Scaffold new adapters from the template |
 
 ## Requirements
 
 - Node.js >= 22.13.0
-- At least one AI CLI tool installed (kimi, qwen, codex, or gemini)
+- At least one AI CLI tool installed (kimi, qwen, codex, gemini, pi, or claude)
 
 ## License
 

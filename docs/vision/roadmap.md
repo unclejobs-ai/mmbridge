@@ -98,11 +98,20 @@ Preserve context so work can continue across sessions, tools, models, and contri
 - make the next recommended action clearer after a run completes
 - ensure continuity features degrade gracefully across different local environments
 
+### Delivered (v0.7)
+
+- `@mmbridge/context-broker` package: context tree, recall engine, context assembler, compaction, event hooks
+- `mmbridge context tree` / `mmbridge context packet` CLI commands
+- MCP `mmbridge_context_packet` tool and `context-tree://recent` resource
+- Pi adapter via acpx (7th built-in adapter)
+- Recall quality: multi-source keyword search across sessions, memory, handoffs, and context tree with relevance scoring and token budget management
+- Context freshness: gate signals tied to diff digests and session age
+- second-claude-code integration: companion-daemon reads context tree, session-start injects alwaysOnMemory
+
 ### Next
 
-- improve recall quality so prior research, review, and debate outputs are easier to reuse
-- connect continuity artifacts more tightly to current task state and diff freshness
 - make handoff outputs more useful for humans and assistants picking up work midstream
+- expose context packets as first-class inputs to thinking workflows (research, debate, embrace)
 
 ### Later
 
