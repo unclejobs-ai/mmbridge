@@ -62,10 +62,7 @@ export const DEFAULT_RECALL_BUDGETS: RecallBudgets = {
 
 export type BrokerEvent = 'before_context' | 'after_context' | 'on_recall';
 
-export type BrokerEventHandler = (
-  event: BrokerEvent,
-  data: Record<string, unknown>,
-) => void | Promise<void>;
+export type BrokerEventHandler = (event: BrokerEvent, data: Record<string, unknown>) => void | Promise<void>;
 
 export interface AssembleOptions {
   projectDir: string;

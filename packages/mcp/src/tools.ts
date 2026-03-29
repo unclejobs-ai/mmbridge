@@ -1,5 +1,5 @@
 import { defaultRegistry, runFollowupAdapter, runReviewAdapter } from '@mmbridge/adapters';
-import { ContextTree, RecallEngine, ContextAssembler } from '@mmbridge/context-broker';
+import { ContextAssembler, ContextTree, RecallEngine } from '@mmbridge/context-broker';
 import {
   interpretFindings,
   runDebatePipeline,
@@ -8,7 +8,7 @@ import {
   runSecurityPipeline,
 } from '@mmbridge/core';
 import type { Finding } from '@mmbridge/core';
-import { SessionStore, ProjectMemoryStore } from '@mmbridge/session-store';
+import { ProjectMemoryStore, SessionStore } from '@mmbridge/session-store';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 

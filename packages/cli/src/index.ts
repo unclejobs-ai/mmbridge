@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 
+import type { ContextPacketCommandOptions, ContextTreeCommandOptions } from './commands/context.js';
 import type { DebateCommandOptions } from './commands/debate.js';
 import type { DiffCommandOptions } from './commands/diff.js';
 import type { DoctorOptions } from './commands/doctor.js';
@@ -22,10 +23,6 @@ import type { ResumeCommandOptions } from './commands/resume.js';
 import type { ReviewCommandOptions } from './commands/review.js';
 import type { SecurityCommandOptions } from './commands/security.js';
 import type { SyncAgentsOptions } from './commands/sync-agents.js';
-import type {
-  ContextTreeCommandOptions,
-  ContextPacketCommandOptions,
-} from './commands/context.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };

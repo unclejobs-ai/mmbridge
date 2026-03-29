@@ -1,13 +1,13 @@
-import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { ContextTree } from '../dist/context-tree.js';
-import { RecallEngine } from '../dist/recall-engine.js';
 import { ContextAssembler } from '../dist/context-assembler.js';
+import { ContextTree } from '../dist/context-tree.js';
 import { BrokerEventBus } from '../dist/events.js';
+import { RecallEngine } from '../dist/recall-engine.js';
 
 /* ------------------------------------------------------------------ *
  *  Mock stores (same pattern as recall-engine.test.ts)                *
@@ -40,9 +40,7 @@ function mockSessionStore(sessions: ReturnType<typeof makeSession>[] = []) {
       }
       if (opts.query) {
         const q = opts.query.toLowerCase();
-        result = result.filter(
-          (s) => (s.summary ?? '').toLowerCase().includes(q),
-        );
+        result = result.filter((s) => (s.summary ?? '').toLowerCase().includes(q));
       }
       if (opts.limit) result = result.slice(0, opts.limit);
       return result;
@@ -136,9 +134,9 @@ describe('ContextAssembler', () => {
     // The tree should have a node with the returned treeLeafId
     const node = await tree.getNode(packet.treeLeafId);
     assert.ok(node, 'Tree node should exist');
-    assert.equal(node!.type, 'task');
-    assert.equal(node!.summary, 'test tree node creation');
-    assert.deepEqual(node!.data.command, 'review');
+    assert.equal(node?.type, 'task');
+    assert.equal(node?.summary, 'test tree node creation');
+    assert.deepEqual(node?.data.command, 'review');
   });
 
   it('assemble() branches from parentNodeId when provided', async () => {
@@ -170,7 +168,7 @@ describe('ContextAssembler', () => {
 
     const node2 = await tree.getNode(packet2.treeLeafId);
     assert.ok(node2, 'Second tree node should exist');
-    assert.equal(node2!.data.command, 'followup');
+    assert.equal(node2?.data.command, 'followup');
 
     // Verify lineage
     const treePath = await tree.getPath(packet2.treeLeafId);
@@ -283,9 +281,7 @@ describe('ContextAssembler', () => {
           { file: 'src/db.ts', message: 'Missing index', severity: 'MEDIUM' },
         ],
         resultIndex: {
-          topFiles: [
-            { file: 'src/utils.ts', findingCount: 3 },
-          ],
+          topFiles: [{ file: 'src/utils.ts', findingCount: 3 }],
         },
       }),
     ];

@@ -87,7 +87,7 @@ export async function runContextPacketCommand(options: ContextPacketCommandOptio
     projectDir,
   });
 
-  let packet;
+  let packet: Awaited<ReturnType<typeof assembler.assemble>> | undefined;
   try {
     packet = await assembler.assemble({
       projectDir,
@@ -116,12 +116,9 @@ export async function runContextPacketCommand(options: ContextPacketCommandOptio
     RED: '\x1b[38;2;243;139;168m',
   } as const;
 
-  const freshnessColor =
-    packet.freshness === 'fresh' ? C.GREEN : packet.freshness === 'stale' ? C.YELLOW : C.RED;
+  const freshnessColor = packet.freshness === 'fresh' ? C.GREEN : packet.freshness === 'stale' ? C.YELLOW : C.RED;
 
-  process.stdout.write(
-    `\n${C.BOLD}${C.ACCENT}Context Packet${C.RESET}  ${C.DIM}task: ${task}${C.RESET}\n\n`,
-  );
+  process.stdout.write(`\n${C.BOLD}${C.ACCENT}Context Packet${C.RESET}  ${C.DIM}task: ${task}${C.RESET}\n\n`);
 
   process.stdout.write(`  ${C.BOLD}Project${C.RESET}     ${packet.project}\n`);
   process.stdout.write(`  ${C.BOLD}Branch${C.RESET}      ${packet.projectState.branch}\n`);
@@ -133,7 +130,9 @@ export async function runContextPacketCommand(options: ContextPacketCommandOptio
   process.stdout.write('\n');
 
   if (packet.projectState.fileHotspots.length > 0) {
-    process.stdout.write(`  ${C.BLUE}${C.BOLD}File Hotspots${C.RESET} ${C.DIM}(${packet.projectState.fileHotspots.length})${C.RESET}\n`);
+    process.stdout.write(
+      `  ${C.BLUE}${C.BOLD}File Hotspots${C.RESET} ${C.DIM}(${packet.projectState.fileHotspots.length})${C.RESET}\n`,
+    );
     for (const file of packet.projectState.fileHotspots.slice(0, 10)) {
       process.stdout.write(`    ${C.DIM}${file}${C.RESET}\n`);
     }

@@ -1,20 +1,10 @@
-import {
-  getHead,
-  getDiff,
-  getChangedFiles,
-  getDefaultBaseRef,
-  shortDigest,
-} from '@mmbridge/core';
+import { getChangedFiles, getDefaultBaseRef, getDiff, getHead, shortDigest } from '@mmbridge/core';
 import type { SessionStore } from '@mmbridge/session-store';
 import type { Session } from '@mmbridge/session-store';
-import { ContextTree, projectKeyFromDir } from './context-tree.js';
-import { RecallEngine } from './recall-engine.js';
-import type {
-  AssembleOptions,
-  ContextPacket,
-  RecallEntry,
-} from './types.js';
-import { BrokerEventBus } from './events.js';
+import { type ContextTree, projectKeyFromDir } from './context-tree.js';
+import type { BrokerEventBus } from './events.js';
+import type { RecallEngine } from './recall-engine.js';
+import type { AssembleOptions, ContextPacket, RecallEntry } from './types.js';
 
 interface ContextAssemblerDeps {
   contextTree: ContextTree;
@@ -152,9 +142,7 @@ export class ContextAssembler {
     };
   }
 
-  private async getProjectState(
-    projectDir: string,
-  ): Promise<ProjectState> {
+  private async getProjectState(projectDir: string): Promise<ProjectState> {
     let branch = 'unknown';
     let recentDiff = '';
     let fileHotspots: string[] = [];
@@ -206,9 +194,7 @@ export class ContextAssembler {
     return { branch, recentDiff, fileHotspots };
   }
 
-  private async getGateSignals(
-    projectDir: string,
-  ): Promise<GateSignals> {
+  private async getGateSignals(projectDir: string): Promise<GateSignals> {
     const gateWarnings: string[] = [];
     let freshness: 'fresh' | 'stale' | 'expired' = 'expired';
 
@@ -248,9 +234,7 @@ export class ContextAssembler {
       for (const session of sessions) {
         const age = now - new Date(session.createdAt).getTime();
         const sameDigest =
-          currentDiffDigest != null &&
-          session.diffDigest != null &&
-          session.diffDigest === currentDiffDigest;
+          currentDiffDigest != null && session.diffDigest != null && session.diffDigest === currentDiffDigest;
 
         if (age <= oneDay && sameDigest) {
           freshFound = true;
@@ -278,9 +262,7 @@ export class ContextAssembler {
           (f: { severity?: string }) => f.severity === 'CRITICAL',
         );
         if (criticalFindings.length > 0) {
-          gateWarnings.push(
-            `unresolved_critical:${criticalFindings.length}`,
-          );
+          gateWarnings.push(`unresolved_critical:${criticalFindings.length}`);
         }
       }
     } catch {
@@ -290,10 +272,7 @@ export class ContextAssembler {
     return { gateWarnings, freshness };
   }
 
-  private suggestCommand(
-    task: string,
-    gateWarnings: string[],
-  ): string {
+  private suggestCommand(task: string, gateWarnings: string[]): string {
     const taskLower = task.toLowerCase();
 
     // If gate warns about expired sessions, suggest a full review

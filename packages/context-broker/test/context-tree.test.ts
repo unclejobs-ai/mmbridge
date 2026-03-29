@@ -1,8 +1,8 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { after, before, describe, it } from 'node:test';
 import { ContextTree } from '../dist/context-tree.js';
 
 describe('ContextTree', () => {
@@ -49,9 +49,9 @@ describe('ContextTree', () => {
 
     const found = await tree.getNode(appended.id);
     assert.ok(found !== null);
-    assert.equal(found!.id, appended.id);
-    assert.equal(found!.summary, 'findable node');
-    assert.equal(found!.type, 'review');
+    assert.equal(found?.id, appended.id);
+    assert.equal(found?.summary, 'findable node');
+    assert.equal(found?.type, 'review');
   });
 
   it('branch() creates node with correct parentId', async () => {

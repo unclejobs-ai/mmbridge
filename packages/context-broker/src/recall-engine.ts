@@ -1,8 +1,4 @@
-import type {
-  HandoffArtifact,
-  MemoryEntry,
-  Session,
-} from '@mmbridge/session-store';
+import type { HandoffArtifact, MemoryEntry, Session } from '@mmbridge/session-store';
 import type { SessionStore } from '@mmbridge/session-store';
 import type { ProjectMemoryStore } from '@mmbridge/session-store';
 import { projectKeyFromDir } from './context-tree.js';
@@ -11,14 +7,77 @@ import type { ContextNode, RecallEntry } from './types.js';
 
 /** Stop-words excluded from keyword extraction. */
 const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-  'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
-  'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-  'could', 'should', 'may', 'might', 'shall', 'can', 'this', 'that',
-  'these', 'those', 'it', 'its', 'not', 'no', 'nor', 'so', 'if', 'then',
-  'than', 'too', 'very', 'just', 'about', 'also', 'all', 'each', 'every',
-  'any', 'some', 'such', 'into', 'over', 'after', 'before', 'between',
-  'under', 'above', 'out', 'up', 'down', 'off',
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'but',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'of',
+  'with',
+  'by',
+  'from',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'have',
+  'has',
+  'had',
+  'do',
+  'does',
+  'did',
+  'will',
+  'would',
+  'could',
+  'should',
+  'may',
+  'might',
+  'shall',
+  'can',
+  'this',
+  'that',
+  'these',
+  'those',
+  'it',
+  'its',
+  'not',
+  'no',
+  'nor',
+  'so',
+  'if',
+  'then',
+  'than',
+  'too',
+  'very',
+  'just',
+  'about',
+  'also',
+  'all',
+  'each',
+  'every',
+  'any',
+  'some',
+  'such',
+  'into',
+  'over',
+  'after',
+  'before',
+  'between',
+  'under',
+  'above',
+  'out',
+  'up',
+  'down',
+  'off',
 ]);
 
 const DEFAULT_BUDGET = 2000;
@@ -83,18 +142,15 @@ export class RecallEngine {
     const projectKey = projectKeyFromDir(projectDir);
 
     // Gather from all sources in parallel — each is wrapped in try/catch
-    const [memoryEntries, sessionEntries, handoffEntries, treeEntries] =
-      await Promise.all([
-        this.searchMemory(query, projectDir),
-        this.searchSessions(query, projectDir),
-        this.searchHandoffs(query, projectDir),
-        this.searchTree(query, projectKey, treeLeafId),
-      ]);
+    const [memoryEntries, sessionEntries, handoffEntries, treeEntries] = await Promise.all([
+      this.searchMemory(query, projectDir),
+      this.searchSessions(query, projectDir),
+      this.searchHandoffs(query, projectDir),
+      this.searchTree(query, projectKey, treeLeafId),
+    ]);
 
     // Build always-on memory from highest-relevance memory entries
-    const sortedMemory = [...memoryEntries].sort(
-      (a, b) => b.relevance - a.relevance,
-    );
+    const sortedMemory = [...memoryEntries].sort((a, b) => b.relevance - a.relevance);
     let alwaysOnMemory = '';
     let charBudget = ALWAYS_ON_LIMIT;
     for (const entry of sortedMemory) {
@@ -109,12 +165,7 @@ export class RecallEngine {
     const remainingBudget = Math.max(0, budget - alwaysOnTokens);
 
     // Rank all entries together for budget allocation
-    const allEntries = [
-      ...memoryEntries,
-      ...sessionEntries,
-      ...handoffEntries,
-      ...treeEntries,
-    ];
+    const allEntries = [...memoryEntries, ...sessionEntries, ...handoffEntries, ...treeEntries];
     const ranked = this.rankByRelevance(allEntries, remainingBudget);
 
     // Split back into categories
@@ -123,9 +174,7 @@ export class RecallEngine {
     const recalledHandoffs = ranked.filter((e) => e.source === 'handoff');
     const recalledTree = ranked.filter((e) => e.source === 'tree');
 
-    const totalRecallTokens =
-      alwaysOnTokens +
-      ranked.reduce((sum, e) => sum + e.tokenCount, 0);
+    const totalRecallTokens = alwaysOnTokens + ranked.reduce((sum, e) => sum + e.tokenCount, 0);
 
     return {
       alwaysOnMemory,
@@ -137,10 +186,7 @@ export class RecallEngine {
     };
   }
 
-  private async searchMemory(
-    query: string,
-    projectDir: string,
-  ): Promise<RecallEntry[]> {
+  private async searchMemory(query: string, projectDir: string): Promise<RecallEntry[]> {
     try {
       const entries: MemoryEntry[] = await this.memoryStore.searchMemory({
         projectDir,
@@ -152,19 +198,14 @@ export class RecallEngine {
         id: entry.id,
         relevance: 0.5 + recencyBonus(entry.createdAt),
         summary: `[${entry.type}] ${entry.title}: ${entry.content}`.slice(0, 500),
-        tokenCount: this.estimateTokens(
-          `[${entry.type}] ${entry.title}: ${entry.content}`,
-        ),
+        tokenCount: this.estimateTokens(`[${entry.type}] ${entry.title}: ${entry.content}`),
       }));
     } catch {
       return [];
     }
   }
 
-  private async searchSessions(
-    query: string,
-    projectDir: string,
-  ): Promise<RecallEntry[]> {
+  private async searchSessions(query: string, projectDir: string): Promise<RecallEntry[]> {
     try {
       // SessionStore.list() does substring matching, so search per-keyword
       // to avoid requiring the full phrase as a contiguous substring.
@@ -179,9 +220,7 @@ export class RecallEngine {
       } else {
         // Search per keyword, merge results
         const perKeyword = await Promise.all(
-          keywords.slice(0, 5).map((kw) =>
-            this.sessionStore.list({ projectDir, query: kw, limit: 4 }),
-          ),
+          keywords.slice(0, 5).map((kw) => this.sessionStore.list({ projectDir, query: kw, limit: 4 })),
         );
         for (const batch of perKeyword) {
           for (const s of batch) {
@@ -198,12 +237,8 @@ export class RecallEngine {
         .map((s) => {
           const text = `${s.tool} ${s.mode}: ${s.summary ?? ''}`;
           // Boost relevance when more keywords match the summary
-          const matchCount = keywords.filter((kw) =>
-            (s.summary ?? '').toLowerCase().includes(kw.toLowerCase()),
-          ).length;
-          const keywordBoost = keywords.length > 0
-            ? 0.15 * (matchCount / keywords.length)
-            : 0;
+          const matchCount = keywords.filter((kw) => (s.summary ?? '').toLowerCase().includes(kw.toLowerCase())).length;
+          const keywordBoost = keywords.length > 0 ? 0.15 * (matchCount / keywords.length) : 0;
           return {
             source: 'session' as const,
             id: s.id,
@@ -219,17 +254,13 @@ export class RecallEngine {
     }
   }
 
-  private async searchHandoffs(
-    query: string,
-    projectDir: string,
-  ): Promise<RecallEntry[]> {
+  private async searchHandoffs(query: string, projectDir: string): Promise<RecallEntry[]> {
     try {
       // Use getLatestHandoff as the primary handoff source.
       // Also search memory entries with handoff-related types as secondary source.
       const results: RecallEntry[] = [];
 
-      const latestHandoff: HandoffArtifact | null =
-        await this.memoryStore.getLatestHandoff(projectDir);
+      const latestHandoff: HandoffArtifact | null = await this.memoryStore.getLatestHandoff(projectDir);
       if (latestHandoff) {
         const text = `Handoff: ${latestHandoff.summary}\nObjective: ${latestHandoff.objective}\nNext: ${latestHandoff.nextPrompt}`;
         results.push({
@@ -242,13 +273,12 @@ export class RecallEngine {
       }
 
       // Search memory for handoff-related blockers and followup goals
-      const blockerEntries: MemoryEntry[] =
-        await this.memoryStore.searchMemory({
-          projectDir,
-          query: query || '',
-          type: 'blocker',
-          limit: 4,
-        });
+      const blockerEntries: MemoryEntry[] = await this.memoryStore.searchMemory({
+        projectDir,
+        query: query || '',
+        type: 'blocker',
+        limit: 4,
+      });
       for (const entry of blockerEntries) {
         if (entry.handoffId) {
           const text = `[blocker] ${entry.title}: ${entry.content}`;
@@ -268,16 +298,9 @@ export class RecallEngine {
     }
   }
 
-  private async searchTree(
-    query: string,
-    projectKey: string,
-    leafId?: string,
-  ): Promise<RecallEntry[]> {
+  private async searchTree(query: string, projectKey: string, leafId?: string): Promise<RecallEntry[]> {
     try {
-      const recentNodes: ContextNode[] = await this.contextTree.getRecent(
-        projectKey,
-        10,
-      );
+      const recentNodes: ContextNode[] = await this.contextTree.getRecent(projectKey, 10);
       if (recentNodes.length === 0) return [];
 
       // If we have a leaf, compute path to find same-branch nodes
@@ -311,9 +334,7 @@ export class RecallEngine {
 
         // Keyword match bonus
         const summaryLower = node.summary.toLowerCase();
-        const matchCount = keywords.filter((kw) =>
-          summaryLower.includes(kw),
-        ).length;
+        const matchCount = keywords.filter((kw) => summaryLower.includes(kw)).length;
         if (keywords.length > 0) {
           relevance += 0.1 * (matchCount / keywords.length);
         }
@@ -331,10 +352,7 @@ export class RecallEngine {
     }
   }
 
-  private rankByRelevance(
-    entries: RecallEntry[],
-    budget: number,
-  ): RecallEntry[] {
+  private rankByRelevance(entries: RecallEntry[], budget: number): RecallEntry[] {
     // Deduplicate by id, keeping highest relevance
     const byId = new Map<string, RecallEntry>();
     for (const entry of entries) {
@@ -345,9 +363,7 @@ export class RecallEngine {
     }
 
     // Sort by relevance descending
-    const sorted = Array.from(byId.values()).sort(
-      (a, b) => b.relevance - a.relevance,
-    );
+    const sorted = Array.from(byId.values()).sort((a, b) => b.relevance - a.relevance);
 
     // Fill within budget
     const result: RecallEntry[] = [];

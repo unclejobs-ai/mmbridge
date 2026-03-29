@@ -18,7 +18,11 @@ function projectKeyFromDir(projectDir: string): string {
   const resolved = path.resolve(projectDir);
   const hash = createHash('sha256').update(resolved).digest('hex').slice(0, 12);
   // Extract a readable hint — last path component (project folder name)
-  const hint = path.basename(resolved).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30) || 'root';
+  const hint =
+    path
+      .basename(resolved)
+      .replace(/[^a-zA-Z0-9_-]/g, '')
+      .slice(0, 30) || 'root';
   return `${hint}-${hash}`;
 }
 
@@ -35,9 +39,7 @@ export class ContextTree {
     await fs.mkdir(this.treesDir, { recursive: true });
   }
 
-  async append(
-    node: Omit<ContextNode, 'id' | 'timestamp'>,
-  ): Promise<ContextNode> {
+  async append(node: Omit<ContextNode, 'id' | 'timestamp'>): Promise<ContextNode> {
     await this.init();
     const full: ContextNode = {
       ...node,
@@ -45,14 +47,11 @@ export class ContextTree {
       timestamp: Date.now(),
     };
     const fp = this.filePath(full.projectKey);
-    await fs.appendFile(fp, JSON.stringify(full) + '\n', 'utf8');
+    await fs.appendFile(fp, `${JSON.stringify(full)}\n`, 'utf8');
     return full;
   }
 
-  async branch(
-    fromNodeId: string,
-    node: Omit<ContextNode, 'id' | 'timestamp' | 'parentId'>,
-  ): Promise<ContextNode> {
+  async branch(fromNodeId: string, node: Omit<ContextNode, 'id' | 'timestamp' | 'parentId'>): Promise<ContextNode> {
     return this.append({ ...node, parentId: fromNodeId });
   }
 
@@ -122,14 +121,9 @@ export class ContextTree {
     return allNodes.filter((n) => !parentIds.has(n.id));
   }
 
-  async getRecent(
-    projectKey: string,
-    limit: number = 10,
-  ): Promise<ContextNode[]> {
+  async getRecent(projectKey: string, limit = 10): Promise<ContextNode[]> {
     const allNodes = await this.loadAll(projectKey);
-    return allNodes
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, limit);
+    return allNodes.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
   }
 
   async loadAll(projectKey: string): Promise<ContextNode[]> {

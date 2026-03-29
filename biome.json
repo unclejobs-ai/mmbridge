@@ -31,6 +31,19 @@
       "semicolons": "always"
     }
   },
+  "overrides": [
+    {
+      "include": ["**/test/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noImplicitAnyLet": "off"
+          }
+        }
+      }
+    }
+  ],
   "files": {
     "ignore": ["node_modules", "dist", "*.d.ts"]
   }

@@ -1,11 +1,11 @@
-import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ContextTree } from '../dist/context-tree.js';
-import { compactSubtree, autoCompact } from '../dist/compaction.js';
+import { after, before, describe, it } from 'node:test';
+import { autoCompact, compactSubtree } from '../dist/compaction.js';
 import type { CompactionAdapter } from '../dist/compaction.js';
+import { ContextTree } from '../dist/context-tree.js';
 
 /** Mock adapter that returns a predictable summary without calling any LLM. */
 class MockCompactionAdapter implements CompactionAdapter {
@@ -66,16 +66,12 @@ describe('compactSubtree', () => {
     });
 
     assert.ok(result !== null);
-    assert.equal(result!.type, 'compaction');
-    assert.equal(result!.summary, '[compacted] mock summary #1');
-    assert.equal(result!.parentId, null); // root's parent was null
-    assert.equal(result!.projectKey, projectKey);
-    assert.equal((result!.data as any).nodeCount, 3);
-    assert.deepEqual((result!.data as any).compactedIds, [
-      leaf.id,
-      mid.id,
-      root.id,
-    ]);
+    assert.equal(result?.type, 'compaction');
+    assert.equal(result?.summary, '[compacted] mock summary #1');
+    assert.equal(result?.parentId, null); // root's parent was null
+    assert.equal(result?.projectKey, projectKey);
+    assert.equal((result?.data as any).nodeCount, 3);
+    assert.deepEqual((result?.data as any).compactedIds, [leaf.id, mid.id, root.id]);
 
     // Verify the prompt sent to the adapter
     assert.ok(adapter.lastPrompt.includes('implement auth module'));
@@ -136,8 +132,8 @@ describe('compactSubtree', () => {
     });
 
     assert.ok(result !== null);
-    assert.equal(result!.type, 'compaction');
-    assert.equal((result!.data as any).nodeCount, 1);
+    assert.equal(result?.type, 'compaction');
+    assert.equal((result?.data as any).nodeCount, 1);
     assert.equal(adapter.callCount, 1);
   });
 });

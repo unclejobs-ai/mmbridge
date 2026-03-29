@@ -1,5 +1,5 @@
-import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 
 import { BrokerEventBus } from '../dist/events.js';
 
@@ -39,9 +39,15 @@ describe('BrokerEventBus', () => {
     const bus = new BrokerEventBus();
     let count = 0;
 
-    bus.on('on_recall', () => { count++; });
-    bus.on('on_recall', () => { count++; });
-    bus.on('on_recall', () => { count++; });
+    bus.on('on_recall', () => {
+      count++;
+    });
+    bus.on('on_recall', () => {
+      count++;
+    });
+    bus.on('on_recall', () => {
+      count++;
+    });
 
     await bus.emit('on_recall', {});
 
@@ -52,9 +58,15 @@ describe('BrokerEventBus', () => {
     const bus = new BrokerEventBus();
     const results: string[] = [];
 
-    bus.on('before_context', () => { results.push('first'); });
-    bus.on('before_context', () => { throw new Error('handler crash'); });
-    bus.on('before_context', () => { results.push('third'); });
+    bus.on('before_context', () => {
+      results.push('first');
+    });
+    bus.on('before_context', () => {
+      throw new Error('handler crash');
+    });
+    bus.on('before_context', () => {
+      results.push('third');
+    });
 
     await bus.emit('before_context', {});
 
@@ -66,8 +78,12 @@ describe('BrokerEventBus', () => {
     const bus = new BrokerEventBus();
     let count = 0;
 
-    bus.on('before_context', () => { count++; });
-    bus.on('after_context', () => { count++; });
+    bus.on('before_context', () => {
+      count++;
+    });
+    bus.on('after_context', () => {
+      count++;
+    });
 
     bus.removeAll();
 

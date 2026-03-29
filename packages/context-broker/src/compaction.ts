@@ -1,4 +1,4 @@
-import { ContextTree } from './context-tree.js';
+import type { ContextTree } from './context-tree.js';
 import type { ContextNode } from './types.js';
 
 /**
@@ -46,13 +46,9 @@ export async function compactSubtree(
 
     // Build the lineage text in root-to-leaf order
     const rootToLeaf = [...pathNodes].reverse();
-    const lineage = rootToLeaf
-      .map((n) => `[${n.type}] ${n.summary}`)
-      .join('\n');
+    const lineage = rootToLeaf.map((n) => `[${n.type}] ${n.summary}`).join('\n');
 
-    const prompt =
-      'Summarize this task lineage into a concise context paragraph:\n' +
-      lineage;
+    const prompt = `Summarize this task lineage into a concise context paragraph:\n${lineage}`;
 
     const compactedSummary = await adapter.summarize(prompt);
 
@@ -118,10 +114,7 @@ export async function autoCompact(
     const compactable = leaves.filter((n) => n.type !== 'compaction');
 
     // Compact the oldest half of compactable leaves
-    const toCompact = compactable.slice(
-      0,
-      Math.max(1, Math.floor(compactable.length / 2)),
-    );
+    const toCompact = compactable.slice(0, Math.max(1, Math.floor(compactable.length / 2)));
 
     const results: ContextNode[] = [];
     for (const leaf of toCompact) {

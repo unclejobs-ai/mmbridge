@@ -1,8 +1,8 @@
-import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { ContextTree } from '../dist/context-tree.js';
 import { RecallEngine } from '../dist/recall-engine.js';
@@ -74,11 +74,7 @@ function mockSessionStore(sessions: ReturnType<typeof makeSession>[] = []) {
       }
       if (opts.query) {
         const q = opts.query.toLowerCase();
-        result = result.filter(
-          (s) =>
-            (s.summary ?? '').toLowerCase().includes(q) ||
-            s.tool.toLowerCase().includes(q),
-        );
+        result = result.filter((s) => (s.summary ?? '').toLowerCase().includes(q) || s.tool.toLowerCase().includes(q));
       }
       if (opts.limit) result = result.slice(0, opts.limit);
       return result;
@@ -148,9 +144,24 @@ describe('RecallEngine', () => {
 
   it('recall() returns memory entries ranked by relevance', async () => {
     const memories = [
-      makeMemoryEntry({ id: 'mem-1', title: 'Auth bug', content: 'SQL injection in auth handler', createdAt: new Date().toISOString() }),
-      makeMemoryEntry({ id: 'mem-2', title: 'CSS issue', content: 'Button alignment off', createdAt: new Date(Date.now() - 86400000 * 10).toISOString() }),
-      makeMemoryEntry({ id: 'mem-3', title: 'Auth config', content: 'OAuth configuration notes', createdAt: new Date().toISOString() }),
+      makeMemoryEntry({
+        id: 'mem-1',
+        title: 'Auth bug',
+        content: 'SQL injection in auth handler',
+        createdAt: new Date().toISOString(),
+      }),
+      makeMemoryEntry({
+        id: 'mem-2',
+        title: 'CSS issue',
+        content: 'Button alignment off',
+        createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
+      }),
+      makeMemoryEntry({
+        id: 'mem-3',
+        title: 'Auth config',
+        content: 'OAuth configuration notes',
+        createdAt: new Date().toISOString(),
+      }),
     ];
 
     const engine = new RecallEngine({
@@ -176,9 +187,24 @@ describe('RecallEngine', () => {
   it('recall() builds always-on memory from top entries within 500 char budget', async () => {
     const longContent = 'database connection pooling optimization strategy details '.repeat(6);
     const memories = [
-      makeMemoryEntry({ id: 'mem-1', title: 'Database pooling config', content: longContent, createdAt: new Date().toISOString() }),
-      makeMemoryEntry({ id: 'mem-2', title: 'Database migration notes', content: longContent, createdAt: new Date().toISOString() }),
-      makeMemoryEntry({ id: 'mem-3', title: 'Pooling benchmark results', content: longContent, createdAt: new Date().toISOString() }),
+      makeMemoryEntry({
+        id: 'mem-1',
+        title: 'Database pooling config',
+        content: longContent,
+        createdAt: new Date().toISOString(),
+      }),
+      makeMemoryEntry({
+        id: 'mem-2',
+        title: 'Database migration notes',
+        content: longContent,
+        createdAt: new Date().toISOString(),
+      }),
+      makeMemoryEntry({
+        id: 'mem-3',
+        title: 'Pooling benchmark results',
+        content: longContent,
+        createdAt: new Date().toISOString(),
+      }),
     ];
 
     const engine = new RecallEngine({
@@ -194,7 +220,10 @@ describe('RecallEngine', () => {
     });
 
     // Always-on memory should be approximately <= 500 chars (newline separators may add 1-2 chars)
-    assert.ok(result.alwaysOnMemory.length <= 510, `Always-on memory should be ~≤ 500 chars, got ${result.alwaysOnMemory.length}`);
+    assert.ok(
+      result.alwaysOnMemory.length <= 510,
+      `Always-on memory should be ~≤ 500 chars, got ${result.alwaysOnMemory.length}`,
+    );
     assert.ok(result.alwaysOnMemory.length > 0, 'Should have some always-on memory');
   });
 
@@ -277,11 +306,9 @@ describe('RecallEngine', () => {
     });
 
     // Tree entries should be present (source = 'tree')
-    const treeEntries = [
-      ...result.recalledSessions,
-      ...result.recalledHandoffs,
-      ...result.recalledMemory,
-    ].filter(e => e.source === 'tree');
+    const treeEntries = [...result.recalledSessions, ...result.recalledHandoffs, ...result.recalledMemory].filter(
+      (e) => e.source === 'tree',
+    );
     // Tree entries go through the general ranking — might be empty if budget is tight
     // But the recall engine should have tried to search the tree
     // Let's just verify no crash and the result is valid
@@ -294,7 +321,7 @@ describe('RecallEngine', () => {
       makeMemoryEntry({
         id: `mem-${i}`,
         title: `Finding ${i}`,
-        content: `Detailed finding content for item ${i} ` + 'x'.repeat(200),
+        content: `Detailed finding content for item ${i} ${'x'.repeat(200)}`,
         createdAt: new Date().toISOString(),
       }),
     );
@@ -323,7 +350,9 @@ describe('RecallEngine', () => {
 
   it('recall() gracefully handles store errors', async () => {
     const failingStore = {
-      list: async () => { throw new Error('DB connection failed'); },
+      list: async () => {
+        throw new Error('DB connection failed');
+      },
       init: async () => {},
       save: async () => makeSession(),
       get: async () => null,
@@ -331,8 +360,12 @@ describe('RecallEngine', () => {
       getFamily: async () => [],
     };
     const failingMemory = {
-      searchMemory: async () => { throw new Error('FTS5 unavailable'); },
-      getLatestHandoff: async () => { throw new Error('No handoffs table'); },
+      searchMemory: async () => {
+        throw new Error('FTS5 unavailable');
+      },
+      getLatestHandoff: async () => {
+        throw new Error('No handoffs table');
+      },
     };
 
     const engine = new RecallEngine({
