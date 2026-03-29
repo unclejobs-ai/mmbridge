@@ -163,23 +163,54 @@ export class RecallEngine {
     projectDir: string,
   ): Promise<RecallEntry[]> {
     try {
-      const sessions: Session[] = await this.sessionStore.list({
-        projectDir,
-        query: query || undefined,
-        limit: 8,
-      });
-      return sessions
+      // SessionStore.list() does substring matching, so search per-keyword
+      // to avoid requiring the full phrase as a contiguous substring.
+      const keywords = query.split(/\s+/).filter(Boolean);
+      const seen = new Set<string>();
+      const allSessions: Session[] = [];
+
+      if (keywords.length === 0) {
+        // No query — just get recent sessions for this project
+        const recent = await this.sessionStore.list({ projectDir, limit: 8 });
+        allSessions.push(...recent);
+      } else {
+        // Search per keyword, merge results
+        const perKeyword = await Promise.all(
+          keywords.slice(0, 5).map((kw) =>
+            this.sessionStore.list({ projectDir, query: kw, limit: 4 }),
+          ),
+        );
+        for (const batch of perKeyword) {
+          for (const s of batch) {
+            if (!seen.has(s.id)) {
+              seen.add(s.id);
+              allSessions.push(s);
+            }
+          }
+        }
+      }
+
+      return allSessions
         .filter((s) => s.summary)
         .map((s) => {
           const text = `${s.tool} ${s.mode}: ${s.summary ?? ''}`;
+          // Boost relevance when more keywords match the summary
+          const matchCount = keywords.filter((kw) =>
+            (s.summary ?? '').toLowerCase().includes(kw.toLowerCase()),
+          ).length;
+          const keywordBoost = keywords.length > 0
+            ? 0.15 * (matchCount / keywords.length)
+            : 0;
           return {
             source: 'session' as const,
             id: s.id,
-            relevance: 0.4 + recencyBonus(s.createdAt),
+            relevance: 0.4 + recencyBonus(s.createdAt) + keywordBoost,
             summary: text.slice(0, 500),
             tokenCount: this.estimateTokens(text),
           };
-        });
+        })
+        .sort((a, b) => b.relevance - a.relevance)
+        .slice(0, 8);
     } catch {
       return [];
     }
