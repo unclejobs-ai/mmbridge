@@ -1,9 +1,11 @@
 import { defaultRegistry } from '@mmbridge/adapters';
+import { ContextTree, projectKeyFromDir } from '@mmbridge/context-broker';
 import { SessionStore } from '@mmbridge/session-store';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListResourcesRequestSchema, ReadResourceRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const store = new SessionStore();
+const contextTree = new ContextTree();
 
 export function registerResourceHandlers(server: Server): void {
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
@@ -18,6 +20,12 @@ export function registerResourceHandlers(server: Server): void {
         uri: 'adapters://status',
         name: 'Adapter installation status',
         description: 'Shows which AI review tools are installed and available',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'context-tree://recent',
+        name: 'Recent context tree nodes',
+        description: 'Returns recent context-tree nodes for the current project',
         mimeType: 'application/json',
       },
     ],
@@ -67,6 +75,23 @@ export function registerResourceHandlers(server: Server): void {
         name,
         installed: installed.includes(name),
         binary: defaultRegistry.get(name)?.binary ?? name,
+      }));
+      return {
+        contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(result, null, 2) }],
+      };
+    }
+
+    if (uri === 'context-tree://recent') {
+      const projectDir = process.cwd();
+      const projectKey = projectKeyFromDir(projectDir);
+      const nodes = await contextTree.getRecent(projectKey, 20);
+      const result = nodes.map((n) => ({
+        id: n.id,
+        parentId: n.parentId,
+        type: n.type,
+        summary: n.summary,
+        timestamp: n.timestamp,
+        projectKey: n.projectKey,
       }));
       return {
         contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(result, null, 2) }],

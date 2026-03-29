@@ -24,6 +24,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@mmbridge/core": "workspace:*",
     "@mmbridge/adapters": "workspace:*",
+    "@mmbridge/context-broker": "workspace:*",
     "@mmbridge/session-store": "workspace:*"
   },
   "publishConfig": {

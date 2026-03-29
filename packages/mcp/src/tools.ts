@@ -1,4 +1,5 @@
 import { defaultRegistry, runFollowupAdapter, runReviewAdapter } from '@mmbridge/adapters';
+import { ContextTree, RecallEngine, ContextAssembler } from '@mmbridge/context-broker';
 import {
   interpretFindings,
   runDebatePipeline,
@@ -7,11 +8,15 @@ import {
   runSecurityPipeline,
 } from '@mmbridge/core';
 import type { Finding } from '@mmbridge/core';
-import { SessionStore } from '@mmbridge/session-store';
+import { SessionStore, ProjectMemoryStore } from '@mmbridge/session-store';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const store = new SessionStore();
+const memoryStore = new ProjectMemoryStore();
+const contextTree = new ContextTree();
+const recallEngine = new RecallEngine({ sessionStore: store, memoryStore, contextTree });
+const contextAssembler = new ContextAssembler({ contextTree, recallEngine, sessionStore: store });
 
 const TOOL_DEFINITIONS = [
   {
@@ -176,6 +181,22 @@ const TOOL_DEFINITIONS = [
       required: ['task'],
     },
   },
+  {
+    name: 'mmbridge_context_packet',
+    description:
+      'Assemble a ContextPacket with project state, recall entries, gate signals, and suggested commands for a given task.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        task: { type: 'string', description: 'Task description to build context for' },
+        command: { type: 'string', default: 'mmbridge review', description: 'mmbridge command being executed' },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
+        parentNodeId: { type: 'string', description: 'Parent context-tree node ID for branching' },
+        recallBudget: { type: 'number', description: 'Max recall tokens (default: 2000)' },
+      },
+      required: ['task'],
+    },
+  },
 ];
 
 function textContent(text: string, isError = false) {
@@ -214,6 +235,8 @@ export function registerToolHandlers(server: Server): void {
         return handleSecurity(safeArgs, server);
       case 'mmbridge_embrace':
         return handleEmbrace(safeArgs, server);
+      case 'mmbridge_context_packet':
+        return handleContextPacket(safeArgs);
       default:
         return textContent(`Unknown tool: ${name}`, true);
     }
@@ -454,6 +477,27 @@ async function handleSecurity(args: Record<string, unknown>, server: Server) {
     return textContent(JSON.stringify(result.report, null, 2));
   } catch (err) {
     return textContent(`Security audit failed: ${errorMessage(err)}`, true);
+  }
+}
+
+async function handleContextPacket(args: Record<string, unknown>) {
+  const task = String(args.task);
+  const command = String(args.command ?? 'mmbridge review');
+  const projectDir = (args.projectDir as string | undefined) ?? process.cwd();
+  const parentNodeId = args.parentNodeId as string | undefined;
+  const recallBudget = typeof args.recallBudget === 'number' ? args.recallBudget : undefined;
+
+  try {
+    const packet = await contextAssembler.assemble({
+      projectDir,
+      task,
+      command,
+      parentNodeId,
+      recallBudget,
+    });
+    return textContent(JSON.stringify(packet, null, 2));
+  } catch (err) {
+    return textContent(`Context packet assembly failed: ${errorMessage(err)}`, true);
   }
 }
 

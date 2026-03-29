@@ -14,12 +14,14 @@ import type {
   ContextPacket,
   RecallEntry,
 } from './types.js';
+import { BrokerEventBus } from './events.js';
 
 interface ContextAssemblerDeps {
   contextTree: ContextTree;
   recallEngine: RecallEngine;
   sessionStore?: SessionStore;
   projectDir?: string;
+  eventBus?: BrokerEventBus;
 }
 
 interface ProjectState {
@@ -40,17 +42,28 @@ export class ContextAssembler {
   private readonly recallEngine: RecallEngine;
   private readonly sessionStore: SessionStore | undefined;
   private readonly defaultProjectDir: string | undefined;
+  private readonly eventBus: BrokerEventBus | undefined;
 
   constructor(deps: ContextAssemblerDeps) {
     this.contextTree = deps.contextTree;
     this.recallEngine = deps.recallEngine;
     this.sessionStore = deps.sessionStore;
     this.defaultProjectDir = deps.projectDir;
+    this.eventBus = deps.eventBus;
   }
 
   async assemble(options: AssembleOptions): Promise<ContextPacket> {
     const projectDir = options.projectDir || this.defaultProjectDir || '.';
     const { task, command, parentNodeId, recallBudget } = options;
+
+    // Emit before_context event (best-effort)
+    if (this.eventBus) {
+      try {
+        await this.eventBus.emit('before_context', { task, command, projectDir });
+      } catch {
+        // best-effort — don't fail assembly
+      }
+    }
 
     // 1. Build project state
     const projectState = await this.getProjectState(projectDir);
@@ -84,9 +97,39 @@ export class ContextAssembler {
       budget: recallBudget,
     });
 
+    // Emit on_recall event (best-effort)
+    if (this.eventBus) {
+      try {
+        const entryCount =
+          recall.recalledSessions.length +
+          recall.recalledHandoffs.length +
+          recall.recalledMemory.length;
+        await this.eventBus.emit('on_recall', {
+          budget: recallBudget ?? 2000,
+          totalTokens: recall.totalRecallTokens,
+          entryCount,
+        });
+      } catch {
+        // best-effort — don't fail assembly
+      }
+    }
+
     // 5. Determine suggested command and adapters
     const suggestedCommand = this.suggestCommand(task, gateWarnings);
     const suggestedAdapters = this.suggestAdapters(command);
+
+    // Emit after_context event (best-effort)
+    if (this.eventBus) {
+      try {
+        await this.eventBus.emit('after_context', {
+          treeLeafId,
+          freshness,
+          suggestedCommand,
+        });
+      } catch {
+        // best-effort — don't fail assembly
+      }
+    }
 
     // 6. Return complete ContextPacket
     return {

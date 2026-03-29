@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { ContextTree } from '../dist/context-tree.js';
 import { RecallEngine } from '../dist/recall-engine.js';
 import { ContextAssembler } from '../dist/context-assembler.js';
+import { BrokerEventBus } from '../dist/events.js';
 
 /* ------------------------------------------------------------------ *
  *  Mock stores (same pattern as recall-engine.test.ts)                *
@@ -312,5 +313,108 @@ describe('ContextAssembler', () => {
     assert.ok(hotspots.includes('src/auth.ts'), 'Should include auth.ts from findings');
     assert.ok(hotspots.includes('src/db.ts'), 'Should include db.ts from findings');
     assert.ok(hotspots.includes('src/utils.ts'), 'Should include utils.ts from topFiles');
+  });
+
+  it('assemble() emits before_context, on_recall, and after_context events', async () => {
+    const eventBus = new BrokerEventBus();
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+
+    eventBus.on('before_context', (event, data) => {
+      events.push({ event, data });
+    });
+    eventBus.on('on_recall', (event, data) => {
+      events.push({ event, data });
+    });
+    eventBus.on('after_context', (event, data) => {
+      events.push({ event, data });
+    });
+
+    const recallEngine = new RecallEngine({
+      sessionStore: mockSessionStore([]) as any,
+      memoryStore: mockMemoryStore() as any,
+      contextTree: tree,
+    });
+
+    const assembler = new ContextAssembler({
+      contextTree: tree,
+      recallEngine,
+      eventBus,
+    });
+
+    await assembler.assemble({
+      projectDir: tmpDir,
+      task: 'test event emission',
+      command: 'review',
+    });
+
+    // Verify all three events were emitted in order
+    assert.equal(events.length, 3, `Expected 3 events, got ${events.length}`);
+
+    assert.equal(events[0].event, 'before_context');
+    assert.equal(events[0].data.task, 'test event emission');
+    assert.equal(events[0].data.command, 'review');
+    assert.equal(events[0].data.projectDir, tmpDir);
+
+    assert.equal(events[1].event, 'on_recall');
+    assert.ok(typeof events[1].data.budget === 'number', 'budget should be a number');
+    assert.ok(typeof events[1].data.totalTokens === 'number', 'totalTokens should be a number');
+    assert.ok(typeof events[1].data.entryCount === 'number', 'entryCount should be a number');
+
+    assert.equal(events[2].event, 'after_context');
+    assert.ok(typeof events[2].data.treeLeafId === 'string', 'treeLeafId should be a string');
+    assert.ok(['fresh', 'stale', 'expired'].includes(events[2].data.freshness as string));
+    assert.ok(typeof events[2].data.suggestedCommand === 'string');
+  });
+
+  it('assemble() does not fail when eventBus handler throws', async () => {
+    const eventBus = new BrokerEventBus();
+    eventBus.on('before_context', () => {
+      throw new Error('handler exploded');
+    });
+
+    const recallEngine = new RecallEngine({
+      sessionStore: mockSessionStore([]) as any,
+      memoryStore: mockMemoryStore() as any,
+      contextTree: tree,
+    });
+
+    const assembler = new ContextAssembler({
+      contextTree: tree,
+      recallEngine,
+      eventBus,
+    });
+
+    // Should not throw despite the failing handler
+    const packet = await assembler.assemble({
+      projectDir: tmpDir,
+      task: 'test error resilience',
+      command: 'review',
+    });
+
+    assert.ok(packet, 'Should still return a valid packet');
+    assert.equal(packet.task, 'test error resilience');
+  });
+
+  it('assemble() works fine without eventBus (backward compat)', async () => {
+    const recallEngine = new RecallEngine({
+      sessionStore: mockSessionStore([]) as any,
+      memoryStore: mockMemoryStore() as any,
+      contextTree: tree,
+    });
+
+    const assembler = new ContextAssembler({
+      contextTree: tree,
+      recallEngine,
+      // no eventBus
+    });
+
+    const packet = await assembler.assemble({
+      projectDir: tmpDir,
+      task: 'test no event bus',
+      command: 'review',
+    });
+
+    assert.ok(packet, 'Should return a valid packet without eventBus');
+    assert.equal(packet.task, 'test no event bus');
   });
 });
