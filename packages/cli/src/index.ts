@@ -22,6 +22,10 @@ import type { ResumeCommandOptions } from './commands/resume.js';
 import type { ReviewCommandOptions } from './commands/review.js';
 import type { SecurityCommandOptions } from './commands/security.js';
 import type { SyncAgentsOptions } from './commands/sync-agents.js';
+import type {
+  ContextTreeCommandOptions,
+  ContextPacketCommandOptions,
+} from './commands/context.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
@@ -44,6 +48,8 @@ export type {
   DebateCommandOptions,
   SecurityCommandOptions,
   EmbraceCommandOptions,
+  ContextTreeCommandOptions,
+  ContextPacketCommandOptions,
 };
 
 function supportsInteractiveTui(): boolean {
@@ -351,6 +357,33 @@ export async function main(): Promise<void> {
     .action(async (opts: { global?: boolean; json?: boolean }) => {
       const { runHookUninstallCommand } = await import('./commands/hook.js');
       await runHookUninstallCommand(opts);
+    });
+
+  // ── context ──
+  const contextCmd = program.command('context').description('Inspect the context broker tree and packets');
+
+  contextCmd
+    .command('tree')
+    .description('Show recent context tree nodes for a project')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--limit <n>', 'Number of recent nodes to show', '10')
+    .option('--json', 'Output JSON')
+    .action(async (opts: ContextTreeCommandOptions) => {
+      const { runContextTreeCommand } = await import('./commands/context.js');
+      await runContextTreeCommand(opts);
+    });
+
+  contextCmd
+    .command('packet')
+    .description('Assemble and preview a ContextPacket for a project')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--task <text>', 'Task description for context assembly', 'preview context packet')
+    .option('--command <cmd>', 'Command context for assembly', 'mmbridge context packet')
+    .option('--budget <n>', 'Recall token budget')
+    .option('--json', 'Output JSON')
+    .action(async (opts: ContextPacketCommandOptions) => {
+      const { runContextPacketCommand } = await import('./commands/context.js');
+      await runContextPacketCommand(opts);
     });
 
   await program.parseAsync(process.argv);

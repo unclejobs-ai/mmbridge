@@ -38,6 +38,9 @@ importers:
       '@mmbridge/adapters':
         specifier: workspace:*
         version: link:../adapters
+      '@mmbridge/context-broker':
+        specifier: workspace:*
+        version: link:../context-broker
       '@mmbridge/core':
         specifier: workspace:*
         version: link:../core
