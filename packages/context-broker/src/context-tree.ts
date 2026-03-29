@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -8,11 +9,17 @@ function defaultBaseDir(): string {
   return path.join(os.homedir(), '.mmbridge');
 }
 
+/**
+ * Derive a filesystem-safe project key from an absolute directory path.
+ * Uses a short SHA-256 prefix for safety across all platforms.
+ * The readable prefix helps with debugging (first dir component after root).
+ */
 function projectKeyFromDir(projectDir: string): string {
-  return path
-    .resolve(projectDir)
-    .replace(/[\\/]/g, '-')
-    .replace(/^(?!-)/, '-');
+  const resolved = path.resolve(projectDir);
+  const hash = createHash('sha256').update(resolved).digest('hex').slice(0, 12);
+  // Extract a readable hint — last path component (project folder name)
+  const hint = path.basename(resolved).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30) || 'root';
+  return `${hint}-${hash}`;
 }
 
 export class ContextTree {
@@ -49,8 +56,16 @@ export class ContextTree {
     return this.append({ ...node, parentId: fromNodeId });
   }
 
-  async getNode(id: string): Promise<ContextNode | null> {
-    // We need to search across all tree files since we don't know the projectKey
+  /**
+   * Find a node by ID. If projectKey is known, pass it to avoid scanning all files.
+   */
+  async getNode(id: string, projectKey?: string): Promise<ContextNode | null> {
+    // Fast path: if projectKey is known, only scan that file
+    if (projectKey) {
+      const nodes = await this.loadAll(projectKey);
+      return nodes.find((n) => n.id === id) ?? null;
+    }
+    // Slow path: scan all project files
     try {
       const files = await fs.readdir(this.treesDir);
       for (const file of files) {
@@ -66,9 +81,10 @@ export class ContextTree {
     return null;
   }
 
-  async getPath(leafId: string): Promise<ContextNode[]> {
+  async getPath(leafId: string, projectKey?: string): Promise<ContextNode[]> {
     const result: ContextNode[] = [];
-    let current = await this.getNode(leafId);
+    // Use getNode with optional projectKey for first lookup
+    const current = await this.getNode(leafId, projectKey);
     if (!current) return result;
 
     // Load all nodes for this project once for efficient traversal
@@ -88,8 +104,8 @@ export class ContextTree {
     return result;
   }
 
-  async getChildren(nodeId: string): Promise<ContextNode[]> {
-    const parent = await this.getNode(nodeId);
+  async getChildren(nodeId: string, projectKey?: string): Promise<ContextNode[]> {
+    const parent = await this.getNode(nodeId, projectKey);
     if (!parent) return [];
     const allNodes = await this.loadAll(parent.projectKey);
     return allNodes.filter((n) => n.parentId === nodeId);
@@ -117,7 +133,13 @@ export class ContextTree {
   }
 
   async loadAll(projectKey: string): Promise<ContextNode[]> {
+    // Validate projectKey doesn't escape treesDir
     const fp = this.filePath(projectKey);
+    const resolved = path.resolve(fp);
+    if (!resolved.startsWith(path.resolve(this.treesDir))) {
+      return []; // path traversal attempt
+    }
+
     let raw: string;
     try {
       raw = await fs.readFile(fp, 'utf8');
@@ -129,7 +151,11 @@ export class ContextTree {
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
-        nodes.push(JSON.parse(trimmed) as ContextNode);
+        const parsed = JSON.parse(trimmed) as ContextNode;
+        // Basic runtime validation
+        if (parsed.id && parsed.projectKey && typeof parsed.timestamp === 'number') {
+          nodes.push(parsed);
+        }
       } catch {
         // skip malformed lines
       }
@@ -138,7 +164,9 @@ export class ContextTree {
   }
 
   private filePath(projectKey: string): string {
-    return path.join(this.treesDir, `${projectKey}.jsonl`);
+    // Sanitize key to prevent path traversal
+    const safe = projectKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return path.join(this.treesDir, `${safe}.jsonl`);
   }
 }
 

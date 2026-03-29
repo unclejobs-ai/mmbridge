@@ -121,20 +121,17 @@ export class ContextAssembler {
       // git unavailable or not a repo — keep defaults
     }
 
+    // Single baseRef call shared between diff and changed files
     try {
       const baseRef = await getDefaultBaseRef(projectDir);
-      const diff = await getDiff(baseRef, projectDir);
+      const [diff, files] = await Promise.all([
+        getDiff(baseRef, projectDir).catch(() => ''),
+        getChangedFiles(baseRef, projectDir).catch(() => [] as string[]),
+      ]);
       recentDiff = diff.slice(0, DIFF_TRUNCATE);
-    } catch {
-      // diff unavailable
-    }
-
-    try {
-      const baseRef = await getDefaultBaseRef(projectDir);
-      const files = await getChangedFiles(baseRef, projectDir);
       fileHotspots = files.slice(0, 20);
     } catch {
-      // changed files unavailable
+      // git diff/files unavailable
     }
 
     // Augment hotspots from recent sessions if sessionStore is available

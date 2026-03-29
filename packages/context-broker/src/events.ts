@@ -1,7 +1,7 @@
 import type { BrokerEvent, BrokerEventHandler } from './types.js';
 
 export class BrokerEventBus {
-  private listeners: Map<string, Set<Function>> = new Map();
+  private listeners: Map<BrokerEvent, Set<BrokerEventHandler>> = new Map();
 
   on(event: BrokerEvent, handler: BrokerEventHandler): void {
     let set = this.listeners.get(event);
@@ -24,7 +24,7 @@ export class BrokerEventBus {
     if (!set) return;
     for (const handler of set) {
       try {
-        await (handler as BrokerEventHandler)(event, data);
+        await handler(event, data);
       } catch {
         // swallow individual handler errors so other handlers still run
       }
