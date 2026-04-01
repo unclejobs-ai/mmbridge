@@ -29,9 +29,15 @@ export class AgentLoop {
     this.config = config;
     const key = config.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? '';
     const isOAuthToken = key.startsWith('sk-ant-oat') || key.startsWith('eyJ');
-    this.client = isOAuthToken
-      ? new Anthropic({ authToken: key, apiKey: '' })
-      : new Anthropic({ apiKey: key });
+    if (isOAuthToken) {
+      this.client = new Anthropic({
+        authToken: key,
+        apiKey: '',
+        defaultHeaders: { 'anthropic-beta': 'oauth-2025-04-20' },
+      });
+    } else {
+      this.client = new Anthropic({ apiKey: key });
+    }
     this.registry = new ToolRegistry();
     for (const tool of config.tools) {
       this.registry.register(tool);
