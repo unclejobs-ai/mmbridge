@@ -123,23 +123,8 @@ export async function runSetup(): Promise<void> {
         await doOAuth(provider.key);
       }
     } else {
-      // Try OAuth, fallback to API key
-      const method = await selectMenu('Authentication method:', [
-        { key: 'claude-code', label: 'Reuse Claude Code token', description: 'Auto-detect from keychain — fastest' },
-        { key: 'oauth', label: 'OAuth (browser)', description: 'Opens browser, auto-callback' },
-        { key: 'paste', label: 'Paste login URL', description: 'Copy URL from browser — like Hermes' },
-        { key: 'apikey', label: 'API Key', description: 'Paste your API key directly' },
-      ]);
-
-      if (method === 'oauth') {
-        await doOAuth(provider.key);
-      } else if (method === 'claude-code') {
-        await reuseClaudeCode(store);
-      } else if (method === 'paste') {
-        await doPasteAuth(store, provider.key);
-      } else {
-        await doApiKey(store, provider.key);
-      }
+      // OAuth directly — no menu
+      await doOAuth(provider.key);
     }
   } else {
     // API key providers
