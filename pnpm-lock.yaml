@@ -35,6 +35,18 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.52.0
         version: 0.52.0
+      '@mmbridge/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@mmbridge/context-broker':
+        specifier: workspace:*
+        version: link:../context-broker
+      '@mmbridge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mmbridge/session-store':
+        specifier: workspace:*
+        version: link:../session-store
 
   packages/auth: {}
 
@@ -46,6 +58,12 @@ importers:
       '@mmbridge/adapters':
         specifier: workspace:*
         version: link:../adapters
+      '@mmbridge/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@mmbridge/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@mmbridge/context-broker':
         specifier: workspace:*
         version: link:../context-broker

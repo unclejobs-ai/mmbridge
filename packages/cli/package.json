@@ -29,6 +29,8 @@
   },
   "dependencies": {
     "@mmbridge/adapters": "workspace:*",
+    "@mmbridge/agent": "workspace:*",
+    "@mmbridge/auth": "workspace:*",
     "@mmbridge/context-broker": "workspace:*",
     "@mmbridge/core": "workspace:*",
     "@mmbridge/integrations": "workspace:*",

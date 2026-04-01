@@ -13,7 +13,11 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.52.0"
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@mmbridge/core": "workspace:*",
+    "@mmbridge/adapters": "workspace:*",
+    "@mmbridge/session-store": "workspace:*",
+    "@mmbridge/context-broker": "workspace:*"
   },
   "publishConfig": { "access": "public" }
 }

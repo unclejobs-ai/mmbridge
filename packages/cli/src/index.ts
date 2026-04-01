@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 
+import type { ConversationOptions } from './commands/conversation.js';
 import type { ContextPacketCommandOptions, ContextTreeCommandOptions } from './commands/context.js';
 import type { DebateCommandOptions } from './commands/debate.js';
 import type { DiffCommandOptions } from './commands/diff.js';
@@ -28,6 +29,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
 
 export type {
+  ConversationOptions,
   ReviewCommandOptions,
   ResumeCommandOptions,
   FollowupCommandOptions,
@@ -86,8 +88,11 @@ export async function main(): Promise<void> {
     .name('mmbridge')
     .description('Multi-model thinking and review control plane for coding agents')
     .version(pkg.version)
-    .action(async () => {
-      await runTuiOrFallback(program);
+    .option('--model <model>', 'Claude model to use for the conversational REPL')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .action(async (opts: ConversationOptions) => {
+      const { runConversation } = await import('./commands/conversation.js');
+      await runConversation({ model: opts.model, project: opts.project });
     });
 
   // ── review ──
@@ -248,6 +253,59 @@ export async function main(): Promise<void> {
     .action(async (opts: InitCommandOptions) => {
       const { runInitCommand } = await import('./commands/init.js');
       await runInitCommand(opts);
+    });
+
+  // ── login ──
+  program
+    .command('login [provider]')
+    .description('Authenticate with a provider (anthropic, openai, or an API key name)')
+    .action(async (provider?: string) => {
+      const { login } = await import('@mmbridge/auth');
+      await login(provider);
+    });
+
+  // ── logout ──
+  program
+    .command('logout [provider]')
+    .description('Remove stored credentials for a provider (or all providers if omitted)')
+    .action(async (provider?: string) => {
+      const { logout } = await import('@mmbridge/auth');
+      await logout(provider);
+    });
+
+  // ── auth ──
+  const authCmd = program.command('auth').description('Manage mmbridge authentication');
+
+  authCmd
+    .command('status')
+    .description('Show current authentication status for all providers')
+    .action(async () => {
+      const { status } = await import('@mmbridge/auth');
+      await status();
+    });
+
+  authCmd
+    .command('login [provider]')
+    .description('Authenticate with a provider')
+    .action(async (provider?: string) => {
+      const { login } = await import('@mmbridge/auth');
+      await login(provider);
+    });
+
+  authCmd
+    .command('logout [provider]')
+    .description('Remove stored credentials for a provider')
+    .action(async (provider?: string) => {
+      const { logout } = await import('@mmbridge/auth');
+      await logout(provider);
+    });
+
+  authCmd
+    .command('whoami')
+    .description('Show which account is currently authenticated')
+    .action(async () => {
+      const { whoami } = await import('@mmbridge/auth');
+      await whoami();
     });
 
   // ── tui ──
