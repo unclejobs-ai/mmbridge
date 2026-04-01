@@ -1,0 +1,19 @@
+{
+  "name": "@mmbridge/agent",
+  "version": "0.1.0",
+  "description": "Conversational agent loop with Claude tool_use for mmbridge",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" } },
+  "files": ["dist"],
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0"
+  },
+  "publishConfig": { "access": "public" }
+}

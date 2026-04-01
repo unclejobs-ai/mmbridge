@@ -1,0 +1,17 @@
+{
+  "name": "@mmbridge/auth",
+  "version": "0.1.0",
+  "description": "OAuth and API key management for mmbridge",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" } },
+  "files": ["dist"],
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {},
+  "publishConfig": { "access": "public" }
+}
