@@ -60,6 +60,7 @@ export class AgentLoop {
     });
 
     const maxTurns = this.config.maxTurns ?? 30;
+    let retryCount = 0;
 
     while (this.session.turnCount < maxTurns) {
       if (this.abortController.signal.aborted) {
@@ -76,10 +77,12 @@ export class AgentLoop {
         turnResult = result;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        // Auto-retry on rate limit (429)
-        if (message.includes('429') || message.includes('rate_limit')) {
-          yield { type: 'text', text: '\n⏳ Rate limited. Retrying in 10s...\n' };
-          await new Promise((r) => setTimeout(r, 10_000));
+        // Auto-retry on rate limit (429), max 2 retries
+        if ((message.includes('429') || message.includes('rate_limit')) && retryCount < 2) {
+          retryCount++;
+          const wait = retryCount * 15;
+          yield { type: 'text', text: `\n⏳ Rate limited. Retrying in ${wait}s... (${retryCount}/2)\n` };
+          await new Promise((r) => setTimeout(r, wait * 1000));
           continue;
         }
         yield { type: 'error', error: message };
