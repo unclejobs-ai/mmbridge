@@ -73,6 +73,53 @@ function askSecret(question: string): Promise<string> {
   });
 }
 
+function readPastedToken(): Promise<string> {
+  return new Promise((resolve) => {
+    process.stdout.write('Token: ');
+    if (!process.stdin.setRawMode) {
+      // Fallback for non-TTY
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      rl.question('', (answer) => { rl.close(); resolve(answer.trim()); });
+      return;
+    }
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    let buf = '';
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = () => {
+      process.stdin.setRawMode?.(false);
+      process.stdin.removeListener('data', onData);
+      process.stdin.pause();
+      process.stdout.write('\n');
+      // Strip whitespace/newlines, extract token
+      const clean = buf.replace(/[\s\r\n]+/g, '');
+      const match = clean.match(/(sk-ant-[A-Za-z0-9_-]{20,})/);
+      resolve(match?.[1] ?? clean);
+    };
+
+    const onData = (chunk: Buffer) => {
+      const str = chunk.toString();
+      if (str === '\u0003') { // Ctrl+C
+        process.stdin.setRawMode?.(false);
+        process.exit(1);
+      }
+      buf += str;
+      // Reset timer on each chunk — paste sends all chars fast, manual typing is slower
+      if (timer) clearTimeout(timer);
+      // If we see Enter and buffer has a token-like string, finish
+      if ((str === '\r' || str === '\n') && buf.includes('sk-ant-')) {
+        // Wait 100ms more in case paste continues on next line
+        timer = setTimeout(finish, 200);
+      } else {
+        timer = setTimeout(finish, 1000);
+      }
+    };
+
+    process.stdin.on('data', onData);
+  });
+}
+
 function selectMenu(title: string, items: Array<{ key: string; label: string; description: string }>): Promise<string> {
   process.stdout.write(`\n${bold(title)}\n\n`);
   for (let i = 0; i < items.length; i++) {
@@ -217,15 +264,8 @@ async function doClaudeSetupToken(store: AuthStore): Promise<void> {
       child.on('error', reject);
     });
 
-    process.stdout.write(`\n${bold('Paste the OAuth token shown above.')}\n`);
-    process.stdout.write(`${dim('(Paste the full token, then press Enter twice to confirm)')}\n\n`);
-    const lines: string[] = [];
-    while (true) {
-      const line = await ask(lines.length === 0 ? 'Token: ' : '');
-      if (!line && lines.length > 0) break; // empty line = done
-      if (line) lines.push(line);
-    }
-    const token = lines.join('').trim();
+    process.stdout.write(`\n${bold('Paste the OAuth token shown above, then press Enter:')}\n\n`);
+    const token = await readPastedToken();
     if (token) {
       await store.setToken('anthropic', { accessToken: token });
       process.stdout.write(`${green('✓')} OAuth token saved. (${token.length} chars)\n`);
