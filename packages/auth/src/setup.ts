@@ -207,17 +207,7 @@ async function doClaudeSetupToken(store: AuthStore): Promise<void> {
   process.stdout.write(`${dim('A browser window will open. Authorize access, then the token will be saved.')}\n\n`);
 
   try {
-    // Capture stdout to extract the token, pipe stdin/stderr for interactivity
-    const child = spawn('claude', ['setup-token'], {
-      stdio: ['inherit', 'pipe', 'inherit'],
-    });
-
-    let stdout = '';
-    child.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdout += text;
-      process.stdout.write(text); // Still show output to user
-    });
+    const child = spawn('claude', ['setup-token'], { stdio: 'inherit' });
 
     await new Promise<void>((resolve, reject) => {
       child.on('close', (code) => {
@@ -227,27 +217,17 @@ async function doClaudeSetupToken(store: AuthStore): Promise<void> {
       child.on('error', reject);
     });
 
-    // Extract token from stdout — remove line breaks first (terminal wraps long tokens)
-    const cleaned = stdout.replace(/\r?\n/g, '');
-    const tokenMatch = cleaned.match(/(sk-ant-oat01-[A-Za-z0-9_-]{50,})/);
-    if (tokenMatch?.[1]) {
-      await store.setToken('anthropic', { accessToken: tokenMatch[1] });
-      process.stdout.write(`\n${green('✓')} OAuth token saved to mmbridge (separate from Claude Code).\n`);
-      return;
-    }
-
-    // Fallback: ask user to paste
-    process.stdout.write(`\n${yellow('!')} Could not auto-detect token from output.\n`);
-    process.stdout.write('Paste the OAuth token shown above:\n');
-    const token = await askSecret('OAuth token: ');
-    if (token) {
-      await store.setToken('anthropic', { accessToken: token });
+    process.stdout.write(`\n${bold('Paste the OAuth token shown above:')}\n`);
+    const token = await ask('Token: ');
+    if (token?.trim()) {
+      await store.setToken('anthropic', { accessToken: token.trim() });
       process.stdout.write(`${green('✓')} OAuth token saved.\n`);
+    } else {
+      process.stdout.write(`${yellow('!')} No token provided.\n`);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stdout.write(`${yellow('!')} claude setup-token failed: ${msg}\n`);
-    process.stdout.write('Falling back to API key entry.\n');
     await doApiKey(store, 'anthropic');
   }
 }
