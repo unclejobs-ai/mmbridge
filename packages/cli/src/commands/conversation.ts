@@ -43,14 +43,20 @@ async function getClaudeCodeToken(): Promise<string | null> {
     ).trim();
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    // Claude Code stores {anthropicApiKey: "sk-ant-..."} or OAuth tokens
+    // Claude Code stores {claudeAiOauth: {accessToken: "sk-ant-oat01-..."}}
+    const oauth = parsed['claudeAiOauth'] as Record<string, unknown> | undefined;
+    if (oauth && typeof oauth['accessToken'] === 'string') return oauth['accessToken'];
+    // Fallback: check other known key shapes
     if (typeof parsed['anthropicApiKey'] === 'string') return parsed['anthropicApiKey'];
-    if (typeof parsed['oauthAccessToken'] === 'string') return parsed['oauthAccessToken'];
-    // Try to find any string that looks like a token
-    for (const v of Object.values(parsed)) {
-      if (typeof v === 'string' && (v.startsWith('sk-ant-') || v.startsWith('eyJ'))) return v;
-    }
-    return null;
+    // Last resort: scan for token-like strings
+    const scan = (obj: Record<string, unknown>): string | null => {
+      for (const v of Object.values(obj)) {
+        if (typeof v === 'string' && (v.startsWith('sk-ant-') || v.startsWith('eyJ'))) return v;
+        if (v && typeof v === 'object') { const r = scan(v as Record<string, unknown>); if (r) return r; }
+      }
+      return null;
+    };
+    return scan(parsed);
   } catch {
     return null;
   }
