@@ -69,9 +69,13 @@ async function runTuiOrFallback(
   }
 
   const { renderTui } = await import('@mmbridge/tui');
+  const { executeReplCommand } = await import('./commands/repl-router.js');
   await renderTui({
     tab: options?.tab,
     version: program.version(),
+    onReplCommand: async (command: string) => {
+      return await executeReplCommand(command);
+    },
   });
 }
 

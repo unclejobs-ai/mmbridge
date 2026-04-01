@@ -5,6 +5,7 @@ import { TAB_ORDER } from '../store.js';
 import { CHARS, colors } from '../theme.js';
 
 const TAB_LABELS: Record<TabId, string> = {
+  repl: 'REPL',
   dashboard: 'Dashboard',
   sessions: 'Sessions',
   config: 'Config',

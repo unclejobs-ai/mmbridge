@@ -245,3 +245,78 @@ export async function runReviewCommand(options: ReviewCommandOptions): Promise<v
 
   await renderReviewConsole(report);
 }
+
+// ─── Structured variant for REPL (no stdout, returns data) ───────────────────
+
+export interface StructuredReviewResult {
+  tool: string;
+  mode: string;
+  findings: Finding[];
+  summary: string;
+  sessionId: string;
+  durationMs: number;
+}
+
+export async function runReviewCommandStructured(
+  options: ReviewCommandOptions,
+): Promise<StructuredReviewResult> {
+  const projectDir = resolveProjectDir(options.project);
+  const mode = options.mode ?? 'review';
+  const tool = options.tool ?? 'kimi';
+  const bridge = options.bridge as 'none' | 'standard' | 'interpreted' | undefined;
+
+  const { runReviewPipeline, commandExists } = await importCore();
+  const { defaultRegistry, runReviewAdapter } = await importAdapters(projectDir);
+  const { ProjectMemoryStore, RunStore, SessionStore } = await importSessionStore();
+
+  if (tool !== 'all') {
+    const adapter = defaultRegistry.get(tool);
+    if (!adapter) throw new Error(`Unknown tool: ${tool}`);
+    const isInstalled = await commandExists(adapter.binary);
+    if (!isInstalled) throw new Error(`Binary "${adapter.binary}" not found in PATH.`);
+  }
+
+  const sessionStore = new SessionStore();
+  const runStore = new RunStore(sessionStore.baseDir);
+  const memoryStore = new ProjectMemoryStore(sessionStore.baseDir);
+  const recall = await memoryStore.buildRecall(projectDir, { mode, tool });
+
+  const saveSession = (data: Parameters<typeof sessionStore.save>[0]) =>
+    sessionStore.save({
+      ...data,
+      recalledMemoryIds: recall.recalledMemoryIds,
+      contextDigest: data.contextIndex ? formatContextDigest(data.contextIndex) : null,
+    });
+  let lastRun: ReviewRun | null = null;
+  const persistRun = async (run: ReviewRun): Promise<void> => {
+    lastRun = await runStore.save(run);
+  };
+
+  const startedAt = Date.now();
+  const result = await runReviewPipeline({
+    tool,
+    mode,
+    projectDir,
+    baseRef: options.baseRef,
+    commit: options.commit,
+    bridge,
+    recallPromptContext: recall.promptContext,
+    recallSummary: recall.summary,
+    runAdapter: runReviewAdapter,
+    listInstalledTools: () => defaultRegistry.listInstalled(),
+    saveSession,
+    persistRun,
+    onContextReady: () => {},
+  });
+
+  await memoryStore.createOrUpdateHandoff(projectDir, result.sessionId, recall.recalledMemoryIds);
+
+  return {
+    tool: result.toolResults?.length ? 'bridge' : tool,
+    mode,
+    findings: result.findings,
+    summary: result.summary,
+    sessionId: result.sessionId,
+    durationMs: Date.now() - startedAt,
+  };
+}

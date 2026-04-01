@@ -17,6 +17,13 @@ interface StatusBarProps {
 }
 
 const TAB_HINTS: Record<TabId, Array<[string, string]>> = {
+  repl: [
+    ['↵', 'Run'],
+    ['↑↓', 'History'],
+    ['Tab', 'Complete'],
+    ['ESC', 'Dashboard'],
+    ['q', 'Quit'],
+  ],
   dashboard: [
     ['j/k', 'Menu'],
     ['↵', 'Open'],

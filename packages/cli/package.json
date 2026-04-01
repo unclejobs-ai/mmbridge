@@ -12,6 +12,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./repl-router": {
+      "import": "./dist/commands/repl-router.js",
+      "types": "./dist/commands/repl-router.d.ts"
     }
   },
   "files": ["dist"],

@@ -5,9 +5,9 @@ import type { GroupedFindings } from './hooks/session-analytics.js';
 
 // ─── State shape ──────────────────────────────────────────────────────────────
 
-export type TabId = 'dashboard' | 'sessions' | 'config';
+export type TabId = 'repl' | 'dashboard' | 'sessions' | 'config';
 
-export const TAB_ORDER: TabId[] = ['dashboard', 'sessions', 'config'];
+export const TAB_ORDER: TabId[] = ['repl', 'dashboard', 'sessions', 'config'];
 
 export const REVIEW_MODES = ['review', 'security', 'architecture'] as const;
 export type ReviewMode = (typeof REVIEW_MODES)[number];

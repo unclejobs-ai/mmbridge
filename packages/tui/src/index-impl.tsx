@@ -1,6 +1,7 @@
 import { render } from 'ink';
 import React from 'react';
 import { App } from './App.js';
+import type { ReplCommandResult } from './App.js';
 import type { TabId } from './store.js';
 import { countBySeverity } from './utils/format.js';
 
@@ -13,7 +14,11 @@ export type {
 
 // ─── TUI entry point ──────────────────────────────────────────────────────────
 
-export async function renderTui(options?: { tab?: TabId; version?: string }): Promise<void> {
+export async function renderTui(options?: {
+  tab?: TabId;
+  version?: string;
+  onReplCommand?: (command: string) => Promise<ReplCommandResult>;
+}): Promise<void> {
   const isTTY = process.stdout.isTTY;
 
   if (isTTY) {
@@ -22,7 +27,9 @@ export async function renderTui(options?: { tab?: TabId; version?: string }): Pr
   }
 
   try {
-    const instance = render(<App initialTab={options?.tab} version={options?.version} />);
+    const instance = render(
+      <App initialTab={options?.tab} version={options?.version} onReplCommand={options?.onReplCommand} />,
+    );
     await instance.waitUntilExit();
   } finally {
     if (isTTY) {

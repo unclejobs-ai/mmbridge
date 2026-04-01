@@ -1,6 +1,6 @@
 import { Box, useApp, useInput } from 'ink';
 import type React from 'react';
-import { useReducer } from 'react';
+import { useCallback, useReducer } from 'react';
 import { Header } from './components/Header.js';
 import { HelpOverlay } from './components/HelpOverlay.js';
 import { StatusBar } from './components/StatusBar.js';
@@ -9,33 +9,58 @@ import { TuiContext, initialState, tuiReducer } from './store.js';
 import type { TabId } from './store.js';
 import { ConfigView } from './views/ConfigView.js';
 import { DashboardView } from './views/DashboardView.js';
+import { ReplView } from './views/ReplView.js';
 import { SessionsView } from './views/SessionsView.js';
 
 const KEY_TO_TAB: Record<string, TabId> = {
-  '1': 'dashboard',
+  '1': 'repl',
+  '2': 'dashboard',
   d: 'dashboard',
-  '2': 'sessions',
+  '3': 'sessions',
   s: 'sessions',
-  '3': 'config',
+  '4': 'config',
   c: 'config',
 };
+
+export type ReplCommandResult =
+  | { type: 'success'; message: string }
+  | { type: 'findings'; tool: string; findings: Array<{ severity: string; file: string; line: number | null; message: string }>; duration: number }
+  | { type: 'text'; content: string }
+  | { type: 'error'; message: string }
+  | { type: 'status'; data: Record<string, string> };
 
 interface AppProps {
   initialTab?: TabId;
   version?: string;
+  onReplCommand?: (command: string) => Promise<ReplCommandResult>;
 }
 
-export function App({ initialTab, version }: AppProps): React.ReactElement {
+export function App({ initialTab, version, onReplCommand }: AppProps): React.ReactElement {
   const [state, dispatch] = useReducer(tuiReducer, {
     ...initialState,
-    ...(initialTab ? { activeTab: initialTab } : {}),
+    activeTab: initialTab ?? 'repl',
   });
   const { exit } = useApp();
   const { refresh } = useLoadData(dispatch);
 
+  const handleReplCommand = useCallback(async (command: string) => {
+    if (onReplCommand) {
+      return await onReplCommand(command);
+    }
+    return { type: 'error' as const, message: 'No command handler configured' };
+  }, [onReplCommand]);
+
   useInput((input, key) => {
     if (state.helpVisible) {
       if (input === '?' || key.escape) dispatch({ type: 'TOGGLE_HELP' });
+      return;
+    }
+
+    // REPL tab: only allow ESC to switch away (number keys conflict with typing)
+    if (state.activeTab === 'repl') {
+      if (key.escape) {
+        dispatch({ type: 'SWITCH_TAB', tab: 'dashboard' });
+      }
       return;
     }
 
@@ -89,6 +114,7 @@ export function App({ initialTab, version }: AppProps): React.ReactElement {
       <Box flexDirection="column" width="100%" height="100%">
         <Header activeTab={state.activeTab} branch={branch} dirtyCount={dirtyCount} version={version} />
         <Box flexGrow={1}>
+          {state.activeTab === 'repl' && <ReplView version={version} onCommand={handleReplCommand} />}
           {state.activeTab === 'dashboard' && <DashboardView />}
           {state.activeTab === 'sessions' && <SessionsView />}
           {state.activeTab === 'config' && <ConfigView />}
