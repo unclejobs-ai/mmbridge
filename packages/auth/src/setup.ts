@@ -217,11 +217,18 @@ async function doClaudeSetupToken(store: AuthStore): Promise<void> {
       child.on('error', reject);
     });
 
-    process.stdout.write(`\n${bold('Paste the OAuth token shown above:')}\n`);
-    const token = await ask('Token: ');
-    if (token?.trim()) {
-      await store.setToken('anthropic', { accessToken: token.trim() });
-      process.stdout.write(`${green('✓')} OAuth token saved.\n`);
+    process.stdout.write(`\n${bold('Paste the OAuth token shown above.')}\n`);
+    process.stdout.write(`${dim('(Paste the full token, then press Enter twice to confirm)')}\n\n`);
+    const lines: string[] = [];
+    while (true) {
+      const line = await ask(lines.length === 0 ? 'Token: ' : '');
+      if (!line && lines.length > 0) break; // empty line = done
+      if (line) lines.push(line);
+    }
+    const token = lines.join('').trim();
+    if (token) {
+      await store.setToken('anthropic', { accessToken: token });
+      process.stdout.write(`${green('✓')} OAuth token saved. (${token.length} chars)\n`);
     } else {
       process.stdout.write(`${yellow('!')} No token provided.\n`);
     }
