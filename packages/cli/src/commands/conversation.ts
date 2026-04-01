@@ -42,7 +42,23 @@ export async function runConversation(options: ConversationOptions): Promise<voi
   const token = providerToken ?? apiKeyEntry?.key ?? process.env['ANTHROPIC_API_KEY'];
 
   if (!token) {
-    process.stderr.write('[mmbridge] Not authenticated. Run `mmbridge login` first.\n');
+    // Try inline key entry before giving up
+    if (process.stdin.isTTY) {
+      process.stderr.write('[mmbridge] No Anthropic API key found.\n');
+      process.stderr.write('Enter your API key (or run `mmbridge login` later):\n');
+      const readline = await import('node:readline');
+      const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+      const key = await new Promise<string>((resolve) => {
+        rl.question('API Key: ', (answer) => { rl.close(); resolve(answer.trim()); });
+      });
+      if (!key) {
+        process.stderr.write('[mmbridge] No key provided. Exiting.\n');
+        process.exit(1);
+      }
+      await authStore.setApiKey('anthropic', key);
+      return runConversation(options); // Retry with saved key
+    }
+    process.stderr.write('[mmbridge] Not authenticated. Set ANTHROPIC_API_KEY or run `mmbridge login`.\n');
     process.exit(1);
   }
 
