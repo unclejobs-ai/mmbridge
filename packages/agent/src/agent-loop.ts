@@ -76,6 +76,12 @@ export class AgentLoop {
         turnResult = result;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        // Auto-retry on rate limit (429)
+        if (message.includes('429') || message.includes('rate_limit')) {
+          yield { type: 'text', text: '\n⏳ Rate limited. Retrying in 10s...\n' };
+          await new Promise((r) => setTimeout(r, 10_000));
+          continue;
+        }
         yield { type: 'error', error: message };
         this.config.onError?.(err instanceof Error ? err : new Error(message));
         return;

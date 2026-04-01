@@ -126,14 +126,17 @@ export async function runSetup(): Promise<void> {
       // Try OAuth, fallback to API key
       const method = await selectMenu('Authentication method:', [
         { key: 'claude-code', label: 'Reuse Claude Code token', description: 'Auto-detect from keychain — fastest' },
-        { key: 'oauth', label: 'OAuth (browser)', description: 'Opens browser for Anthropic login' },
-        { key: 'apikey', label: 'API Key', description: 'Paste your API key manually' },
+        { key: 'oauth', label: 'OAuth (browser)', description: 'Opens browser, auto-callback' },
+        { key: 'paste', label: 'Paste login URL', description: 'Copy URL from browser — like Hermes' },
+        { key: 'apikey', label: 'API Key', description: 'Paste your API key directly' },
       ]);
 
       if (method === 'oauth') {
         await doOAuth(provider.key);
       } else if (method === 'claude-code') {
         await reuseClaudeCode(store);
+      } else if (method === 'paste') {
+        await doPasteAuth(store, provider.key);
       } else {
         await doApiKey(store, provider.key);
       }
@@ -198,6 +201,29 @@ async function doApiKey(store: AuthStore, provider: string): Promise<void> {
   }
   await store.setApiKey(provider, key);
   process.stdout.write(`${green('✓')} API key for ${provider} saved.\n`);
+}
+
+async function doPasteAuth(store: AuthStore, provider: string): Promise<void> {
+  process.stdout.write(`\n${bold('Paste authentication')}\n\n`);
+  process.stdout.write(`Open this URL in your browser:\n\n`);
+  process.stdout.write(`  ${cyan('https://console.anthropic.com/settings/keys')}\n\n`);
+  process.stdout.write(`Create a new API key and paste it below.\n`);
+  process.stdout.write(`${dim('(Or paste an OAuth token if you have one)')}\n\n`);
+
+  const token = await askSecret('Paste key or token: ');
+  if (!token) {
+    process.stdout.write(`${yellow('!')} Skipped.\n`);
+    return;
+  }
+
+  const isOAuth = token.startsWith('sk-ant-oat') || token.startsWith('eyJ');
+  if (isOAuth) {
+    await store.setToken(provider, { accessToken: token });
+    process.stdout.write(`${green('✓')} OAuth token saved.\n`);
+  } else {
+    await store.setApiKey(provider, token);
+    process.stdout.write(`${green('✓')} API key saved.\n`);
+  }
 }
 
 async function reuseClaudeCode(store: AuthStore): Promise<void> {
