@@ -35,24 +35,26 @@ async function exchangeCodeForTokens(
   code: string,
   codeVerifier: string,
   redirectUri: string,
+  state: string,
 ): Promise<ProviderTokens> {
   const tokenUrl = PROVIDER_TOKEN_URLS[provider];
   if (!tokenUrl) {
     throw new Error(`Unknown provider: ${provider}`);
   }
 
-  const body = new URLSearchParams({
+  const body = {
     grant_type: 'authorization_code',
     code,
     redirect_uri: redirectUri,
     client_id: getClientId(provider),
     code_verifier: codeVerifier,
-  });
+    state,
+  };
 
   const response = await fetch(tokenUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -108,7 +110,7 @@ export async function startOAuthFlow(
 
   try {
     const { code } = await waitForCallback(port, state);
-    const tokens = await exchangeCodeForTokens(provider, code, codeVerifier, redirectUri);
+    const tokens = await exchangeCodeForTokens(provider, code, codeVerifier, redirectUri, state);
     await new AuthStore().setToken(provider, tokens);
     return { success: true, message: `Logged in to ${provider} successfully` };
   } catch (err) {
@@ -128,16 +130,16 @@ export async function refreshToken(
     throw new Error(`Cannot refresh token for provider: ${provider}`);
   }
 
-  const body = new URLSearchParams({
+  const body = {
     grant_type: 'refresh_token',
     refresh_token: storedRefreshToken,
     client_id: getClientId(provider),
-  });
+  };
 
   const response = await fetch(tokenUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
