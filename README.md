@@ -162,11 +162,14 @@ See [packages/create-adapter](./packages/create-adapter) for the template.
 | `@mmbridge/cli` | CLI entry point and commands |
 | `@mmbridge/core` | Context creation, finding pipeline, and orchestration logic |
 | `@mmbridge/adapters` | Built-in AI tool adapters and registry |
+| `@mmbridge/agent` | Conversational agent loop with Claude tool_use for mmbridge |
+| `@mmbridge/auth` | OAuth and API key management for mmbridge |
 | `@mmbridge/session-store` | Local session persistence and memory storage |
 | `@mmbridge/integrations` | Claude Code integration and agent sync utilities |
 | `@mmbridge/tui` | Terminal UI rendering for the control plane |
 | `@mmbridge/context-broker` | Context tree, recall engine, assembler, compaction, and event hooks |
 | `@mmbridge/mcp` | MCP server exposing mmbridge control-plane tools |
+| `@mmbridge/skills` | File-based skill and plugin loader for mmbridge |
 | `@mmbridge/create-adapter` | Scaffold new adapters from the template |
 
 ## Requirements

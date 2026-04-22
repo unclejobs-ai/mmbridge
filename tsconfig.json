@@ -9,6 +9,9 @@
     { "path": "packages/cli" },
     { "path": "packages/create-adapter" },
     { "path": "packages/mcp" },
-    { "path": "packages/context-broker" }
+    { "path": "packages/context-broker" },
+    { "path": "packages/agent" },
+    { "path": "packages/auth" },
+    { "path": "packages/skills" }
   ]
 }

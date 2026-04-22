@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
@@ -21,3 +23,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: node packages/cli/dist/bin/mmbridge.js doctor --json
+      - run: node packages/cli/dist/bin/mmbridge.js context tree --json -p .
+      - run: node packages/cli/dist/bin/mmbridge.js context packet --task "workflow smoke" --json -p .
+      - run: node packages/cli/dist/bin/mmbridge.js gate --format json --base-ref HEAD~1 -p .
