@@ -9,6 +9,8 @@
   "references": [
     { "path": "../core" },
     { "path": "../adapters" },
+    { "path": "../agent" },
+    { "path": "../auth" },
     { "path": "../session-store" },
     { "path": "../context-broker" },
     { "path": "../integrations" },
