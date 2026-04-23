@@ -155,6 +155,39 @@ npx @mmbridge/create-adapter my-adapter
 
 See [packages/create-adapter](./packages/create-adapter) for the template.
 
+## MCP host integration
+
+If you want another coding shell or agent host to call mmbridge as tools instead of shelling out to the CLI, use `@mmbridge/mcp` / `mmbridge-mcp`.
+
+Example project MCP config:
+
+```json
+{
+  "mcpServers": {
+    "mmbridge": {
+      "type": "stdio",
+      "command": "mmbridge-mcp"
+    }
+  }
+}
+```
+
+Hosts that need a local repo build can also launch the built entrypoint directly:
+
+```json
+{
+  "mcpServers": {
+    "mmbridge": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/mmbridge/packages/mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+The MCP surface is the recommended integration path for agent hosts because it exposes structured tools such as review, research, security, debate, context packet, gate, handoff, and doctor without requiring fragile shell parsing.
+
 ## Packages
 
 | Package | Description |

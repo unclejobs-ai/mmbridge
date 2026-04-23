@@ -1,14 +1,24 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { defaultRegistry, runFollowupAdapter, runReviewAdapter } from '@mmbridge/adapters';
 import { ContextAssembler, ContextTree, RecallEngine } from '@mmbridge/context-broker';
 import {
+  commandExists,
+  evaluateGate,
+  getChangedFiles,
+  getDefaultBaseRef,
+  getDiff,
   interpretFindings,
+  runCommand,
   runDebatePipeline,
   runResearchPipeline,
   runReviewPipeline,
   runSecurityPipeline,
+  shortDigest,
 } from '@mmbridge/core';
 import type { Finding } from '@mmbridge/core';
-import { ProjectMemoryStore, SessionStore } from '@mmbridge/session-store';
+import { ProjectMemoryStore, RunStore, SessionStore } from '@mmbridge/session-store';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
@@ -18,7 +28,7 @@ const contextTree = new ContextTree();
 const recallEngine = new RecallEngine({ sessionStore: store, memoryStore, contextTree });
 const contextAssembler = new ContextAssembler({ contextTree, recallEngine, sessionStore: store });
 
-const TOOL_DEFINITIONS = [
+export const TOOL_DEFINITIONS = [
   {
     name: 'mmbridge_review',
     description:
@@ -47,6 +57,10 @@ const TOOL_DEFINITIONS = [
           type: 'string',
           description: 'Git base ref for diff (default: auto-detected)',
         },
+        projectDir: {
+          type: 'string',
+          description: 'Project directory (default: cwd)',
+        },
       },
       required: ['tool'],
     },
@@ -60,6 +74,7 @@ const TOOL_DEFINITIONS = [
         tool: { type: 'string', description: 'AI tool that ran the original review' },
         sessionId: { type: 'string', description: 'External session ID from the original review' },
         prompt: { type: 'string', description: 'Follow-up question or analysis request' },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
       },
       required: ['tool', 'sessionId', 'prompt'],
     },
@@ -89,6 +104,7 @@ const TOOL_DEFINITIONS = [
           items: { type: 'string' },
           description: 'List of changed file paths for context',
         },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
       },
       required: ['findings', 'changedFiles'],
     },
@@ -107,6 +123,7 @@ const TOOL_DEFINITIONS = [
           enum: ['CRITICAL', 'WARNING', 'INFO', 'REFACTOR'],
           description: 'Filter by severity',
         },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
       },
     },
   },
@@ -125,6 +142,7 @@ const TOOL_DEFINITIONS = [
         },
         tool: { type: 'string', description: 'Filter by tool name' },
         limit: { type: 'number', default: 20, description: 'Max results to return' },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
       },
     },
   },
@@ -137,6 +155,7 @@ const TOOL_DEFINITIONS = [
         topic: { type: 'string', description: 'Research topic or question' },
         type: { type: 'string', enum: ['code-aware', 'open'], default: 'open', description: 'Research type' },
         tools: { type: 'string', description: 'Comma-separated tool names (default: all)' },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
       },
       required: ['topic'],
     },
@@ -150,6 +169,7 @@ const TOOL_DEFINITIONS = [
         proposition: { type: 'string', description: 'Proposition to debate' },
         rounds: { type: 'number', default: 3, description: 'Number of debate rounds' },
         teams: { type: 'string', description: 'Team spec "for_tools:against_tools"' },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
       },
       required: ['proposition'],
     },
@@ -164,6 +184,7 @@ const TOOL_DEFINITIONS = [
         tools: { type: 'string', description: 'Comma-separated tool names' },
         compliance: { type: 'string', description: 'Comma-separated compliance frameworks' },
         bridge: { type: 'string', enum: ['none', 'standard', 'interpreted'], default: 'standard' },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
       },
     },
   },
@@ -177,8 +198,42 @@ const TOOL_DEFINITIONS = [
         resumeId: { type: 'string', description: 'ID of paused embrace run to resume' },
         resolveCheckpoint: { type: 'string', description: 'Response to resolve a checkpoint' },
         skipPhases: { type: 'string', description: 'Comma-separated phases to skip' },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
       },
       required: ['task'],
+    },
+  },
+  {
+    name: 'mmbridge_gate',
+    description: 'Evaluate review freshness and unresolved critical findings for a project diff.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
+        baseRef: { type: 'string', description: 'Git base ref for diff' },
+        mode: { type: 'string', enum: ['review', 'security', 'architecture'], default: 'review' },
+      },
+    },
+  },
+  {
+    name: 'mmbridge_handoff',
+    description: 'Fetch the latest handoff artifact or a handoff for a specific session.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
+        session: { type: 'string', description: 'Session ID to fetch handoff for' },
+      },
+    },
+  },
+  {
+    name: 'mmbridge_doctor',
+    description: 'Inspect mmbridge tooling, adapter availability, and local runtime hints.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
+      },
     },
   },
   {
@@ -205,6 +260,73 @@ function textContent(text: string, isError = false) {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function resolveProjectDirArg(args: Record<string, unknown>): string {
+  const projectDir = args.projectDir;
+  return typeof projectDir === 'string' && projectDir.trim().length > 0 ? projectDir : process.cwd();
+}
+
+function toGateSession(
+  session:
+    | {
+        id: string;
+        tool: string;
+        mode: string;
+        externalSessionId?: string | null;
+        followupSupported?: boolean;
+        findings?: Finding[];
+        findingDecisions?: Array<{ key: string; status: 'accepted' | 'dismissed' }>;
+      }
+    | null,
+) {
+  if (!session) return null;
+  return {
+    id: session.id,
+    tool: session.tool,
+    mode: session.mode,
+    externalSessionId: session.externalSessionId ?? null,
+    followupSupported: session.followupSupported ?? false,
+    findings: session.findings ?? [],
+    findingDecisions: session.findingDecisions ?? [],
+  };
+}
+
+async function buildDoctorReport(projectDir: string) {
+  const adapterBinaries = defaultRegistry.values().map((adapter) => adapter.binary);
+  const binaries = Array.from(new Set([...adapterBinaries, 'claude']));
+  const checks = await Promise.all(
+    binaries.map(async (binary) => ({
+      binary,
+      installed: await commandExists(binary).catch(() => false),
+    })),
+  );
+
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
+  const mmbridgeHome = path.join(home, '.mmbridge');
+  const claudeAgentsDir = path.join(home, '.claude', 'agents');
+  const runtimeAuthModel = process.env.MMBRIDGE_AUTH_MODEL ?? 'claude-sonnet-4-5';
+
+  const sessionFileHints: Record<string, string> = {};
+  for (const tool of defaultRegistry.list()) {
+    const hint = path.join(mmbridgeHome, 'sessions', `${tool}.jsonl`);
+    try {
+      await fs.access(hint);
+      sessionFileHints[tool] = hint;
+    } catch {
+      sessionFileHints[tool] = `${hint} (not found)`;
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    projectDir,
+    checks,
+    mmbridgeHome,
+    claudeAgentsDir,
+    runtimeAuthModel,
+    sessionFileHints,
+  };
 }
 
 export function registerToolHandlers(server: Server): void {
@@ -235,6 +357,12 @@ export function registerToolHandlers(server: Server): void {
         return handleSecurity(safeArgs, server);
       case 'mmbridge_embrace':
         return handleEmbrace(safeArgs, server);
+      case 'mmbridge_gate':
+        return handleGate(safeArgs);
+      case 'mmbridge_handoff':
+        return handleHandoff(safeArgs);
+      case 'mmbridge_doctor':
+        return handleDoctor(safeArgs);
       case 'mmbridge_context_packet':
         return handleContextPacket(safeArgs);
       default:
@@ -248,7 +376,7 @@ async function handleReview(args: Record<string, unknown>, server: Server) {
   const mode = String(args.mode ?? 'review');
   const bridge = args.bridge === undefined ? undefined : (String(args.bridge) as 'none' | 'standard' | 'interpreted');
   const baseRef = args.baseRef as string | undefined;
-  const projectDir = process.cwd();
+  const projectDir = resolveProjectDirArg(args);
 
   try {
     const result = await runReviewPipeline({
@@ -278,7 +406,7 @@ async function handleFollowup(args: Record<string, unknown>) {
 
   try {
     const result = await runFollowupAdapter(tool, {
-      workspace: process.cwd(),
+      workspace: resolveProjectDirArg(args),
       sessionId,
       prompt,
     });
@@ -307,7 +435,7 @@ async function handleInterpret(args: Record<string, unknown>) {
       mergedFindings: findings,
       changedFiles,
       projectContext: '',
-      workspace: process.cwd(),
+      workspace: resolveProjectDirArg(args),
     });
     return textContent(JSON.stringify(result, null, 2));
   } catch (err) {
@@ -316,11 +444,12 @@ async function handleInterpret(args: Record<string, unknown>) {
 }
 
 async function handleSessions(args: Record<string, unknown>) {
+  const projectDir = resolveProjectDirArg(args);
   const tool = args.tool as string | undefined;
   const limit = typeof args.limit === 'number' ? args.limit : 10;
   const query = args.query as string | undefined;
   const severity = args.severity as string | undefined;
-  const sessions = await store.list({ tool, query, severity, limit });
+  const sessions = await store.list({ projectDir, tool, query, severity, limit });
 
   const result = sessions.slice(0, limit).map((s) => ({
     id: s.id,
@@ -337,6 +466,7 @@ async function handleSessions(args: Record<string, unknown>) {
 }
 
 async function handleSearch(args: Record<string, unknown>) {
+  const projectDir = resolveProjectDirArg(args);
   const query = args.query as string | undefined;
   const file = args.file as string | undefined;
   const severity = args.severity as string | undefined;
@@ -347,7 +477,7 @@ async function handleSearch(args: Record<string, unknown>) {
     return textContent('At least one filter (query, file, severity, or tool) is required.', true);
   }
 
-  const sessions = await store.list({ tool, query, file, severity });
+  const sessions = await store.list({ projectDir, tool, query, file, severity, limit });
 
   interface SearchResult {
     sessionId: string;
@@ -394,7 +524,7 @@ async function handleResearch(args: Record<string, unknown>, server: Server) {
   const type = String(args.type ?? 'open') as 'code-aware' | 'open';
   const toolsStr = args.tools as string | undefined;
   const tools = toolsStr ? toolsStr.split(',').map((t) => t.trim()) : await defaultRegistry.listInstalled();
-  const projectDir = process.cwd();
+  const projectDir = resolveProjectDirArg(args);
 
   try {
     const result = await runResearchPipeline({
@@ -420,7 +550,7 @@ async function handleDebate(args: Record<string, unknown>, server: Server) {
   const rounds = typeof args.rounds === 'number' ? args.rounds : 3;
   const teamsStr = args.teams as string | undefined;
   const tools = await defaultRegistry.listInstalled();
-  const projectDir = process.cwd();
+  const projectDir = resolveProjectDirArg(args);
 
   let teams: { for: string[]; against: string[] } | undefined;
   if (teamsStr) {
@@ -458,7 +588,7 @@ async function handleSecurity(args: Record<string, unknown>, server: Server) {
   const complianceStr = args.compliance as string | undefined;
   const compliance = complianceStr ? complianceStr.split(',').map((c) => c.trim()) : undefined;
   const bridge = args.bridge === undefined ? undefined : (String(args.bridge) as 'none' | 'standard' | 'interpreted');
-  const projectDir = process.cwd();
+  const projectDir = resolveProjectDirArg(args);
 
   try {
     const result = await runSecurityPipeline({
@@ -483,7 +613,7 @@ async function handleSecurity(args: Record<string, unknown>, server: Server) {
 async function handleContextPacket(args: Record<string, unknown>) {
   const task = String(args.task);
   const command = String(args.command ?? 'mmbridge review');
-  const projectDir = (args.projectDir as string | undefined) ?? process.cwd();
+  const projectDir = resolveProjectDirArg(args);
   const parentNodeId = args.parentNodeId as string | undefined;
   const recallBudget = typeof args.recallBudget === 'number' ? args.recallBudget : undefined;
 
@@ -507,7 +637,7 @@ async function handleEmbrace(args: Record<string, unknown>, server: Server) {
   const resolveCheckpoint = args.resolveCheckpoint as string | undefined;
   const skipPhasesStr = args.skipPhases as string | undefined;
   const skipPhases = skipPhasesStr ? skipPhasesStr.split(',').map((p) => p.trim()) : undefined;
-  const projectDir = process.cwd();
+  const projectDir = resolveProjectDirArg(args);
   const tools = await defaultRegistry.listInstalled();
 
   try {
@@ -530,5 +660,99 @@ async function handleEmbrace(args: Record<string, unknown>, server: Server) {
     return textContent(JSON.stringify(result.report, null, 2));
   } catch (err) {
     return textContent(`Embrace failed: ${errorMessage(err)}`, true);
+  }
+}
+
+async function handleGate(args: Record<string, unknown>) {
+  const projectDir = resolveProjectDirArg(args);
+  const mode = String(args.mode ?? 'review');
+  let baseRef = (args.baseRef as string | undefined) ?? null;
+  let diffDigest: string | null = null;
+  let changedFilesCount = 0;
+
+  const gitRoot = await runCommand('git', ['rev-parse', '--is-inside-work-tree'], { cwd: projectDir }).catch(() => null);
+  if (gitRoot?.ok && gitRoot.stdout.trim() === 'true') {
+    baseRef = baseRef ?? (await getDefaultBaseRef(projectDir));
+    const [diffText, changedFiles] = await Promise.all([
+      getDiff(baseRef, projectDir),
+      getChangedFiles(baseRef, projectDir),
+    ]);
+    diffDigest = shortDigest(diffText);
+    changedFilesCount = changedFiles.length;
+  }
+
+  const runStore = new RunStore(store.baseDir);
+  const [latestRun, latestSessions, latestHandoff] = await Promise.all([
+    runStore.getLatest({ projectDir, mode }),
+    store.list({ projectDir, mode, limit: 1 }),
+    memoryStore.getLatestHandoff(projectDir).catch(() => null),
+  ]);
+
+  const handoffDocument =
+    latestSessions[0]?.id != null
+      ? await memoryStore.getHandoffBySession(projectDir, latestSessions[0].id).catch(() => null)
+      : null;
+
+  const result = evaluateGate({
+    current: {
+      projectDir,
+      mode,
+      baseRef,
+      diffDigest,
+      changedFilesCount,
+      explicitMode: typeof args.mode === 'string',
+    },
+    latestRun,
+    latestSession: toGateSession(latestSessions[0] ?? null),
+    latestHandoff: handoffDocument
+      ? {
+          artifact: {
+            sessionId: handoffDocument.artifact.sessionId,
+            nextCommand: handoffDocument.artifact.nextCommand,
+            openBlockers: handoffDocument.artifact.openBlockers,
+          },
+          recommendedNextCommand: handoffDocument.recommendedNextCommand,
+        }
+      : latestHandoff
+        ? {
+            artifact: {
+              sessionId: latestHandoff.sessionId,
+              nextCommand: latestHandoff.nextCommand,
+              openBlockers: latestHandoff.openBlockers,
+            },
+            recommendedNextCommand: latestHandoff.nextCommand,
+          }
+        : null,
+  });
+
+  return textContent(JSON.stringify(result, null, 2));
+}
+
+async function handleHandoff(args: Record<string, unknown>) {
+  const projectDir = resolveProjectDirArg(args);
+  const sessionId = args.session as string | undefined;
+
+  let document = null;
+  if (sessionId) {
+    document = await memoryStore.getHandoffBySession(projectDir, sessionId).catch(() => null);
+  } else {
+    const latest = await memoryStore.getLatestHandoff(projectDir).catch(() => null);
+    document = latest ? await memoryStore.getHandoffBySession(projectDir, latest.sessionId).catch(() => null) : null;
+  }
+
+  if (!document) {
+    return textContent('No handoff found for this project.', true);
+  }
+
+  return textContent(JSON.stringify(document, null, 2));
+}
+
+async function handleDoctor(args: Record<string, unknown>) {
+  const projectDir = resolveProjectDirArg(args);
+  try {
+    const report = await buildDoctorReport(projectDir);
+    return textContent(JSON.stringify(report, null, 2));
+  } catch (err) {
+    return textContent(`Doctor failed: ${errorMessage(err)}`, true);
   }
 }
