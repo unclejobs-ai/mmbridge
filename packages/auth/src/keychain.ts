@@ -1,9 +1,9 @@
 import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
-import { readFile, writeFile, chmod, mkdir } from 'node:fs/promises';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
 const SERVICE_NAME = 'com.mmbridge.auth';
@@ -19,17 +19,14 @@ function deriveKey(password: string): Buffer {
 }
 
 function getMachineId(): string {
-  return process.env['MMBRIDGE_MACHINE_ID'] ?? process.env['USER'] ?? 'mmbridge';
+  return process.env.MMBRIDGE_MACHINE_ID ?? process.env.USER ?? 'mmbridge';
 }
 
 function encrypt(plaintext: string): string {
   const key = deriveKey(getMachineId());
   const iv = randomBytes(IV_LEN);
   const cipher = createCipheriv(ALGORITHM, key, iv);
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, 'utf-8'),
-    cipher.final(),
-  ]);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf-8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return Buffer.concat([iv, tag, encrypted]).toString('base64');
 }
@@ -111,11 +108,7 @@ export class KeychainStorage {
     await this.fallbackRemove(service, account);
   }
 
-  private async macosStore(
-    service: string,
-    account: string,
-    password: string,
-  ): Promise<void> {
+  private async macosStore(service: string, account: string, password: string): Promise<void> {
     // Delete first to avoid duplicate errors
     try {
       await execAsync(
@@ -141,25 +134,16 @@ export class KeychainStorage {
   }
 
   private async macosRemove(service: string, account: string): Promise<void> {
-    await execAsync(
-      `security delete-generic-password -s ${shellEscape(service)} -a ${shellEscape(account)}`,
-    );
+    await execAsync(`security delete-generic-password -s ${shellEscape(service)} -a ${shellEscape(account)}`);
   }
 
-  private async fallbackStore(
-    service: string,
-    account: string,
-    password: string,
-  ): Promise<void> {
+  private async fallbackStore(service: string, account: string, password: string): Promise<void> {
     const store = await readFallbackStore();
     store[`${service}:${account}`] = password;
     await writeFallbackStore(store);
   }
 
-  private async fallbackRetrieve(
-    service: string,
-    account: string,
-  ): Promise<string | null> {
+  private async fallbackRetrieve(service: string, account: string): Promise<string | null> {
     const store = await readFallbackStore();
     return store[`${service}:${account}`] ?? null;
   }

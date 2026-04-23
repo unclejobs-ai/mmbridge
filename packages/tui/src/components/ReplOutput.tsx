@@ -51,7 +51,11 @@ function shortFile(filePath: string): string {
   return `…/${parts.slice(-2).join('/')}`;
 }
 
-function FindingsBox({ tool, findings, duration }: { tool: string; findings: FindingEntry[]; duration?: number }): React.ReactElement {
+function FindingsBox({
+  tool,
+  findings,
+  duration,
+}: { tool: string; findings: FindingEntry[]; duration?: number }): React.ReactElement {
   const grouped = groupBySeverity(findings);
   const durationStr = duration !== undefined ? `${duration}s` : '';
   const countStr = `${findings.length} finding${findings.length === 1 ? '' : 's'}`;
@@ -60,10 +64,12 @@ function FindingsBox({ tool, findings, duration }: { tool: string; findings: Fin
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={colors.surface1} paddingX={1}>
       <Box flexDirection="row" gap={1}>
-        <Text color={colors.subtext0} bold>Review Complete</Text>
+        <Text color={colors.subtext0} bold>
+          Review Complete
+        </Text>
         <Text color={colors.surface1}>──</Text>
         {headerParts.map((part, i) => (
-          <Text key={i} color={i === 0 ? toolColor(tool) : colors.textMuted}>
+          <Text key={`${tool}:${part}`} color={i === 0 ? toolColor(tool) : colors.textMuted}>
             {i === 0 ? part : `· ${part}`}
           </Text>
         ))}
@@ -80,10 +86,12 @@ function FindingsBox({ tool, findings, duration }: { tool: string; findings: Fin
               {visible.map((f, idx) => (
                 <Box key={`${f.file}:${f.line}:${idx}`} flexDirection="column" paddingLeft={2}>
                   <Text color={colors.subtext0}>
-                    #{idx + 1} {shortFile(f.file)}{f.line !== null ? `:${f.line}` : ''}
+                    #{idx + 1} {shortFile(f.file)}
+                    {f.line !== null ? `:${f.line}` : ''}
                   </Text>
                   <Text color={colors.text} wrap="truncate">
-                    {'   '}{f.message}
+                    {'   '}
+                    {f.message}
                   </Text>
                 </Box>
               ))}
@@ -97,11 +105,13 @@ function FindingsBox({ tool, findings, duration }: { tool: string; findings: Fin
         })}
         {grouped.size > 2 && (
           <Box flexDirection="row" gap={2}>
-            {Array.from(grouped.entries()).slice(2).map(([sev, items]) => (
-              <Text key={sev} color={severityColor(sev)}>
-                {severityIcon(sev)} {sev.slice(0, 3)} ({items.length})
-              </Text>
-            ))}
+            {Array.from(grouped.entries())
+              .slice(2)
+              .map(([sev, items]) => (
+                <Text key={sev} color={severityColor(sev)}>
+                  {severityIcon(sev)} {sev.slice(0, 3)} ({items.length})
+                </Text>
+              ))}
           </Box>
         )}
       </Box>
@@ -146,7 +156,7 @@ function ProgressEntry({ text, done }: { text: string; done?: boolean }): React.
     };
   }, [done]);
 
-  const icon = done ? '●' : SPINNER_FRAMES[frame] ?? '⠋';
+  const icon = done ? '●' : (SPINNER_FRAMES[frame] ?? '⠋');
   const iconColor = done ? colors.green : colors.yellow;
 
   return (

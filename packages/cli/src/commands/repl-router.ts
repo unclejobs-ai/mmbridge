@@ -1,11 +1,11 @@
-import type { ReviewCommandOptions } from './review.js';
-import type { FollowupCommandOptions } from './followup.js';
 import type { DoctorOptions } from './doctor.js';
+import type { FollowupCommandOptions } from './followup.js';
 import type { GateCommandOptions } from './gate.js';
 import type { HandoffCommandOptions } from './handoff.js';
-import type { MemorySearchCommandOptions } from './memory.js';
-import type { SecurityCommandOptions } from './security.js';
 import { resolveProjectDir } from './helpers.js';
+import type { MemorySearchCommandOptions } from './memory.js';
+import type { ReviewCommandOptions } from './review.js';
+import type { SecurityCommandOptions } from './security.js';
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -45,11 +45,18 @@ function splitArgs(input: string): string[] {
   let inSingle = false;
   let inDouble = false;
   for (const ch of input) {
-    if (ch === "'" && !inDouble) { inSingle = !inSingle; }
-    else if (ch === '"' && !inSingle) { inDouble = !inDouble; }
-    else if (ch === ' ' && !inSingle && !inDouble) {
-      if (current.length > 0) { tokens.push(current); current = ''; }
-    } else { current += ch; }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+    } else if (ch === ' ' && !inSingle && !inDouble) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = '';
+      }
+    } else {
+      current += ch;
+    }
   }
   if (current.length > 0) tokens.push(current);
   return tokens;
@@ -69,8 +76,14 @@ function positionalArgs(args: string[]): string[] {
   const result: string[] = [];
   let skip = false;
   for (const arg of args) {
-    if (skip) { skip = false; continue; }
-    if (arg.startsWith('--')) { if (!arg.includes('=')) skip = true; continue; }
+    if (skip) {
+      skip = false;
+      continue;
+    }
+    if (arg.startsWith('--')) {
+      if (!arg.includes('=')) skip = true;
+      continue;
+    }
     result.push(arg);
   }
   return result;
@@ -242,8 +255,7 @@ export const REPL_COMMANDS: ReplCommand[] = [
     async execute(_args, _projectDir) {
       const lines = REPL_COMMANDS.map(
         (cmd) =>
-          `  ${cmd.usage.padEnd(42)} ${cmd.description}` +
-          (cmd.aliases.length > 0 ? `  [${cmd.aliases.map((a) => `/${a}`).join(' ')}]` : ''),
+          `  ${cmd.usage.padEnd(42)} ${cmd.description}${cmd.aliases.length > 0 ? `  [${cmd.aliases.map((a) => `/${a}`).join(' ')}]` : ''}`,
       );
       return { type: 'text', content: ['Available commands:', ...lines].join('\n') };
     },
@@ -311,9 +323,9 @@ export interface CommandMatch {
 export function matchCommands(partial: string): CommandMatch[] {
   const lower = partial.toLowerCase().replace(/^\//, '');
   if (!lower) return REPL_COMMANDS.map(({ name, description, usage }) => ({ name, description, usage }));
-  return REPL_COMMANDS.filter(
-    (cmd) => cmd.name.includes(lower) || cmd.aliases.some((a) => a.includes(lower)),
-  ).map(({ name, description, usage }) => ({ name, description, usage }));
+  return REPL_COMMANDS.filter((cmd) => cmd.name.includes(lower) || cmd.aliases.some((a) => a.includes(lower))).map(
+    ({ name, description, usage }) => ({ name, description, usage }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -338,7 +350,10 @@ export async function executeReplCommand(input: string, projectDir?: string): Pr
   const { command, args } = parsed;
   const cmd = commandByName.get(command);
   if (!cmd) {
-    const suggestions = matchCommands(command).slice(0, 3).map((m) => `/${m.name}`).join(', ');
+    const suggestions = matchCommands(command)
+      .slice(0, 3)
+      .map((m) => `/${m.name}`)
+      .join(', ');
     const hint = suggestions ? ` Did you mean: ${suggestions}?` : '';
     return { type: 'error', message: `Unknown command "/${command}".${hint} Type /help for a list.` };
   }

@@ -22,9 +22,7 @@ export function buildSystemPrompt(options: SystemPromptOptions = {}): string {
   );
 
   if (tools.length > 0) {
-    const toolList = tools
-      .map((t) => `- **${t.name}**: ${t.description}`)
-      .join('\n');
+    const toolList = tools.map((t) => `- **${t.name}**: ${t.description}`).join('\n');
     sections.push(`## Available Tools\n\n${toolList}`);
   }
 
@@ -46,12 +44,7 @@ export function buildSystemPrompt(options: SystemPromptOptions = {}): string {
       : 'Respond in the same language the user writes in.';
 
   sections.push(
-    `## Instructions\n\n` +
-      `- ${langInstruction}\n` +
-      `- Be concise: skip preamble, get to the point.\n` +
-      `- Use tools proactively when they can provide better information than you have.\n` +
-      `- When a tool fails, report the error clearly and suggest a remedy.\n` +
-      `- Do not fabricate command output or file contents — use tools to obtain real data.`,
+    `## Instructions\n\n- ${langInstruction}\n- Be concise: skip preamble, get to the point.\n- Use tools proactively when they can provide better information than you have.\n- When a tool fails, report the error clearly and suggest a remedy.\n- Do not fabricate command output or file contents — use tools to obtain real data.`,
   );
 
   return sections.join('\n\n');

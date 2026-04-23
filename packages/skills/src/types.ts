@@ -5,9 +5,9 @@ export interface SkillManifest {
   author?: string;
 
   // What the skill provides
-  systemPrompt?: string;       // Additional system prompt text
-  tools?: SkillToolDef[];      // Tools the skill adds
-  hooks?: SkillHookDef[];      // Hooks the skill registers
+  systemPrompt?: string; // Additional system prompt text
+  tools?: SkillToolDef[]; // Tools the skill adds
+  hooks?: SkillHookDef[]; // Hooks the skill registers
   commands?: SkillCommandDef[]; // Slash commands the skill adds
 }
 
@@ -19,7 +19,7 @@ export interface SkillToolDef {
 }
 
 export interface SkillHookDef {
-  event: string;   // e.g. 'PreToolUse', 'PostToolUse', 'SessionStart'
+  event: string; // e.g. 'PreToolUse', 'PostToolUse', 'SessionStart'
   handler: string; // relative path to handler file
 }
 

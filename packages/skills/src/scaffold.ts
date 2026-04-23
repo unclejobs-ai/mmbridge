@@ -72,11 +72,7 @@ export async function scaffoldSkill(name: string, directory?: string): Promise<s
   await fs.mkdir(skillDir, { recursive: true });
 
   await Promise.all([
-    fs.writeFile(
-      path.join(skillDir, 'skill.json'),
-      JSON.stringify(MANIFEST_TEMPLATE(name), null, 2) + '\n',
-      'utf8',
-    ),
+    fs.writeFile(path.join(skillDir, 'skill.json'), `${JSON.stringify(MANIFEST_TEMPLATE(name), null, 2)}\n`, 'utf8'),
     fs.writeFile(path.join(skillDir, 'SKILL.md'), SKILL_MD_TEMPLATE(name), 'utf8'),
     fs.writeFile(path.join(skillDir, 'handler.ts'), HANDLER_TEMPLATE, 'utf8'),
   ]);

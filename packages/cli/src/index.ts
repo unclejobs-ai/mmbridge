@@ -3,8 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 
-import type { ConversationOptions } from './commands/conversation.js';
 import type { ContextPacketCommandOptions, ContextTreeCommandOptions } from './commands/context.js';
+import type { ConversationOptions } from './commands/conversation.js';
 import type { DebateCommandOptions } from './commands/debate.js';
 import type { DiffCommandOptions } from './commands/diff.js';
 import type { DoctorOptions } from './commands/doctor.js';

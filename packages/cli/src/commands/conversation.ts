@@ -1,7 +1,7 @@
-import { AgentLoop, BUILTIN_TOOLS, ToolRegistry, buildSystemPrompt } from '@mmbridge/agent';
-import { AuthStore } from '@mmbridge/auth';
-import type { AgentEvent } from '@mmbridge/agent';
 import { execSync } from 'node:child_process';
+import { AgentLoop, BUILTIN_TOOLS, ToolRegistry, buildSystemPrompt } from '@mmbridge/agent';
+import type { AgentEvent } from '@mmbridge/agent';
+import { AuthStore } from '@mmbridge/auth';
 
 export interface ConversationOptions {
   model?: string;
@@ -37,22 +37,25 @@ async function getClaudeCodeToken(): Promise<string | null> {
   if (process.platform !== 'darwin') return null;
   try {
     const { execSync } = await import('node:child_process');
-    const raw = execSync(
-      'security find-generic-password -s "Claude Code-credentials" -w',
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
+    const raw = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     // Claude Code stores {claudeAiOauth: {accessToken: "sk-ant-oat01-..."}}
-    const oauth = parsed['claudeAiOauth'] as Record<string, unknown> | undefined;
-    if (oauth && typeof oauth['accessToken'] === 'string') return oauth['accessToken'];
+    const oauth = parsed.claudeAiOauth as Record<string, unknown> | undefined;
+    if (oauth && typeof oauth.accessToken === 'string') return oauth.accessToken;
     // Fallback: check other known key shapes
-    if (typeof parsed['anthropicApiKey'] === 'string') return parsed['anthropicApiKey'];
+    if (typeof parsed.anthropicApiKey === 'string') return parsed.anthropicApiKey;
     // Last resort: scan for token-like strings
     const scan = (obj: Record<string, unknown>): string | null => {
       for (const v of Object.values(obj)) {
         if (typeof v === 'string' && (v.startsWith('sk-ant-') || v.startsWith('eyJ'))) return v;
-        if (v && typeof v === 'object') { const r = scan(v as Record<string, unknown>); if (r) return r; }
+        if (v && typeof v === 'object') {
+          const r = scan(v as Record<string, unknown>);
+          if (r) return r;
+        }
       }
       return null;
     };
@@ -67,10 +70,10 @@ export async function runConversation(options: ConversationOptions): Promise<voi
   const authStore = new AuthStore();
   const state = await authStore.load();
   // Priority: OAuth token (uses subscription) > Claude Code keychain > API key > env var
-  const providerToken = state.providers['anthropic']?.accessToken;
+  const providerToken = state.providers.anthropic?.accessToken;
   const claudeCodeToken = await getClaudeCodeToken();
-  const apiKeyEntry = state.apiKeys['anthropic'];
-  const envKey = process.env['ANTHROPIC_API_KEY'];
+  const apiKeyEntry = state.apiKeys.anthropic;
+  const envKey = process.env.ANTHROPIC_API_KEY;
   // Priority: mmbridge's own token > env var > Claude Code keychain (shared, may be rate-limited)
   const token = providerToken ?? apiKeyEntry?.key ?? envKey ?? claudeCodeToken;
 
@@ -82,7 +85,10 @@ export async function runConversation(options: ConversationOptions): Promise<voi
       const readline = await import('node:readline');
       const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
       const key = await new Promise<string>((resolve) => {
-        rl.question('API Key: ', (answer) => { rl.close(); resolve(answer.trim()); });
+        rl.question('API Key: ', (answer) => {
+          rl.close();
+          resolve(answer.trim());
+        });
       });
       if (!key) {
         process.stderr.write('[mmbridge] No key provided. Exiting.\n');

@@ -257,9 +257,7 @@ export interface StructuredReviewResult {
   durationMs: number;
 }
 
-export async function runReviewCommandStructured(
-  options: ReviewCommandOptions,
-): Promise<StructuredReviewResult> {
+export async function runReviewCommandStructured(options: ReviewCommandOptions): Promise<StructuredReviewResult> {
   const projectDir = resolveProjectDir(options.project);
   const mode = options.mode ?? 'review';
   const tool = options.tool ?? 'kimi';

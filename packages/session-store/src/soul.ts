@@ -83,16 +83,14 @@ export class SoulStore {
       // Skip a single blank line that typically follows the header.
       const nextLine = current.slice(afterHeader);
       const insertAt =
-        nextLine.startsWith('\n') || nextLine.startsWith('(')
-          ? afterHeader + nextLine.indexOf('\n') + 1
-          : afterHeader;
+        nextLine.startsWith('\n') || nextLine.startsWith('(') ? afterHeader + nextLine.indexOf('\n') + 1 : afterHeader;
 
-      const updated = current.slice(0, insertAt) + bullet + '\n' + current.slice(insertAt);
+      const updated = `${current.slice(0, insertAt) + bullet}\n${current.slice(insertAt)}`;
       await this.save(updated);
     } else {
       // No Observations section — append at end of file.
       const separator = current.endsWith('\n') ? '' : '\n';
-      await this.save(current + separator + '\n' + observationsHeader + '\n' + bullet + '\n');
+      await this.save(`${current + separator}\n${observationsHeader}\n${bullet}\n`);
     }
   }
 

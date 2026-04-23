@@ -1,7 +1,7 @@
-import { Box, Text, useInput, useApp, useStdout } from 'ink';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
 import type React from 'react';
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ReplOutputList } from '../components/ReplOutput.js';
 import type { OutputEntry } from '../components/ReplOutput.js';
 import { colors } from '../theme.js';
@@ -30,9 +30,20 @@ const MAX_OUTPUT_LINES = 200;
 const MAX_HISTORY = 500;
 
 const DEFAULT_COMMANDS = [
-  '/review', '/review --tool kimi', '/review --tool qwen', '/review --tool codex',
-  '/review --tool all', '/security', '/followup', '/status',
-  '/handoff', '/memory', '/doctor', '/gate', '/help', '/quit',
+  '/review',
+  '/review --tool kimi',
+  '/review --tool qwen',
+  '/review --tool codex',
+  '/review --tool all',
+  '/security',
+  '/followup',
+  '/status',
+  '/handoff',
+  '/memory',
+  '/doctor',
+  '/gate',
+  '/help',
+  '/quit',
 ];
 
 // ─── Main REPL view ─────────────────────────────────────────────────────────

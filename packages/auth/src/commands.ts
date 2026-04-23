@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline';
-import { AuthStore } from './store.js';
 import { startOAuthFlow } from './oauth.js';
+import { AuthStore } from './store.js';
 import type { AuthProvider } from './types.js';
 
 const SUPPORTED_OAUTH_PROVIDERS = ['anthropic', 'openai'] as const;
@@ -48,18 +48,17 @@ async function promptSecret(question: string): Promise<string> {
 
 export async function login(provider?: string): Promise<void> {
   const store = new AuthStore();
+  let selectedProvider = provider;
 
-  if (!provider) {
-    const answer = await prompt(
-      'Provider to log in (anthropic, openai, or a name for an API key): ',
-    );
-    provider = answer.toLowerCase();
+  if (!selectedProvider) {
+    const answer = await prompt('Provider to log in (anthropic, openai, or a name for an API key): ');
+    selectedProvider = answer.toLowerCase();
   }
 
-  if (isOAuthProvider(provider)) {
-    process.stdout.write(`Starting OAuth flow for ${provider}...\n`);
+  if (isOAuthProvider(selectedProvider)) {
+    process.stdout.write(`Starting OAuth flow for ${selectedProvider}...\n`);
     process.stdout.write('A browser window will open. Complete the authorization there.\n');
-    const result = await startOAuthFlow(provider);
+    const result = await startOAuthFlow(selectedProvider);
     if (result.success) {
       process.stdout.write(`${result.message}\n`);
     } else {
@@ -68,27 +67,26 @@ export async function login(provider?: string): Promise<void> {
     }
   } else {
     // API key flow
-    const apiKey = await promptSecret(`Enter API key for ${provider}: `);
+    const apiKey = await promptSecret(`Enter API key for ${selectedProvider}: `);
     if (!apiKey) {
       process.stderr.write('No API key provided. Aborting.\n');
       process.exit(1);
     }
-    await store.setApiKey(provider, apiKey);
-    process.stdout.write(`API key for ${provider} saved.\n`);
+    await store.setApiKey(selectedProvider, apiKey);
+    process.stdout.write(`API key for ${selectedProvider} saved.\n`);
   }
 }
 
 export async function logout(provider?: string): Promise<void> {
   const store = new AuthStore();
+  let selectedProvider = provider;
 
-  if (!provider) {
-    const answer = await prompt(
-      'Provider to log out (leave blank to log out of all): ',
-    );
-    provider = answer.toLowerCase() || undefined;
+  if (!selectedProvider) {
+    const answer = await prompt('Provider to log out (leave blank to log out of all): ');
+    selectedProvider = answer.toLowerCase() || undefined;
   }
 
-  if (!provider) {
+  if (!selectedProvider) {
     const confirm = await prompt('Remove ALL credentials? [y/N] ');
     if (confirm.toLowerCase() !== 'y') {
       process.stdout.write('Aborted.\n');
@@ -99,8 +97,8 @@ export async function logout(provider?: string): Promise<void> {
     return;
   }
 
-  await store.removeProvider(provider);
-  process.stdout.write(`Credentials for ${provider} removed.\n`);
+  await store.removeProvider(selectedProvider);
+  process.stdout.write(`Credentials for ${selectedProvider} removed.\n`);
 }
 
 export async function status(): Promise<void> {

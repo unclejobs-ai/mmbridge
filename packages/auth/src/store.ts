@@ -1,7 +1,7 @@
-import { readFile, writeFile, chmod, unlink, rename, mkdir } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
-import type { AuthState, ProviderTokens, ApiKeyEntry } from './types.js';
+import { dirname, join } from 'node:path';
+import type { ApiKeyEntry, AuthState, ProviderTokens } from './types.js';
 
 const AUTH_STATE_VERSION = 1;
 const FILE_MODE = 0o600;
@@ -39,9 +39,7 @@ export class AuthStore {
       if (isNodeError(err) && err.code === 'ENOENT') {
         return defaultState();
       }
-      throw new Error(
-        `Failed to read auth state: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw new Error(`Failed to read auth state: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -64,9 +62,7 @@ export class AuthStore {
       } catch {
         // ignore cleanup errors
       }
-      throw new Error(
-        `Failed to save auth state: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw new Error(`Failed to save auth state: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -111,9 +107,7 @@ export class AuthStore {
       await unlink(this.authPath);
     } catch (err) {
       if (isNodeError(err) && err.code === 'ENOENT') return;
-      throw new Error(
-        `Failed to clear auth state: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw new Error(`Failed to clear auth state: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }
@@ -122,13 +116,13 @@ function isAuthState(value: unknown): value is AuthState {
   if (typeof value !== 'object' || value === null) return false;
   const obj = value as Record<string, unknown>;
   return (
-    typeof obj['version'] === 'number' &&
-    typeof obj['activeProvider'] === 'string' &&
-    typeof obj['providers'] === 'object' &&
-    obj['providers'] !== null &&
-    typeof obj['apiKeys'] === 'object' &&
-    obj['apiKeys'] !== null &&
-    typeof obj['updatedAt'] === 'string'
+    typeof obj.version === 'number' &&
+    typeof obj.activeProvider === 'string' &&
+    typeof obj.providers === 'object' &&
+    obj.providers !== null &&
+    typeof obj.apiKeys === 'object' &&
+    obj.apiKeys !== null &&
+    typeof obj.updatedAt === 'string'
   );
 }
 

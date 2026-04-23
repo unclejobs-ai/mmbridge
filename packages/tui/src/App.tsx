@@ -24,7 +24,12 @@ const KEY_TO_TAB: Record<string, TabId> = {
 
 export type ReplCommandResult =
   | { type: 'success'; message: string }
-  | { type: 'findings'; tool: string; findings: Array<{ severity: string; file: string; line: number | null; message: string }>; duration: number }
+  | {
+      type: 'findings';
+      tool: string;
+      findings: Array<{ severity: string; file: string; line: number | null; message: string }>;
+      duration: number;
+    }
   | { type: 'text'; content: string }
   | { type: 'error'; message: string }
   | { type: 'status'; data: Record<string, string> };
@@ -43,12 +48,15 @@ export function App({ initialTab, version, onReplCommand }: AppProps): React.Rea
   const { exit } = useApp();
   const { refresh } = useLoadData(dispatch);
 
-  const handleReplCommand = useCallback(async (command: string) => {
-    if (onReplCommand) {
-      return await onReplCommand(command);
-    }
-    return { type: 'error' as const, message: 'No command handler configured' };
-  }, [onReplCommand]);
+  const handleReplCommand = useCallback(
+    async (command: string) => {
+      if (onReplCommand) {
+        return await onReplCommand(command);
+      }
+      return { type: 'error' as const, message: 'No command handler configured' };
+    },
+    [onReplCommand],
+  );
 
   useInput((input, key) => {
     if (state.helpVisible) {

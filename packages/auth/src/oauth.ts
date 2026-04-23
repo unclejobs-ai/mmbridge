@@ -1,11 +1,6 @@
-import { randomBytes, createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { getEphemeralPort, isTokenResponse, openBrowser, waitForCallback } from './oauth-helpers.js';
 import { AuthStore } from './store.js';
-import {
-  waitForCallback,
-  getEphemeralPort,
-  openBrowser,
-  isTokenResponse,
-} from './oauth-helpers.js';
 import type { AuthProvider, ProviderTokens } from './types.js';
 
 // Claude AI subscriber OAuth (grants user:inference scope)
@@ -70,16 +65,11 @@ async function exchangeCodeForTokens(
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
-    expiresAt:
-      data.expires_in !== undefined
-        ? Date.now() + data.expires_in * 1000
-        : undefined,
+    expiresAt: data.expires_in !== undefined ? Date.now() + data.expires_in * 1000 : undefined,
   };
 }
 
-export async function startOAuthFlow(
-  provider: 'anthropic' | 'openai',
-): Promise<{ success: boolean; message: string }> {
+export async function startOAuthFlow(provider: 'anthropic' | 'openai'): Promise<{ success: boolean; message: string }> {
   const authUrl = PROVIDER_AUTH_URLS[provider];
   if (!authUrl) {
     return { success: false, message: `Unsupported provider: ${provider}` };
@@ -87,9 +77,7 @@ export async function startOAuthFlow(
 
   const state = randomBytes(16).toString('hex');
   const codeVerifier = randomBytes(32).toString('base64url');
-  const codeChallenge = createHash('sha256')
-    .update(codeVerifier)
-    .digest('base64url');
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
 
   const port = await getEphemeralPort();
   const redirectUri = `http://localhost:${port}/callback`;
@@ -98,9 +86,10 @@ export async function startOAuthFlow(
     response_type: 'code',
     client_id: getClientId(provider),
     redirect_uri: redirectUri,
-    scope: provider === 'anthropic'
-      ? 'user:inference user:profile org:create_api_key user:sessions:claude_code user:mcp_servers user:file_upload'
-      : 'openid profile email offline_access',
+    scope:
+      provider === 'anthropic'
+        ? 'user:inference user:profile org:create_api_key user:sessions:claude_code user:mcp_servers user:file_upload'
+        : 'openid profile email offline_access',
     state,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
@@ -133,13 +122,10 @@ export async function startOAuthFlow(
 
 async function createApiKeyFromOAuth(accessToken: string): Promise<string | null> {
   try {
-    const response = await fetch(
-      'https://api.anthropic.com/api/oauth/claude_cli/create_api_key',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-      },
-    );
+    const response = await fetch('https://api.anthropic.com/api/oauth/claude_cli/create_api_key', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
     if (!response.ok) return null;
     const data = (await response.json()) as { raw_key?: string };
     return data.raw_key ?? null;
@@ -148,10 +134,7 @@ async function createApiKeyFromOAuth(accessToken: string): Promise<string | null
   }
 }
 
-export async function refreshToken(
-  provider: AuthProvider,
-  storedRefreshToken: string,
-): Promise<ProviderTokens> {
+export async function refreshToken(provider: AuthProvider, storedRefreshToken: string): Promise<ProviderTokens> {
   const tokenUrl = PROVIDER_TOKEN_URLS[provider];
   if (!tokenUrl) {
     throw new Error(`Cannot refresh token for provider: ${provider}`);
@@ -182,9 +165,6 @@ export async function refreshToken(
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? storedRefreshToken,
-    expiresAt:
-      data.expires_in !== undefined
-        ? Date.now() + data.expires_in * 1000
-        : undefined,
+    expiresAt: data.expires_in !== undefined ? Date.now() + data.expires_in * 1000 : undefined,
   };
 }

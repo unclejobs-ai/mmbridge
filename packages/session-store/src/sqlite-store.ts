@@ -49,41 +49,41 @@ function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
 
 function rowToSessionData(row: Record<string, unknown>): SessionData {
   return {
-    id: String(row['id']),
-    tool: String(row['tool']),
-    mode: String(row['mode']),
-    projectDir: String(row['project_dir']),
-    status: String(row['status'] ?? 'complete'),
-    summary: row['summary'] ? String(row['summary']) : null,
-    findingsJson: row['findings_json'] ? String(row['findings_json']) : null,
-    resultIndexJson: row['result_index_json'] ? String(row['result_index_json']) : null,
-    createdAt: String(row['created_at']),
-    updatedAt: String(row['updated_at']),
+    id: String(row.id),
+    tool: String(row.tool),
+    mode: String(row.mode),
+    projectDir: String(row.project_dir),
+    status: String(row.status ?? 'complete'),
+    summary: row.summary ? String(row.summary) : null,
+    findingsJson: row.findings_json ? String(row.findings_json) : null,
+    resultIndexJson: row.result_index_json ? String(row.result_index_json) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
   };
 }
 
 function rowToConversationMessage(row: Record<string, unknown>): ConversationMessage {
   return {
-    id: typeof row['id'] === 'number' ? row['id'] : undefined,
-    sessionId: row['session_id'] ? String(row['session_id']) : null,
-    role: String(row['role']) as ConversationMessage['role'],
-    content: String(row['content']),
-    toolCallsJson: row['tool_calls_json'] ? String(row['tool_calls_json']) : null,
-    tokensInput: typeof row['tokens_input'] === 'number' ? row['tokens_input'] : 0,
-    tokensOutput: typeof row['tokens_output'] === 'number' ? row['tokens_output'] : 0,
-    createdAt: String(row['created_at']),
+    id: typeof row.id === 'number' ? row.id : undefined,
+    sessionId: row.session_id ? String(row.session_id) : null,
+    role: String(row.role) as ConversationMessage['role'],
+    content: String(row.content),
+    toolCallsJson: row.tool_calls_json ? String(row.tool_calls_json) : null,
+    tokensInput: typeof row.tokens_input === 'number' ? row.tokens_input : 0,
+    tokensOutput: typeof row.tokens_output === 'number' ? row.tokens_output : 0,
+    createdAt: String(row.created_at),
   };
 }
 
 function rowToGlobalMemoryEntry(row: Record<string, unknown>): GlobalMemoryEntry {
   return {
-    id: String(row['id']),
-    projectDir: String(row['project_dir']),
-    type: String(row['type']) as MemoryEntryType,
-    title: String(row['title']),
-    content: row['content'] ? String(row['content']) : null,
-    metadataJson: row['metadata_json'] ? String(row['metadata_json']) : null,
-    createdAt: String(row['created_at']),
+    id: String(row.id),
+    projectDir: String(row.project_dir),
+    type: String(row.type) as MemoryEntryType,
+    title: String(row.title),
+    content: row.content ? String(row.content) : null,
+    metadataJson: row.metadata_json ? String(row.metadata_json) : null,
+    createdAt: String(row.created_at),
   };
 }
 
@@ -157,7 +157,9 @@ export class SqliteStore {
   // Session methods
   // ---------------------------------------------------------------------------
 
-  saveSession(data: Omit<SessionData, 'createdAt' | 'updatedAt'> & Partial<Pick<SessionData, 'createdAt' | 'updatedAt'>>): string {
+  saveSession(
+    data: Omit<SessionData, 'createdAt' | 'updatedAt'> & Partial<Pick<SessionData, 'createdAt' | 'updatedAt'>>,
+  ): string {
     const now = new Date().toISOString();
     const createdAt = data.createdAt ?? now;
     const updatedAt = data.updatedAt ?? now;
@@ -185,9 +187,9 @@ export class SqliteStore {
   }
 
   getSession(id: string): SessionData | null {
-    const row = this.db
-      .prepare('SELECT * FROM sessions WHERE id = ? LIMIT 1')
-      .get(id) as Record<string, unknown> | undefined;
+    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ? LIMIT 1').get(id) as
+      | Record<string, unknown>
+      | undefined;
     return row ? rowToSessionData(row) : null;
   }
 
@@ -207,7 +209,10 @@ export class SqliteStore {
   // Conversation methods
   // ---------------------------------------------------------------------------
 
-  saveMessage(sessionId: string | null, message: Omit<ConversationMessage, 'id' | 'createdAt'> & Partial<Pick<ConversationMessage, 'createdAt'>>): void {
+  saveMessage(
+    sessionId: string | null,
+    message: Omit<ConversationMessage, 'id' | 'createdAt'> & Partial<Pick<ConversationMessage, 'createdAt'>>,
+  ): void {
     const now = new Date().toISOString();
     this.db
       .prepare(`
@@ -234,9 +239,9 @@ export class SqliteStore {
   }
 
   getRecentMessages(limit = 20): ConversationMessage[] {
-    const rows = this.db
-      .prepare('SELECT * FROM conversations ORDER BY id DESC LIMIT ?')
-      .all(limit) as Array<Record<string, unknown>>;
+    const rows = this.db.prepare('SELECT * FROM conversations ORDER BY id DESC LIMIT ?').all(limit) as Array<
+      Record<string, unknown>
+    >;
     return rows.map(rowToConversationMessage).reverse();
   }
 

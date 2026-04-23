@@ -1,12 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type {
-  AgentConfig,
-  AgentEvent,
-  AgentMessage,
-  AgentSession,
-  AgentTool,
-} from './types.js';
 import { ToolRegistry } from './tool-registry.js';
+import type { AgentConfig, AgentEvent, AgentMessage, AgentSession, AgentTool } from './types.js';
 
 type ConversationMessage = Anthropic.MessageParam;
 
@@ -27,7 +21,7 @@ export class AgentLoop {
 
   constructor(config: AgentConfig) {
     this.config = config;
-    const key = config.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? '';
+    const key = config.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
     const isOAuthToken = key.startsWith('sk-ant-oat') || key.startsWith('eyJ');
     if (isOAuthToken) {
       this.client = new Anthropic({
@@ -217,12 +211,12 @@ export class AgentLoop {
     // Assign parsed inputs to tool calls in order
     let toolCallIdx = 0;
     for (const [, rawJson] of toolInputBuffers) {
-      if (toolCallIdx < toolCalls.length) {
+      const toolCall = toolCalls[toolCallIdx];
+      if (toolCall) {
         try {
-          toolCalls[toolCallIdx]!.input =
-            rawJson.length > 0 ? (JSON.parse(rawJson) as unknown) : {};
+          toolCall.input = rawJson.length > 0 ? (JSON.parse(rawJson) as unknown) : {};
         } catch {
-          toolCalls[toolCallIdx]!.input = {};
+          toolCall.input = {};
         }
         toolCallIdx++;
       }

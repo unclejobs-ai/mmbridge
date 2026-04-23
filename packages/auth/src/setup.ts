@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline';
-import { AuthStore } from './store.js';
 import { startOAuthFlow } from './oauth.js';
+import { AuthStore } from './store.js';
 
 // ─── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -20,9 +20,33 @@ interface ProviderChoice {
   envVar?: string;
 }
 
+export type SetupAuthStrategy = 'env-api-key' | 'claude-setup-token' | 'oauth-browser' | 'api-key';
+
+export function selectSetupAuthStrategy(
+  providerKey: string,
+  authType: ProviderChoice['authType'],
+  hasEnvKey: boolean,
+): SetupAuthStrategy {
+  if (hasEnvKey) return 'env-api-key';
+  if (authType === 'api-key') return 'api-key';
+  return providerKey === 'anthropic' ? 'claude-setup-token' : 'oauth-browser';
+}
+
 const PROVIDERS: ProviderChoice[] = [
-  { key: 'anthropic', name: 'Anthropic (Claude)', authType: 'oauth', description: 'OAuth — recommended for Claude Code users', envVar: 'ANTHROPIC_API_KEY' },
-  { key: 'openai', name: 'OpenAI (GPT / Codex)', authType: 'oauth', description: 'OAuth — for Codex CLI users', envVar: 'OPENAI_API_KEY' },
+  {
+    key: 'anthropic',
+    name: 'Anthropic (Claude)',
+    authType: 'oauth',
+    description: 'OAuth — recommended for Claude Code users',
+    envVar: 'ANTHROPIC_API_KEY',
+  },
+  {
+    key: 'openai',
+    name: 'OpenAI (GPT / Codex)',
+    authType: 'oauth',
+    description: 'OAuth — for Codex CLI users',
+    envVar: 'OPENAI_API_KEY',
+  },
   { key: 'kimi', name: 'Moonshot (Kimi)', authType: 'api-key', description: 'API key', envVar: 'KIMI_API_KEY' },
   { key: 'qwen', name: 'Alibaba (Qwen)', authType: 'api-key', description: 'API key', envVar: 'QWEN_API_KEY' },
   { key: 'gemini', name: 'Google (Gemini)', authType: 'api-key', description: 'API key', envVar: 'GEMINI_API_KEY' },
@@ -40,14 +64,20 @@ const MODELS = [
 function ask(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
-    rl.question(question, (answer) => { rl.close(); resolve(answer.trim()); });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
   });
 }
 
 function askSecret(question: string): Promise<string> {
   return new Promise((resolve) => {
     process.stdout.write(question);
-    if (!process.stdin.setRawMode) { resolve(''); return; }
+    if (!process.stdin.setRawMode) {
+      resolve('');
+      return;
+    }
     process.stdin.setRawMode(true);
     process.stdin.resume();
     let input = '';
@@ -79,7 +109,10 @@ function readPastedToken(): Promise<string> {
     if (!process.stdin.setRawMode) {
       // Fallback for non-TTY
       const rl = createInterface({ input: process.stdin, output: process.stdout });
-      rl.question('', (answer) => { rl.close(); resolve(answer.trim()); });
+      rl.question('', (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
       return;
     }
     process.stdin.setRawMode(true);
@@ -100,7 +133,8 @@ function readPastedToken(): Promise<string> {
 
     const onData = (chunk: Buffer) => {
       const str = chunk.toString();
-      if (str === '\u0003') { // Ctrl+C
+      if (str === '\u0003') {
+        // Ctrl+C
         process.stdin.setRawMode?.(false);
         process.exit(1);
       }
@@ -129,7 +163,7 @@ function selectMenu(title: string, items: Array<{ key: string; label: string; de
   }
   process.stdout.write('\n');
   return ask(`Select (1-${items.length}): `).then((answer) => {
-    const idx = parseInt(answer, 10) - 1;
+    const idx = Number.parseInt(answer, 10) - 1;
     return items[idx]?.key ?? items[0]?.key ?? '';
   });
 }
@@ -145,44 +179,24 @@ export async function runSetup(): Promise<void> {
   process.stdout.write('\n');
 
   // Step 1: Select primary provider
-  const providerKey = await selectMenu('Select your primary AI provider:', PROVIDERS.map((p) => ({
-    key: p.key,
-    label: p.name,
-    description: p.description,
-  })));
+  const providerKey = await selectMenu(
+    'Select your primary AI provider:',
+    PROVIDERS.map((p) => ({
+      key: p.key,
+      label: p.name,
+      description: p.description,
+    })),
+  );
 
   const provider = PROVIDERS.find((p) => p.key === providerKey);
-  if (!provider) { process.stderr.write('Invalid selection.\n'); return; }
+  if (!provider) {
+    process.stderr.write('Invalid selection.\n');
+    return;
+  }
 
   // Step 2: Authenticate
-  process.stdout.write(`\n${bold('Authenticating with ' + provider.name + '...')}\n\n`);
-
-  if (provider.authType === 'oauth') {
-    // Check if env var has a key first
-    const envKey = provider.envVar ? process.env[provider.envVar] : undefined;
-    if (envKey) {
-      process.stdout.write(`${green('✓')} Found ${provider.envVar} in environment.\n`);
-      const useEnv = await ask('Use this key? [Y/n] ');
-      if (useEnv.toLowerCase() !== 'n') {
-        await store.setApiKey(provider.key, envKey);
-        process.stdout.write(`${green('✓')} API key saved.\n`);
-      } else {
-        await doOAuth(provider.key);
-      }
-    } else {
-      // Use claude setup-token for long-lived OAuth (like Hermes)
-      await doClaudeSetupToken(store);
-    }
-  } else {
-    // API key providers
-    const envKey = provider.envVar ? process.env[provider.envVar] : undefined;
-    if (envKey) {
-      process.stdout.write(`${green('✓')} Found ${provider.envVar} in environment.\n`);
-      await store.setApiKey(provider.key, envKey);
-    } else {
-      await doApiKey(store, provider.key);
-    }
-  }
+  process.stdout.write(`\n${bold(`Authenticating with ${provider.name}...`)}\n\n`);
+  await authenticateProvider(store, provider);
 
   // Step 3: Additional providers
   const addMore = await ask('\nConfigure additional providers? [y/N] ');
@@ -191,17 +205,20 @@ export async function runSetup(): Promise<void> {
     for (const p of remaining) {
       const configure = await ask(`Configure ${p.name}? [y/N] `);
       if (configure.toLowerCase() === 'y') {
-        await doApiKey(store, p.key);
+        await authenticateProvider(store, p);
       }
     }
   }
 
   // Step 4: Default model
-  const modelKey = await selectMenu('Default model for conversations:', MODELS.map((m) => ({
-    key: m.key,
-    label: m.label,
-    description: m.description,
-  })));
+  const modelKey = await selectMenu(
+    'Default model for conversations:',
+    MODELS.map((m) => ({
+      key: m.key,
+      label: m.label,
+      description: m.description,
+    })),
+  );
 
   // Step 5: Save config
   process.stdout.write(`\n${bold('Setup complete!')}\n\n`);
@@ -210,6 +227,35 @@ export async function runSetup(): Promise<void> {
   process.stdout.write(`  Config:    ${dim('~/.mmbridge/auth.json')}\n`);
   process.stdout.write(`\n  Run ${cyan('mmbridge')} to start a conversation.\n\n`);
   process.exit(0);
+}
+
+async function authenticateProvider(store: AuthStore, provider: ProviderChoice): Promise<void> {
+  const envKey = provider.envVar ? process.env[provider.envVar] : undefined;
+  const strategy = selectSetupAuthStrategy(provider.key, provider.authType, Boolean(envKey));
+
+  switch (strategy) {
+    case 'env-api-key':
+      process.stdout.write(`${green('✓')} Found ${provider.envVar} in environment.\n`);
+      if (provider.authType === 'oauth') {
+        const useEnv = await ask('Use this key? [Y/n] ');
+        if (useEnv.toLowerCase() === 'n') {
+          await doOAuth(provider.key);
+          return;
+        }
+      }
+      await store.setApiKey(provider.key, envKey ?? '');
+      process.stdout.write(`${green('✓')} API key saved.\n`);
+      return;
+    case 'claude-setup-token':
+      await doClaudeSetupToken(store);
+      return;
+    case 'oauth-browser':
+      await doOAuth(provider.key);
+      return;
+    case 'api-key':
+      await doApiKey(store, provider.key);
+      return;
+  }
 }
 
 async function doOAuth(provider: string): Promise<void> {
@@ -243,7 +289,9 @@ async function doClaudeSetupToken(store: AuthStore): Promise<void> {
   try {
     execSync('which claude', { stdio: 'ignore' });
   } catch {
-    process.stdout.write(`${yellow('!')} Claude CLI not found. Install it first: ${cyan('npm install -g @anthropic-ai/claude-code')}\n`);
+    process.stdout.write(
+      `${yellow('!')} Claude CLI not found. Install it first: ${cyan('npm install -g @anthropic-ai/claude-code')}\n`,
+    );
     process.stdout.write('Falling back to API key entry.\n');
     await doApiKey(store, 'anthropic');
     return;
@@ -273,7 +321,7 @@ async function doClaudeSetupToken(store: AuthStore): Promise<void> {
     process.stdout.write(`\n${bold('Paste the OAuth token shown above, then press Enter:')}\n\n`);
     const token = await readPastedToken();
     if (token) {
-      process.stdout.write(`\nToken: ${dim(token.slice(0, 20) + '...' + token.slice(-10))} (${token.length} chars)\n`);
+      process.stdout.write(`\nToken: ${dim(`${token.slice(0, 20)}...${token.slice(-10)}`)} (${token.length} chars)\n`);
       const ok = await ask('Save this token? [Y/n] ');
       if (ok.toLowerCase() === 'n') {
         process.stdout.write(`${yellow('!')} Token not saved.\n`);
@@ -293,9 +341,9 @@ async function doClaudeSetupToken(store: AuthStore): Promise<void> {
 
 async function doPasteAuth(store: AuthStore, provider: string): Promise<void> {
   process.stdout.write(`\n${bold('Paste authentication')}\n\n`);
-  process.stdout.write(`Open this URL in your browser:\n\n`);
+  process.stdout.write('Open this URL in your browser:\n\n');
   process.stdout.write(`  ${cyan('https://console.anthropic.com/settings/keys')}\n\n`);
-  process.stdout.write(`Create a new API key and paste it below.\n`);
+  process.stdout.write('Create a new API key and paste it below.\n');
   process.stdout.write(`${dim('(Or paste an OAuth token if you have one)')}\n\n`);
 
   const token = await askSecret('Paste key or token: ');
@@ -317,13 +365,13 @@ async function doPasteAuth(store: AuthStore, provider: string): Promise<void> {
 async function reuseClaudeCode(store: AuthStore): Promise<void> {
   try {
     const { execSync } = await import('node:child_process');
-    const raw = execSync(
-      'security find-generic-password -s "Claude Code-credentials" -w',
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
+    const raw = execSync('security find-generic-password -s "Claude Code-credentials" -w', {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const oauth = parsed['claudeAiOauth'] as Record<string, unknown> | undefined;
-    const token = oauth?.['accessToken'];
+    const oauth = parsed.claudeAiOauth as Record<string, unknown> | undefined;
+    const token = oauth?.accessToken;
     if (typeof token === 'string') {
       await store.setApiKey('anthropic', token);
       process.stdout.write(`${green('✓')} Claude Code OAuth token imported.\n`);

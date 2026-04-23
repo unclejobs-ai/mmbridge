@@ -109,9 +109,7 @@ export const mmbridge_security: AgentTool = {
   async execute(input: Record<string, unknown>): Promise<string> {
     try {
       const rawScope = typeof input.scope === 'string' ? input.scope : 'all';
-      const scope = (['all', 'auth', 'api', 'infra'] as const).includes(
-        rawScope as 'all' | 'auth' | 'api' | 'infra',
-      )
+      const scope = (['all', 'auth', 'api', 'infra'] as const).includes(rawScope as 'all' | 'auth' | 'api' | 'infra')
         ? (rawScope as 'all' | 'auth' | 'api' | 'infra')
         : ('all' as const);
 
@@ -176,12 +174,7 @@ export const mmbridge_security: AgentTool = {
         return `[${f.securitySeverity}]${cweTag} ${location}: ${f.message}`;
       });
       const counts = report.severityCounts;
-      const summary = [
-        `P0: ${counts.P0}`,
-        `P1: ${counts.P1}`,
-        `P2: ${counts.P2}`,
-        `P3: ${counts.P3}`,
-      ].join(', ');
+      const summary = [`P0: ${counts.P0}`, `P1: ${counts.P1}`, `P2: ${counts.P2}`, `P3: ${counts.P3}`].join(', ');
       return `Security audit (${scope}): ${report.findings.length} finding(s) — ${summary}\n${lines.join('\n')}`;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -220,11 +213,7 @@ export const mmbridge_research: AgentTool = {
     // Research requires CLI-level streaming and multi-model orchestration that
     // depends on adapter process spawning with interactive output. Returning a
     // descriptive message directs the caller to the CLI for the full experience.
-    return (
-      `Research topic: "${topic}"\n` +
-      `Note: Full multi-model research requires CLI streaming. ` +
-      `Use \`mmbridge research "${topic}"\` for the full experience.`
-    );
+    return `Research topic: "${topic}"\nNote: Full multi-model research requires CLI streaming. Use \`mmbridge research "${topic}"\` for the full experience.`;
   },
 };
 
@@ -258,9 +247,7 @@ export const mmbridge_memory_search: AgentTool = {
       if (results.length === 0) {
         return `No memory entries found for "${query}".`;
       }
-      return results
-        .map((r) => `[${r.type}] ${r.title}: ${(r.content ?? '').slice(0, 200)}`)
-        .join('\n');
+      return results.map((r) => `[${r.type}] ${r.title}: ${(r.content ?? '').slice(0, 200)}`).join('\n');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return `Memory search failed: ${message}`;
@@ -291,14 +278,9 @@ export const mmbridge_gate: AgentTool = {
       const baseRefOption = typeof input.baseRef === 'string' ? input.baseRef : undefined;
       const mode = 'review';
 
-      const {
-        evaluateGate,
-        getChangedFiles,
-        getDefaultBaseRef,
-        getDiff,
-        runCommand,
-        shortDigest,
-      } = await import('@mmbridge/core');
+      const { evaluateGate, getChangedFiles, getDefaultBaseRef, getDiff, runCommand, shortDigest } = await import(
+        '@mmbridge/core'
+      );
       const { ProjectMemoryStore, RunStore, SessionStore } = await import('@mmbridge/session-store');
 
       const sessionStore = new SessionStore();
@@ -330,9 +312,7 @@ export const mmbridge_gate: AgentTool = {
 
       const handoffDocument =
         latestSessions[0]?.id != null
-          ? await memoryStore
-              .getHandoffBySession(projectDir, latestSessions[0].id)
-              .catch(() => null)
+          ? await memoryStore.getHandoffBySession(projectDir, latestSessions[0].id).catch(() => null)
           : null;
 
       const latestSession = latestSessions[0] ?? null;
@@ -386,9 +366,7 @@ export const mmbridge_gate: AgentTool = {
         return 'Gate: pass — review coverage is fresh for the current diff.';
       }
 
-      const warningLines = result.warnings.map(
-        (w) => `- ${w.code}: ${w.message}\n  next: ${w.nextCommand}`,
-      );
+      const warningLines = result.warnings.map((w) => `- ${w.code}: ${w.message}\n  next: ${w.nextCommand}`);
       return `Gate: warn\n${warningLines.join('\n')}`;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -421,9 +399,7 @@ export const mmbridge_status: AgentTool = {
       const statuses = await Promise.all(
         tools.map(async (t) => {
           const adapter = defaultRegistry.get(t);
-          const installed = adapter
-            ? await commandExists(adapter.binary).catch(() => false)
-            : false;
+          const installed = adapter ? await commandExists(adapter.binary).catch(() => false) : false;
           return `${t}: ${installed ? 'installed' : 'not installed'}`;
         }),
       );

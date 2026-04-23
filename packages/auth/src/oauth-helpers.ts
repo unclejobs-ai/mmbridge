@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 export interface OAuthCallbackResult {
@@ -15,52 +15,50 @@ export interface TokenResponse {
 export function isTokenResponse(value: unknown): value is TokenResponse {
   if (typeof value !== 'object' || value === null) return false;
   const obj = value as Record<string, unknown>;
-  return typeof obj['access_token'] === 'string';
+  return typeof obj.access_token === 'string';
 }
 
-export function waitForCallback(
-  port: number,
-  expectedState: string,
-): Promise<OAuthCallbackResult> {
+export function waitForCallback(port: number, expectedState: string): Promise<OAuthCallbackResult> {
   return new Promise((resolve, reject) => {
-    const server = createServer(
-      (req: IncomingMessage, res: ServerResponse) => {
-        const url = new URL(req.url ?? '/', `http://localhost:${port}`);
-        const code = url.searchParams.get('code');
-        const state = url.searchParams.get('state');
-        const error = url.searchParams.get('error');
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = new URL(req.url ?? '/', `http://localhost:${port}`);
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      const error = url.searchParams.get('error');
 
-        if (error) {
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end('<html><body><h1>Authorization failed</h1><p>You may close this tab.</p></body></html>');
-          server.close();
-          reject(new Error(`OAuth error: ${error}`));
-          return;
-        }
-
-        if (!code || !state || state !== expectedState) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end('<html><body><h1>Bad request</h1></body></html>');
-          return;
-        }
-
+      if (error) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(
-          '<html><body><h1>Authorization successful</h1><p>You may close this tab and return to mmbridge.</p></body></html>',
-        );
+        res.end('<html><body><h1>Authorization failed</h1><p>You may close this tab.</p></body></html>');
         server.close();
-        resolve({ code, state });
-      },
-    );
+        reject(new Error(`OAuth error: ${error}`));
+        return;
+      }
+
+      if (!code || !state || state !== expectedState) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end('<html><body><h1>Bad request</h1></body></html>');
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(
+        '<html><body><h1>Authorization successful</h1><p>You may close this tab and return to mmbridge.</p></body></html>',
+      );
+      server.close();
+      resolve({ code, state });
+    });
 
     server.listen(port, '127.0.0.1', () => {});
     server.on('error', (err) => {
       reject(new Error(`Local server error: ${err.message}`));
     });
-    setTimeout(() => {
-      server.close();
-      reject(new Error('OAuth flow timed out after 5 minutes'));
-    }, 5 * 60 * 1000);
+    setTimeout(
+      () => {
+        server.close();
+        reject(new Error('OAuth flow timed out after 5 minutes'));
+      },
+      5 * 60 * 1000,
+    );
   });
 }
 

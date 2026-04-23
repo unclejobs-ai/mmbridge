@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { LoadedSkill, SkillManifest, SkillToolDef, SkillHookDef } from './types.js';
+import type { LoadedSkill, SkillHookDef, SkillManifest, SkillToolDef } from './types.js';
 
 /** Names checked in order when locating a skill manifest. */
 const MANIFEST_NAMES = ['skill.json', 'skill.yaml', 'skill.yml'] as const;
@@ -13,13 +13,13 @@ function assertManifestShape(value: unknown, skillDir: string): asserts value is
     throw new Error(`Skill manifest in "${skillDir}" must be a JSON object`);
   }
   const obj = value as Record<string, unknown>;
-  if (typeof obj['name'] !== 'string' || obj['name'].length === 0) {
+  if (typeof obj.name !== 'string' || obj.name.length === 0) {
     throw new Error(`Skill manifest in "${skillDir}" is missing required string field "name"`);
   }
-  if (typeof obj['version'] !== 'string' || obj['version'].length === 0) {
+  if (typeof obj.version !== 'string' || obj.version.length === 0) {
     throw new Error(`Skill manifest in "${skillDir}" is missing required string field "version"`);
   }
-  if (typeof obj['description'] !== 'string' || obj['description'].length === 0) {
+  if (typeof obj.description !== 'string' || obj.description.length === 0) {
     throw new Error(`Skill manifest in "${skillDir}" is missing required string field "description"`);
   }
 }
@@ -37,8 +37,7 @@ async function readManifest(skillDir: string): Promise<{ manifest: SkillManifest
       // YAML manifests require an external YAML parser (not included — zero-dep constraint).
       // Treat as unsupported and fall through to the next candidate.
       throw new Error(
-        `Skill manifest "${manifestPath}" uses YAML format, which requires an external parser. ` +
-          'Rename to skill.json or convert to JSON format.',
+        `Skill manifest "${manifestPath}" uses YAML format, which requires an external parser. Rename to skill.json or convert to JSON format.`,
       );
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -57,14 +56,8 @@ async function loadToolHandler(
   const handlerPath = path.resolve(skillDir, toolDef.handler);
   const handlerUrl = pathToFileURL(handlerPath).href;
   const mod: unknown = await import(handlerUrl);
-  if (
-    typeof mod !== 'object' ||
-    mod === null ||
-    typeof (mod as Record<string, unknown>)['default'] !== 'function'
-  ) {
-    throw new Error(
-      `Tool handler "${toolDef.handler}" in skill "${skillDir}" must export a default function`,
-    );
+  if (typeof mod !== 'object' || mod === null || typeof (mod as Record<string, unknown>).default !== 'function') {
+    throw new Error(`Tool handler "${toolDef.handler}" in skill "${skillDir}" must export a default function`);
   }
   return (mod as { default: (input: Record<string, unknown>) => Promise<string> }).default;
 }
@@ -76,14 +69,8 @@ async function loadHookHandler(
   const handlerPath = path.resolve(skillDir, hookDef.handler);
   const handlerUrl = pathToFileURL(handlerPath).href;
   const mod: unknown = await import(handlerUrl);
-  if (
-    typeof mod !== 'object' ||
-    mod === null ||
-    typeof (mod as Record<string, unknown>)['default'] !== 'function'
-  ) {
-    throw new Error(
-      `Hook handler "${hookDef.handler}" in skill "${skillDir}" must export a default function`,
-    );
+  if (typeof mod !== 'object' || mod === null || typeof (mod as Record<string, unknown>).default !== 'function') {
+    throw new Error(`Hook handler "${hookDef.handler}" in skill "${skillDir}" must export a default function`);
   }
   return (mod as { default: (ctx: Record<string, unknown>) => Promise<void> }).default;
 }
@@ -112,9 +99,7 @@ export class SkillLoader {
       let entries: string[];
       try {
         const dirEntries = await fs.readdir(baseDir, { withFileTypes: true });
-        entries = dirEntries
-          .filter((e) => e.isDirectory())
-          .map((e) => path.join(baseDir, e.name));
+        entries = dirEntries.filter((e) => e.isDirectory()).map((e) => path.join(baseDir, e.name));
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           continue; // directory does not exist yet — skip silently
@@ -182,9 +167,7 @@ export class SkillLoader {
       return skill;
     }
 
-    throw new Error(
-      `Skill "${skillName}" not found. Searched in: ${this.skillDirs.join(', ')}`,
-    );
+    throw new Error(`Skill "${skillName}" not found. Searched in: ${this.skillDirs.join(', ')}`);
   }
 
   /** Discover and load all available skills. */

@@ -33,9 +33,9 @@ test('SWITCH_TAB_DELTA: clamps at end', () => {
   assert.equal(next.activeTab, 'config');
 });
 
-test('SWITCH_TAB_DELTA: clamps at beginning', () => {
+test('SWITCH_TAB_DELTA: moves backward from dashboard to repl', () => {
   const next = dispatch(initialState, { type: 'SWITCH_TAB_DELTA', delta: -1 });
-  assert.equal(next.activeTab, 'dashboard');
+  assert.equal(next.activeTab, 'repl');
 });
 
 // ─── SET_FOCUS ───────────────────────────────────────────────────────────────
@@ -278,10 +278,10 @@ test('initialState: activeTab is dashboard', () => {
   assert.equal(initialState.activeTab, 'dashboard');
 });
 
-test('initialState: TAB_ORDER has 3 tabs', async () => {
+test('initialState: TAB_ORDER has 4 tabs', async () => {
   const { TAB_ORDER } = await import('../dist/store.js');
-  assert.equal(TAB_ORDER.length, 3);
-  assert.deepEqual(TAB_ORDER, ['dashboard', 'sessions', 'config']);
+  assert.equal(TAB_ORDER.length, 4);
+  assert.deepEqual(TAB_ORDER, ['repl', 'dashboard', 'sessions', 'config']);
 });
 
 // ─── Unknown action returns unchanged state ──────────────────────────────────
