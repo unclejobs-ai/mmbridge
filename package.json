@@ -10,7 +10,9 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "pnpm -r run test",
-    "smoke": "pnpm run build && node packages/cli/dist/bin/mmbridge.js doctor --json && node packages/cli/dist/bin/mmbridge.js context tree --json -p . && node packages/cli/dist/bin/mmbridge.js context packet --task \"smoke\" --json -p . && node packages/cli/dist/bin/mmbridge.js gate --format json --base-ref HEAD~1 -p .",
+    "smoke": "pnpm run build && pnpm run smoke:cli && pnpm run smoke:mcp",
+    "smoke:cli": "node packages/cli/dist/bin/mmbridge.js doctor --json && node packages/cli/dist/bin/mmbridge.js context tree --json -p . && node packages/cli/dist/bin/mmbridge.js context packet --task \"smoke\" --json -p . && node packages/cli/dist/bin/mmbridge.js gate --format json --base-ref HEAD~1 -p .",
+    "smoke:mcp": "node --experimental-strip-types --test packages/mcp/test/mcp-server-e2e.test.ts",
     "clean": "pnpm -r run clean",
     "changeset": "changeset",
     "release": "changeset version && pnpm install && pnpm run build && changeset publish"
