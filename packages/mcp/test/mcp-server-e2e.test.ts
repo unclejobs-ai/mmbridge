@@ -62,6 +62,7 @@ test('mmbridge MCP server: tools/call mmbridge_doctor returns structured report'
       }
     }
     assert.equal(texts.length, 1, 'mmbridge_doctor should return exactly one text content block');
+    assert.ok(result.isError !== true, `mmbridge_doctor returned error: ${texts[0]}`);
 
     const report = JSON.parse(texts[0]) as {
       generatedAt?: unknown;
