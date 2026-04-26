@@ -55,6 +55,19 @@ function supportsInteractiveTui(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY && typeof process.stdin.setRawMode === 'function');
 }
 
+function isCommand(value: unknown): value is Command {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'opts' in value &&
+    typeof (value as { opts?: unknown }).opts === 'function'
+  );
+}
+
+function commandOptions<T extends object>(value: T | Command): T {
+  return isCommand(value) ? (value.opts() as T) : value;
+}
+
 async function runTuiOrFallback(
   program: Command,
   options?: { tab?: 'dashboard' | 'sessions' | 'config' },
@@ -177,9 +190,10 @@ export async function main(): Promise<void> {
     .option('--base-ref <ref>', 'Git base ref for diff')
     .option('-m, --mode <mode>', 'Review mode to evaluate (review|security|architecture)')
     .option('--format <format>', 'Output format (compact|json)', 'compact')
-    .action(async (opts: GateCommandOptions) => {
+    .option('--strict', 'Exit non-zero when gate status is warn')
+    .action(async (opts: GateCommandOptions | Command) => {
       const { runGateCommand } = await import('./commands/gate.js');
-      await runGateCommand(opts);
+      await runGateCommand(commandOptions<GateCommandOptions>(opts));
     });
 
   // ── handoff ──
@@ -411,20 +425,22 @@ export async function main(): Promise<void> {
     .command('install')
     .description('Install mmbridge hooks into Claude Code settings')
     .option('--global', 'Install to global ~/.claude/settings.json')
+    .option('--settings <name>', 'Settings file target (default|local)', 'default')
     .option('--json', 'Output JSON')
-    .action(async (opts: { global?: boolean; json?: boolean }) => {
+    .action(async (opts: HookCommandOptions | Command) => {
       const { runHookInstallCommand } = await import('./commands/hook.js');
-      await runHookInstallCommand(opts);
+      await runHookInstallCommand(commandOptions<HookCommandOptions>(opts));
     });
 
   hookCmd
     .command('uninstall')
     .description('Remove mmbridge hooks from Claude Code settings')
     .option('--global', 'Remove from global ~/.claude/settings.json')
+    .option('--settings <name>', 'Settings file target (default|local)', 'default')
     .option('--json', 'Output JSON')
-    .action(async (opts: { global?: boolean; json?: boolean }) => {
+    .action(async (opts: HookCommandOptions | Command) => {
       const { runHookUninstallCommand } = await import('./commands/hook.js');
-      await runHookUninstallCommand(opts);
+      await runHookUninstallCommand(commandOptions<HookCommandOptions>(opts));
     });
 
   // ── context ──

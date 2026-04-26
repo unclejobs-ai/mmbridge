@@ -1,5 +1,11 @@
 # @mmbridge/integrations
 
+## 0.7.1
+
+### Patch Changes
+
+- Add strict review gate support, settings.local hook installation, and Claude Code stdin JSON hook parsing.
+
 ## 0.7.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@mmbridge/integrations",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Claude Code integration and agent sync utilities",
   "type": "module",
   "main": "dist/index.js",

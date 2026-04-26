@@ -7,6 +7,7 @@ export interface GateCommandOptions {
   baseRef?: string;
   mode?: string;
   format?: 'compact' | 'json';
+  strict?: boolean;
 }
 
 function formatGateResult(result: GateResult): string {
@@ -35,8 +36,21 @@ function toGateSession(session: Session | null) {
   };
 }
 
+function readProjectArg(argv: string[]): string | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--project' || arg === '-p') {
+      return argv[index + 1];
+    }
+    if (arg.startsWith('--project=')) {
+      return arg.slice('--project='.length);
+    }
+  }
+  return undefined;
+}
+
 export async function runGateCommand(options: GateCommandOptions): Promise<void> {
-  const projectDir = resolveProjectDir(options.project);
+  const projectDir = resolveProjectDir(options.project ?? readProjectArg(process.argv));
   const mode = options.mode ?? 'review';
   const format = options.format ?? 'compact';
 
@@ -109,8 +123,14 @@ export async function runGateCommand(options: GateCommandOptions): Promise<void>
 
   if (format === 'json') {
     jsonOutput(result);
+    if (options.strict && result.status === 'warn') {
+      process.exitCode = 1;
+    }
     return;
   }
 
   process.stdout.write(`${formatGateResult(result)}\n`);
+  if (options.strict && result.status === 'warn') {
+    process.exitCode = 1;
+  }
 }

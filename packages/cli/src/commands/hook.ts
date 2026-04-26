@@ -5,14 +5,18 @@ import { importIntegrations, jsonOutput } from './helpers.js';
 
 export interface HookCommandOptions {
   global?: boolean;
+  settings?: 'default' | 'local';
   json?: boolean;
 }
 
+function resolveSettingsPath(options: HookCommandOptions): string {
+  const fileName = options.settings === 'local' ? 'settings.local.json' : 'settings.json';
+  const baseDir = options.global ? path.join(os.homedir(), '.claude') : path.join(process.cwd(), '.claude');
+  return path.join(baseDir, fileName);
+}
+
 export async function runHookInstallCommand(options: HookCommandOptions): Promise<void> {
-  const home = os.homedir();
-  const settingsPath = options.global
-    ? path.join(home, '.claude', 'settings.json')
-    : path.join(process.cwd(), '.claude', 'settings.json');
+  const settingsPath = resolveSettingsPath(options);
 
   await fs.mkdir(path.dirname(settingsPath), { recursive: true });
 
@@ -52,10 +56,7 @@ export async function runHookInstallCommand(options: HookCommandOptions): Promis
 }
 
 export async function runHookUninstallCommand(options: HookCommandOptions): Promise<void> {
-  const home = os.homedir();
-  const settingsPath = options.global
-    ? path.join(home, '.claude', 'settings.json')
-    : path.join(process.cwd(), '.claude', 'settings.json');
+  const settingsPath = resolveSettingsPath(options);
 
   let existing: Record<string, unknown> = {};
   try {
