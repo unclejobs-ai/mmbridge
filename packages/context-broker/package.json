@@ -1,6 +1,6 @@
 {
   "name": "@mmbridge/context-broker",
-  "version": "0.7.0",
+  "version": "0.7.2",
   "description": "Context brokering layer for mmbridge — session tree, recall engine, and context packet assembly",
   "type": "module",
   "main": "dist/index.js",

@@ -1,6 +1,8 @@
 import type { GitStatusSummary, HeadMeta, RunResult } from './types.js';
 import { runCommand } from './utils.js';
 
+export const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
 export async function getHead(cwd?: string): Promise<HeadMeta> {
   const shaResult: RunResult = await runCommand('git', ['rev-parse', '--short', 'HEAD'], { cwd });
   const branchResult: RunResult = await runCommand('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
@@ -10,8 +12,8 @@ export async function getHead(cwd?: string): Promise<HeadMeta> {
   };
 }
 
-export async function getChangedFiles(baseRef: string, cwd?: string): Promise<string[]> {
-  const result: RunResult = await runCommand('git', ['diff', '--name-only', baseRef, 'HEAD'], { cwd });
+export async function getChangedFiles(baseRef: string, cwd?: string, targetRef = 'HEAD'): Promise<string[]> {
+  const result: RunResult = await runCommand('git', ['diff', '--name-only', baseRef, targetRef], { cwd });
   if (!result.ok) return [];
   return result.stdout
     .split('\n')
@@ -58,8 +60,8 @@ export async function getGitStatusSummary(cwd?: string): Promise<GitStatusSummar
   };
 }
 
-export async function getDiff(baseRef: string, cwd?: string): Promise<string> {
-  const result: RunResult = await runCommand('git', ['diff', baseRef, 'HEAD'], { cwd });
+export async function getDiff(baseRef: string, cwd?: string, targetRef = 'HEAD'): Promise<string> {
+  const result: RunResult = await runCommand('git', ['diff', baseRef, targetRef], { cwd });
   return result.ok ? result.stdout : '';
 }
 
@@ -69,6 +71,16 @@ export async function getDefaultBaseRef(cwd?: string): Promise<string> {
     if (result.ok) return candidate;
   }
   return 'HEAD~1';
+}
+
+export async function getCommitParentOrEmptyTree(commit: string, cwd?: string): Promise<string> {
+  const result: RunResult = await runCommand('git', ['rev-parse', '--verify', `${commit}^`], { cwd });
+  return result.ok ? `${commit}^` : EMPTY_TREE_SHA;
+}
+
+export async function getFileAtRef(ref: string, relPath: string, cwd?: string): Promise<string | null> {
+  const result: RunResult = await runCommand('git', ['show', `${ref}:${relPath}`], { cwd });
+  return result.ok ? result.stdout : null;
 }
 
 export async function getDiffFileCount(baseRef: string, cwd?: string): Promise<number> {

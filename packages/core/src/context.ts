@@ -3,7 +3,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from './config.js';
-import { getChangedFiles, getDefaultBaseRef, getDiff, getHead } from './git.js';
+import {
+  getChangedFiles,
+  getCommitParentOrEmptyTree,
+  getDefaultBaseRef,
+  getDiff,
+  getFileAtRef,
+  getHead,
+} from './git.js';
 import { redactWorkspace } from './redaction.js';
 import { ADAPTER_NAMES } from './types.js';
 import type { ContextWorkspace, CreateContextOptions } from './types.js';
@@ -112,9 +119,14 @@ export async function createContext(options: CreateContextOptions = {}): Promise
   const maxContextBytes = options.maxContextBytes ?? config.context?.maxBytes ?? DEFAULT_MAX_CONTEXT_BYTES;
 
   const head = await getHead(projectDir);
-  const baseRef = options.baseRef ?? options.commit ?? (await getDefaultBaseRef(projectDir));
+  const targetRef = options.commit ?? 'HEAD';
+  const baseRef =
+    options.baseRef ??
+    (options.commit
+      ? await getCommitParentOrEmptyTree(options.commit, projectDir)
+      : await getDefaultBaseRef(projectDir));
 
-  const changedFiles = await getChangedFiles(baseRef, projectDir);
+  const changedFiles = await getChangedFiles(baseRef, projectDir, targetRef);
 
   // Create workspace directory
   const slug = projectSlug(projectDir);
@@ -139,7 +151,13 @@ export async function createContext(options: CreateContextOptions = {}): Promise
 
     let content: string;
     try {
-      content = await fs.readFile(srcPath, 'utf8');
+      if (targetRef !== 'HEAD') {
+        const refContent = await getFileAtRef(targetRef, relPath, projectDir);
+        if (refContent === null) continue;
+        content = refContent;
+      } else {
+        content = await fs.readFile(srcPath, 'utf8');
+      }
     } catch {
       continue;
     }
@@ -157,7 +175,7 @@ export async function createContext(options: CreateContextOptions = {}): Promise
   }
 
   // Write diff
-  const diffContent = await getDiff(baseRef, projectDir);
+  const diffContent = await getDiff(baseRef, projectDir, targetRef);
   const limitedDiffContent = limitBytes(diffContent, maxContextBytes);
   const diffPath = path.join(workspace, 'diff.patch');
   await fs.writeFile(diffPath, limitedDiffContent, 'utf8');

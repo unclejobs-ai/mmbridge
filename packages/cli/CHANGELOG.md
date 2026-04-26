@@ -1,5 +1,18 @@
 # @mmbridge/cli
 
+## 0.7.2
+
+### Patch Changes
+
+- Fix `mmbridge review --commit <sha>` so commit-scoped reviews diff `<sha>^..<sha>` instead of treating the commit as the base ref and producing an empty review.
+- Updated dependencies
+  - @mmbridge/core@0.7.2
+  - @mmbridge/adapters@0.7.2
+  - @mmbridge/agent@0.7.2
+  - @mmbridge/context-broker@0.7.2
+  - @mmbridge/session-store@0.7.2
+  - @mmbridge/tui@0.7.2
+
 ## 0.7.1
 
 ### Patch Changes

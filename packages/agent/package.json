@@ -1,13 +1,20 @@
 {
   "name": "@mmbridge/agent",
-  "version": "0.1.0",
+  "version": "0.7.2",
   "description": "Conversational agent loop with Claude tool_use for mmbridge",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "exports": { ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" } },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "files": ["dist"],
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist *.tsbuildinfo"
@@ -19,5 +26,7 @@
     "@mmbridge/session-store": "workspace:*",
     "@mmbridge/context-broker": "workspace:*"
   },
-  "publishConfig": { "access": "public" }
+  "publishConfig": {
+    "access": "public"
+  }
 }

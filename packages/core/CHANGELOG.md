@@ -1,5 +1,11 @@
 # @mmbridge/core
 
+## 0.7.2
+
+### Patch Changes
+
+- Fix `mmbridge review --commit <sha>` so commit-scoped reviews diff `<sha>^..<sha>` instead of treating the commit as the base ref and producing an empty review.
+
 ## 0.7.0
 
 ### Minor Changes

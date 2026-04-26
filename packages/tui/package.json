@@ -1,6 +1,6 @@
 {
   "name": "@mmbridge/tui",
-  "version": "0.7.0",
+  "version": "0.7.2",
   "description": "Terminal UI rendering for the mmbridge control plane",
   "type": "module",
   "main": "dist/index.js",
