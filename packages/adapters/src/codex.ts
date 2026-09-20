@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { parseCodexAgentMessages } from '@mmbridge/core';
-import type { AdapterDefinition, AdapterResult } from './types.js';
+import type { AdapterDefinition, AdapterResult, RunOptions } from './types.js';
 import { assertCliSuccess, ensureBinary, invoke, isPathContained, parseExternalSessionId } from './utils.js';
 
 export async function runCodexReview({
@@ -43,6 +44,51 @@ export function buildCodexExecArgs({
   outputPath: string;
 }): string[] {
   return ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', workspace, '-o', outputPath, '-'];
+}
+
+export function buildCodexTaskArgs({ cwd, outputPath }: { cwd: string; outputPath: string }): string[] {
+  return [
+    'exec',
+    '--ignore-user-config',
+    '--ephemeral',
+    '--json',
+    '--skip-git-repo-check',
+    '--sandbox',
+    'read-only',
+    '-C',
+    cwd,
+    '-o',
+    outputPath,
+    '-',
+  ];
+}
+
+export async function runCodexTask(options: RunOptions): Promise<AdapterResult> {
+  if (!options.readonly) {
+    throw new Error('Codex task adapter currently supports read-only runs only');
+  }
+
+  const binary = options.binary ?? 'codex';
+  await ensureBinary(binary);
+  const outputPath = createCodexTempOutputPath();
+  const args = buildCodexTaskArgs({ cwd: options.cwd, outputPath });
+  const result = await invoke(binary, args, {
+    cwd: options.cwd,
+    input: options.task,
+    timeoutMs: options.timeoutMs ?? 300_000,
+    onStdout: options.onStdout,
+    onStderr: options.onStderr,
+  });
+  const text = await readCodexLastMessage(outputPath, result.combined);
+  return {
+    tool: 'codex',
+    externalSessionId: null,
+    followupSupported: false,
+    command: binary,
+    args,
+    ...result,
+    text,
+  };
 }
 
 export async function runCodexFollowup({
@@ -153,6 +199,10 @@ function createCodexOutputPath(workspace: string, kind: string): string {
   return path.join(workspace, `.codex-${kind}-${randomUUID()}.txt`);
 }
 
+function createCodexTempOutputPath(): string {
+  return path.join(os.tmpdir(), `mmbridge-codex-run-${randomUUID()}.txt`);
+}
+
 export async function requireCodexWorkspace(workspace: string): Promise<string> {
   if (await directoryExists(workspace)) return workspace;
   throw new Error(`Codex follow-up workspace is no longer available: ${workspace}`);
@@ -171,6 +221,8 @@ async function directoryExists(dirPath: string): Promise<boolean> {
 export const codexAdapter: AdapterDefinition = {
   name: 'codex',
   binary: 'codex',
+  capabilities: { readOnly: true, followup: true },
+  run: (options) => runCodexTask(options),
   review: (options) => runCodexReview(options),
   followup: (options) => runCodexFollowup(options),
 };

@@ -6,11 +6,18 @@ import { kimiAdapter } from './kimi.js';
 import { piAdapter } from './pi.js';
 import { qwenAdapter } from './qwen.js';
 import { AdapterRegistry } from './registry.js';
-import type { AdapterDefinition, AdapterResult, FollowupOptions, ReviewOptions } from './types.js';
+import type { AdapterDefinition, AdapterResult, FollowupOptions, ReviewOptions, RunOptions } from './types.js';
 
-export type { ReviewOptions, FollowupOptions, AdapterResult } from './types.js';
-export type { AdapterDefinition } from './types.js';
-export { AdapterRegistry } from './registry.js';
+export type {
+  ReviewOptions,
+  FollowupOptions,
+  RunOptions,
+  AdapterResult,
+  AdapterCapabilities,
+  AdapterRuntimeStatus,
+  AdapterDefinition,
+} from './types.js';
+export { AdapterRegistry, resolveAdapterCapabilities } from './registry.js';
 
 const defaultRegistry = new AdapterRegistry();
 const builtinAdapters = [kimiAdapter, piAdapter, qwenAdapter, codexAdapter, geminiAdapter, droidAdapter, claudeAdapter];
@@ -64,4 +71,12 @@ export async function runReviewAdapter(tool: string, options: ReviewOptions): Pr
 
 export async function runFollowupAdapter(tool: string, options: FollowupOptions): Promise<AdapterResult> {
   return getAdapterOrThrow(tool).followup(options);
+}
+
+export async function runTaskAdapter(tool: string, options: RunOptions): Promise<AdapterResult> {
+  const adapter = getAdapterOrThrow(tool);
+  if (!adapter.run) {
+    throw new Error(`Adapter "${tool}" does not support arbitrary task runs`);
+  }
+  return adapter.run({ ...options, binary: adapter.binary });
 }

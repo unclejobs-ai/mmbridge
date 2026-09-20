@@ -22,6 +22,7 @@ import type {
 import type { ResearchCommandOptions } from './commands/research.js';
 import type { ResumeCommandOptions } from './commands/resume.js';
 import type { ReviewCommandOptions } from './commands/review.js';
+import type { RunTaskCommandOptions } from './commands/run.js';
 import type { SecurityCommandOptions } from './commands/security.js';
 import type { SyncAgentsOptions } from './commands/sync-agents.js';
 
@@ -31,6 +32,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-
 export type {
   ConversationOptions,
   ReviewCommandOptions,
+  RunTaskCommandOptions,
   ResumeCommandOptions,
   FollowupCommandOptions,
   GateCommandOptions,
@@ -124,6 +126,20 @@ export async function main(): Promise<void> {
     .action(async (opts: ReviewCommandOptions) => {
       const { runReviewCommand } = await import('./commands/review.js');
       await runReviewCommand(opts);
+    });
+
+  // ── run ──
+  program
+    .command('run <task>')
+    .description('Run one task through a verified read-only adapter')
+    .option('-t, --tool <tool>', 'Adapter to use (defaults to the first capable installed adapter)')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--readonly', 'Require a verified read-only execution path')
+    .option('--json', 'Output structured JSON')
+    .action(async (task: string, _opts: Omit<RunTaskCommandOptions, 'task'>, command: Command) => {
+      const { runTaskCommand } = await import('./commands/run.js');
+      const opts = command.optsWithGlobals() as Omit<RunTaskCommandOptions, 'task'>;
+      await runTaskCommand({ ...opts, task });
     });
 
   // ── followup ──

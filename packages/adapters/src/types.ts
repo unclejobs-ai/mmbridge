@@ -19,6 +19,32 @@ export interface FollowupOptions {
   prompt: string;
 }
 
+export interface RunOptions {
+  cwd: string;
+  task: string;
+  readonly: boolean;
+  timeoutMs?: number;
+  /** Registry-supplied command override. Adapter callers should normally omit this. */
+  binary?: string;
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
+}
+
+export interface AdapterCapabilities {
+  run: boolean;
+  readOnly: boolean;
+  followup: boolean;
+}
+
+export interface AdapterRuntimeStatus {
+  name: string;
+  binary: string;
+  installed: boolean;
+  authentication: 'unknown';
+  health: 'unknown' | 'healthy' | 'failed';
+  capabilities: AdapterCapabilities;
+}
+
 export interface AdapterResult {
   tool: string;
   externalSessionId: string | null;
@@ -36,6 +62,8 @@ export interface AdapterResult {
 export interface AdapterDefinition {
   name: string;
   binary: string;
+  capabilities?: Partial<Pick<AdapterCapabilities, 'readOnly' | 'followup'>>;
+  run?(options: RunOptions): Promise<AdapterResult>;
   review(options: ReviewOptions): Promise<AdapterResult>;
   followup(options: FollowupOptions): Promise<AdapterResult>;
 }

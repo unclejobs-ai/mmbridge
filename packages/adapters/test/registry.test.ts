@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AdapterRegistry } from '../dist/registry.js';
+import { AdapterRegistry, resolveAdapterCapabilities } from '../dist/registry.js';
 
 function createMockAdapter(name) {
   const mockResult = {
@@ -47,6 +47,25 @@ test('get returns undefined for unknown adapter', () => {
 test('has returns false for unknown adapter', () => {
   const registry = new AdapterRegistry();
   assert.equal(registry.has('nonexistent'), false);
+});
+
+test('resolveAdapterCapabilities only advertises explicitly verified read-only runs', () => {
+  const adapter = {
+    ...createMockAdapter('runner'),
+    capabilities: { readOnly: true, followup: true },
+    run: async () => createMockAdapter('runner').review(),
+  };
+
+  assert.deepEqual(resolveAdapterCapabilities(adapter), {
+    run: true,
+    readOnly: true,
+    followup: true,
+  });
+  assert.deepEqual(resolveAdapterCapabilities(createMockAdapter('review-only')), {
+    run: false,
+    readOnly: false,
+    followup: false,
+  });
 });
 
 test('register overwrites existing adapter', () => {

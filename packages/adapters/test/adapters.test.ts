@@ -7,6 +7,7 @@ import {
   buildCodexExecArgs,
   buildCodexResumeArgs,
   buildCodexReviewPrompt,
+  buildCodexTaskArgs,
   requireCodexWorkspace,
 } from '../dist/codex.js';
 import { buildGeminiReviewArgs } from '../dist/gemini.js';
@@ -66,6 +67,27 @@ test('buildCodexExecArgs returns expected codex exec argument list', () => {
     '/tmp/ws',
     '-o',
     '/tmp/ws/.codex-review-uuid.txt',
+    '-',
+  ]);
+});
+
+test('buildCodexTaskArgs isolates a read-only one-shot task', () => {
+  const args = buildCodexTaskArgs({
+    cwd: '/tmp/repo',
+    outputPath: '/tmp/mmbridge-output.txt',
+  });
+  assert.deepEqual(args, [
+    'exec',
+    '--ignore-user-config',
+    '--ephemeral',
+    '--json',
+    '--skip-git-repo-check',
+    '--sandbox',
+    'read-only',
+    '-C',
+    '/tmp/repo',
+    '-o',
+    '/tmp/mmbridge-output.txt',
     '-',
   ]);
 });

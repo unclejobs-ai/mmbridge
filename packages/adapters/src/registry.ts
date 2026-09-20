@@ -1,5 +1,13 @@
 import type { MmbridgeConfig } from '@mmbridge/core';
-import type { AdapterDefinition } from './types.js';
+import type { AdapterCapabilities, AdapterDefinition, AdapterRuntimeStatus } from './types.js';
+
+export function resolveAdapterCapabilities(adapter: AdapterDefinition): AdapterCapabilities {
+  return {
+    run: typeof adapter.run === 'function',
+    readOnly: typeof adapter.run === 'function' && adapter.capabilities?.readOnly === true,
+    followup: adapter.capabilities?.followup === true,
+  };
+}
 
 export class AdapterRegistry {
   private readonly adapters = new Map<string, AdapterDefinition>();
@@ -29,14 +37,22 @@ export class AdapterRegistry {
   }
 
   async listInstalled(): Promise<string[]> {
+    const statuses = await this.listRuntimeStatuses();
+    return statuses.filter((runtime) => runtime.installed).map((runtime) => runtime.name);
+  }
+
+  async listRuntimeStatuses(): Promise<AdapterRuntimeStatus[]> {
     const { commandExists } = await import('@mmbridge/core');
-    const results = await Promise.all(
-      this.values().map(async (a) => ({
-        name: a.name,
-        installed: await commandExists(a.binary).catch(() => false),
+    return Promise.all(
+      this.values().map(async (adapter) => ({
+        name: adapter.name,
+        binary: adapter.binary,
+        installed: await commandExists(adapter.binary).catch(() => false),
+        authentication: 'unknown' as const,
+        health: 'unknown' as const,
+        capabilities: resolveAdapterCapabilities(adapter),
       })),
     );
-    return results.filter((r) => r.installed).map((r) => r.name);
   }
 
   async loadFromConfig(config: MmbridgeConfig): Promise<void> {
@@ -56,9 +72,15 @@ export class AdapterRegistry {
             typeof candidate.review === 'function' &&
             typeof candidate.followup === 'function'
           ) {
+            const capabilities =
+              candidate.capabilities && typeof candidate.capabilities === 'object'
+                ? (candidate.capabilities as AdapterDefinition['capabilities'])
+                : undefined;
             const adapter: AdapterDefinition = {
               name,
               binary: candidate.binary,
+              capabilities,
+              run: typeof candidate.run === 'function' ? (candidate.run as AdapterDefinition['run']) : undefined,
               review: candidate.review as AdapterDefinition['review'],
               followup: candidate.followup as AdapterDefinition['followup'],
             };

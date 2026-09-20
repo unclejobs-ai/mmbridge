@@ -50,6 +50,7 @@ export async function runPiFollowup(_: {
 export const piAdapter: AdapterDefinition = {
   name: 'pi',
   binary: 'acpx',
+  capabilities: { readOnly: false, followup: false },
   review: (options) => runPiReview(options),
   followup: (options) => runPiFollowup(options),
 };
