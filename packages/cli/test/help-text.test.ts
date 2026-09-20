@@ -25,7 +25,7 @@ test('root help uses the control-plane taxonomy', () => {
   assert.match(output, /Multi-model thinking and review control plane for coding agents/);
   assert.match(output, /\n {2}tui \[options\]\s+Open the interactive TUI control plane/);
   assert.match(output, /\n {2}review \[options\]\s+Run a multi-model review for a change or/);
-  assert.match(output, /\n {2}run \[options\] <task>\s+Run one task through a verified read-only/);
+  assert.match(output, /\n {2}run \[options\] <task>\s+Run one task through a declared read-only/);
   assert.match(output, /\n {2}research \[options\] <topic>\s+Research a topic using multiple AI models/);
   assert.match(output, /\n {2}embrace \[options\] <task>\s+Orchestrate research, debate, checkpointing,/);
 

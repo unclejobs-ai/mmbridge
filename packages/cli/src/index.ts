@@ -131,10 +131,10 @@ export async function main(): Promise<void> {
   // ── run ──
   program
     .command('run <task>')
-    .description('Run one task through a verified read-only adapter')
+    .description('Run one task through a declared read-only adapter')
     .option('-t, --tool <tool>', 'Adapter to use (defaults to the first capable installed adapter)')
     .option('-p, --project <dir>', 'Project directory (default: cwd)')
-    .option('--readonly', 'Require a verified read-only execution path')
+    .option('--readonly', 'Require a declared read-only execution path')
     .option('--json', 'Output structured JSON')
     .action(async (task: string, _opts: Omit<RunTaskCommandOptions, 'task'>, command: Command) => {
       const { runTaskCommand } = await import('./commands/run.js');

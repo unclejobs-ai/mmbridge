@@ -18,7 +18,6 @@ interface RuntimeSelection {
 
 interface RunReport {
   ok: boolean;
-  task: string;
   readonly: boolean;
   runtimes: AdapterRuntimeStatus[];
   selected: { name: string; reason: string } | null;
@@ -55,7 +54,7 @@ export function selectRuntime(runtimes: AdapterRuntimeStatus[], requestedTool?: 
       return {
         runtime: null,
         reason: 'explicit selection',
-        error: `Adapter "${requestedTool}" does not support verified read-only task runs`,
+        error: `Adapter "${requestedTool}" does not support declared read-only task runs`,
       };
     }
     return { runtime, reason: 'explicit --tool selection' };
@@ -68,30 +67,40 @@ export function selectRuntime(runtimes: AdapterRuntimeStatus[], requestedTool?: 
     return {
       runtime: null,
       reason: 'automatic capability match',
-      error: 'No installed adapter supports verified read-only task runs',
+      error: 'No installed adapter supports declared read-only task runs',
     };
   }
-  return { runtime, reason: 'first installed adapter with verified read-only task support' };
+  return { runtime, reason: 'first installed adapter with declared read-only task support' };
 }
 
 export async function runTaskCommand(options: RunTaskCommandOptions): Promise<void> {
   const projectDir = path.resolve(options.project ?? process.cwd());
   const readonly = options.readonly === true;
-  const { defaultRegistry, runTaskAdapter } = await importAdapters(projectDir);
-  const runtimes = await defaultRegistry.listRuntimeStatuses();
+  const core = await importCore();
+  const cleanError = (value: string): string => core.limitBytes(core.redactContent(value).redacted, 4096);
+  let adapters: Awaited<ReturnType<typeof importAdapters>>;
+  let runtimes: AdapterRuntimeStatus[];
+
+  try {
+    await core.loadConfig(projectDir);
+    adapters = await importAdapters(projectDir);
+    runtimes = await adapters.defaultRegistry.listRuntimeStatuses();
+  } catch (error) {
+    const message = cleanError(error instanceof Error ? error.message : String(error));
+    emitReport(failedReport(readonly, [], message), options.json);
+    process.exitCode = 2;
+    return;
+  }
 
   if (!readonly) {
-    emitReport(
-      failedReport(options.task, readonly, runtimes, 'The first mmbridge run slice requires --readonly'),
-      options.json,
-    );
+    emitReport(failedReport(readonly, runtimes, 'The first mmbridge run slice requires --readonly'), options.json);
     process.exitCode = 2;
     return;
   }
 
   const selection = selectRuntime(runtimes, options.tool);
   if (!selection.runtime) {
-    emitReport(failedReport(options.task, readonly, runtimes, selection.error ?? 'No runtime selected'), options.json);
+    emitReport(failedReport(readonly, runtimes, selection.error ?? 'No runtime selected'), options.json);
     process.exitCode = 2;
     return;
   }
@@ -99,15 +108,15 @@ export async function runTaskCommand(options: RunTaskCommandOptions): Promise<vo
   const startedAt = Date.now();
   let result: AdapterResult;
   try {
-    result = await runTaskAdapter(selection.runtime.name, {
+    result = await adapters.runTaskAdapter(selection.runtime.name, {
       cwd: projectDir,
       task: options.task,
       readonly: true,
     });
   } catch (error) {
     const durationMs = Date.now() - startedAt;
-    const message = error instanceof Error ? error.message : String(error);
-    const report = failedReport(options.task, readonly, runtimes, message, {
+    const message = cleanError(error instanceof Error ? error.message : String(error));
+    const report = failedReport(readonly, runtimes, message, {
       selected: { name: selection.runtime.name, reason: selection.reason },
       durationMs,
     });
@@ -118,7 +127,6 @@ export async function runTaskCommand(options: RunTaskCommandOptions): Promise<vo
 
   const durationMs = Date.now() - startedAt;
   const report = await buildRunReport({
-    task: options.task,
     runtimes,
     selection: { ...selection, runtime: selection.runtime },
     result,
@@ -129,13 +137,11 @@ export async function runTaskCommand(options: RunTaskCommandOptions): Promise<vo
 }
 
 async function buildRunReport({
-  task,
   runtimes,
   selection,
   result,
   durationMs,
 }: {
-  task: string;
   runtimes: AdapterRuntimeStatus[];
   selection: RuntimeSelection & { runtime: AdapterRuntimeStatus };
   result: AdapterResult;
@@ -143,7 +149,12 @@ async function buildRunReport({
 }): Promise<RunReport> {
   const { limitBytes, redactContent } = await importCore();
   const clean = (value: string, maxBytes: number): string => limitBytes(redactContent(value).redacted, maxBytes);
-  const tail = (value: string): string => clean(value, 4096).slice(-4096);
+  const tail = (value: string): string => {
+    const redacted = redactContent(value).redacted;
+    const bytes = Buffer.from(redacted, 'utf8');
+    if (bytes.byteLength <= 4096) return redacted;
+    return `[truncated]\n${bytes.subarray(bytes.byteLength - 4096).toString('utf8')}`;
+  };
   const stdoutSummary = result.stdout
     ? `[captured ${Buffer.byteLength(result.stdout, 'utf8')} bytes; content omitted]`
     : '';
@@ -151,7 +162,6 @@ async function buildRunReport({
 
   return {
     ok: result.ok,
-    task,
     readonly: true,
     runtimes: runtimes.map((runtime) =>
       runtime.name === selectedName ? { ...runtime, health: result.ok ? 'healthy' : 'failed' } : runtime,
@@ -175,7 +185,6 @@ async function buildRunReport({
 }
 
 function failedReport(
-  task: string,
   readonly: boolean,
   runtimes: AdapterRuntimeStatus[],
   error: string,
@@ -183,7 +192,6 @@ function failedReport(
 ): RunReport {
   return {
     ok: false,
-    task,
     readonly,
     runtimes,
     selected: extra.selected ?? null,

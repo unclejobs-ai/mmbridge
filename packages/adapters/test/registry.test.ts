@@ -49,7 +49,7 @@ test('has returns false for unknown adapter', () => {
   assert.equal(registry.has('nonexistent'), false);
 });
 
-test('resolveAdapterCapabilities only advertises explicitly verified read-only runs', () => {
+test('resolveAdapterCapabilities only advertises explicitly declared read-only runs', () => {
   const adapter = {
     ...createMockAdapter('runner'),
     capabilities: { readOnly: true, followup: true },

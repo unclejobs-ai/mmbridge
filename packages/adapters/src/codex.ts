@@ -70,25 +70,39 @@ export async function runCodexTask(options: RunOptions): Promise<AdapterResult> 
 
   const binary = options.binary ?? 'codex';
   await ensureBinary(binary);
-  const outputPath = createCodexTempOutputPath();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-codex-run-'));
+  const outputPath = path.join(tempDir, 'last-message.txt');
   const args = buildCodexTaskArgs({ cwd: options.cwd, outputPath });
-  const result = await invoke(binary, args, {
-    cwd: options.cwd,
-    input: options.task,
-    timeoutMs: options.timeoutMs ?? 300_000,
-    onStdout: options.onStdout,
-    onStderr: options.onStderr,
-  });
-  const text = await readCodexLastMessage(outputPath, result.combined);
-  return {
-    tool: 'codex',
-    externalSessionId: null,
-    followupSupported: false,
-    command: binary,
-    args,
-    ...result,
-    text,
-  };
+
+  try {
+    const result = await invoke(binary, args, {
+      cwd: options.cwd,
+      input: options.task,
+      timeoutMs: options.timeoutMs ?? 300_000,
+      onStdout: options.onStdout,
+      onStderr: options.onStderr,
+    });
+    const text = await readCodexTaskLastMessage(outputPath, result.stdout);
+    const missingFinalMessage = result.ok && !text;
+    const stderr = missingFinalMessage
+      ? `${result.stderr}\nCodex completed without a final agent message`.trim()
+      : result.stderr;
+    return {
+      tool: 'codex',
+      externalSessionId: null,
+      followupSupported: false,
+      command: binary,
+      args,
+      ...result,
+      ok: result.ok && !missingFinalMessage,
+      code: missingFinalMessage ? -1 : result.code,
+      stderr,
+      combined: `${result.stdout}\n${stderr}`.trim(),
+      text,
+    };
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 export async function runCodexFollowup({
@@ -199,8 +213,10 @@ function createCodexOutputPath(workspace: string, kind: string): string {
   return path.join(workspace, `.codex-${kind}-${randomUUID()}.txt`);
 }
 
-function createCodexTempOutputPath(): string {
-  return path.join(os.tmpdir(), `mmbridge-codex-run-${randomUUID()}.txt`);
+async function readCodexTaskLastMessage(outputPath: string, fallbackRaw: string): Promise<string> {
+  const fileText = await fs.readFile(outputPath, 'utf8').catch(() => '');
+  if (fileText.trim()) return fileText.trim();
+  return parseCodexAgentMessages(fallbackRaw).at(-1)?.trim() ?? '';
 }
 
 export async function requireCodexWorkspace(workspace: string): Promise<string> {

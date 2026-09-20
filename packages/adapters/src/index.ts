@@ -5,7 +5,7 @@ import { geminiAdapter } from './gemini.js';
 import { kimiAdapter } from './kimi.js';
 import { piAdapter } from './pi.js';
 import { qwenAdapter } from './qwen.js';
-import { AdapterRegistry } from './registry.js';
+import { AdapterRegistry, resolveAdapterCapabilities } from './registry.js';
 import type { AdapterDefinition, AdapterResult, FollowupOptions, ReviewOptions, RunOptions } from './types.js';
 
 export type {
@@ -75,8 +75,9 @@ export async function runFollowupAdapter(tool: string, options: FollowupOptions)
 
 export async function runTaskAdapter(tool: string, options: RunOptions): Promise<AdapterResult> {
   const adapter = getAdapterOrThrow(tool);
-  if (!adapter.run) {
-    throw new Error(`Adapter "${tool}" does not support arbitrary task runs`);
+  const capabilities = resolveAdapterCapabilities(adapter);
+  if (!options.readonly || !adapter.run || !capabilities.readOnly) {
+    throw new Error(`Adapter "${tool}" does not support declared read-only task runs`);
   }
   return adapter.run({ ...options, binary: adapter.binary });
 }
