@@ -47,7 +47,8 @@ function run(env: { repo: string; mmbridgeHome: string }, validate?: string) {
 }
 
 afterEach(() => {
-  for (const key of ['FAKE_OMP_EDIT', 'FAKE_OMP_REVIEW']) Reflect.deleteProperty(process.env, key);
+  for (const key of ['FAKE_OMP_EDIT', 'FAKE_OMP_REVIEW', 'FAKE_OMP_SPAWN_LOG'])
+    Reflect.deleteProperty(process.env, key);
 });
 
 describe('implement', () => {
@@ -111,5 +112,18 @@ describe('implement', () => {
     assert.equal(result.gate, 'block');
     assert.equal(result.review, undefined);
     assert.ok(result.reasons.some((r) => r.includes('no changes')));
+  });
+
+  it('gives the worker file tools only — no shell, code execution, browser, or sub-agents', async () => {
+    const env = await setup();
+    const spawnLog = path.join(env.mmbridgeHome, 'spawns.log');
+    process.env.FAKE_OMP_SPAWN_LOG = spawnLog;
+    process.env.FAKE_OMP_EDIT = `calc.js=${FIXED}`;
+    process.env.FAKE_OMP_REVIEW = PASS;
+    await run(env);
+    const [workerSpawn, reviewerSpawn] = (await readFile(spawnLog, 'utf8')).trim().split('\n');
+    assert.match(workerSpawn ?? '', /--tools read,edit,write,grep,glob(\s|$)/);
+    assert.doesNotMatch(workerSpawn ?? '', /bash|python|browser|computer|task|web_search/);
+    assert.match(reviewerSpawn ?? '', /--no-tools/);
   });
 });

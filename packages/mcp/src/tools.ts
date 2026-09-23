@@ -272,14 +272,15 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'mmbridge_implement',
     description:
-      'Gated implementation: a worker model edits an isolated git worktree (never the main checkout), a reviewer from a different provider judges the diff as schema-checked JSON, and an optional shell command validates it. Returns gate pass/block with reasons, the diff, the worktree path and branch (changes staged, not committed), and reviewer findings. Merge the branch yourself if the gate passes, then run the returned cleanup command (also after discarding) — otherwise each call leaves a worktree and branch behind.',
+      'Gated implementation: a worker model with file tools only (read/edit/write/grep/glob — no shell) edits an isolated git worktree (never the main checkout), a reviewer from a different provider judges the diff as schema-checked JSON, and an optional shell command validates it. Returns gate pass/block with reasons, the diff, the worktree path and branch (changes staged, not committed), and reviewer findings. Merge the branch yourself if the gate passes, then run the returned cleanup command (also after discarding) — otherwise each call leaves a worktree and branch behind.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         task: { type: 'string', description: 'What to change, with enough context for another model' },
         validate: {
           type: 'string',
-          description: 'Shell command run in the worktree, e.g. "pnpm install --frozen-lockfile && pnpm test"',
+          description:
+            'Shell command run in the worktree with your user privileges (only pass a command you would run yourself), e.g. "pnpm install --frozen-lockfile && pnpm test"',
         },
         projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
         timeoutMs: { type: 'number', description: 'Per-model timeout in ms (default: 600000)' },

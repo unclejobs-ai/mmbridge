@@ -114,6 +114,11 @@ R4 결론: 아래 네 가지를 **동시에** 하는 도구는 없다 — (1) �
 - 알려진 한계: (1) worktree에는 `node_modules`가 없다 — validate에 설치 명령을 포함해야 함, (2) yolo worker는 git worktree로 격리될 뿐 파일시스템 샌드박스는 아니다(bash로 worktree 밖 접근 가능), (3) Claude Code MCP 타임아웃보다 긴 worker는 미검증
 - **D9 변경**: `codex/harness-engineering` 병합은 S3에서 **제외**. main과 16파일 충돌(core review-pipeline, README, CI, 패키지 버전), `manager.ts`는 기존 review 파이프라인용 codex 합의 검토라 S3 reviewer gate와 별개이고 codex는 현재 쿼터 소진. 별도 브랜치에서 소유자 판단과 함께 처리
 
+**S3 보안 후속 (커밋 보안 리뷰 지적 2건)**
+- 권한 우회(yolo worker) → **worker 도구를 `--tools read,edit,write,grep,glob`로 제한**(bash/python/browser/computer/task/web_search 제외), worker 브리프에 "셸 없음, 검증은 mmbridge가 함" 명시. 실측: 제한 직후 브리프 없이 worker가 bash 호출을 텍스트로 흉내 내며 223.5s → 브리프 추가 후 2회 12.3s / 89.5s(토큰 소량, 편차 원인 미추적), 모두 gate pass. 남은 한계: omp `write`/`edit`가 worktree 밖 절대경로를 거부하는지는 미검증
+- 명령 주입(`validate` → `sh -c`) → **설계상 유지**: validate는 host가 고르는 명령이고 모델이 고르지 않는다. MCP 설명에 "당신의 권한으로 실행, 직접 돌릴 명령만" 명시. Claude Code에서는 MCP 도구 호출 승인이 게이트
+- 함께 잡은 CLI 버그: 루트 명령의 `-p/--project`·`--model`이 `dispatch`/`implement`의 같은 옵션을 삼킴 → `optsWithGlobals()`. 버그 상태에서 `implement -p <repo>`가 **현재 디렉터리(mmbridge repo)에 worktree를 만들었음**(cleanup으로 제거 확인). 회귀 테스트는 가짜 omp를 PATH에, HOME 격리, 비-git cwd에서 실행
+
 ### S4 — Agent Hub TUI
 - 디스패치된 역할당 라이브 패널 1개: role / model / 상태 / 경과 / 토큰·비용 / 마지막 도구. steer(`steer`), kill(`abort`)
 - gate를 버튼으로 (Conductor 패턴: diff 보기 → pass/block)

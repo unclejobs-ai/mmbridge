@@ -150,7 +150,9 @@ export async function main(): Promise<void> {
     .requiredOption('-r, --role <role>', 'worker | scout | reviewer | designer')
     .option('-m, --model <selector>', 'Pin a model as provider/model[:thinking]')
     .option('-p, --project <dir>', 'Project directory (default: cwd)')
-    .action(async (task: string, opts: { role: string; model?: string; project?: string }) => {
+    .action(async (task: string, _opts: unknown, command: Command) => {
+      // -p/--project and --model also exist on the root command, which would otherwise swallow them.
+      const opts = command.optsWithGlobals() as { role: string; model?: string; project?: string };
       const { ROLES, dispatch, isRole } = await import('@mmbridge/dispatch');
       if (!isRole(opts.role)) throw new Error(`Invalid role "${opts.role}": expected one of ${ROLES.join(', ')}`);
       const result = await dispatch({
@@ -169,7 +171,8 @@ export async function main(): Promise<void> {
     .description('Worker edits an isolated worktree, a different-provider reviewer gates the diff, then validate runs')
     .option('--validate <command>', 'Shell command run in the worktree after review')
     .option('-p, --project <dir>', 'Project directory (default: cwd)')
-    .action(async (task: string, opts: { validate?: string; project?: string }) => {
+    .action(async (task: string, _opts: unknown, command: Command) => {
+      const opts = command.optsWithGlobals() as { validate?: string; project?: string };
       const { implement } = await import('@mmbridge/dispatch');
       const result = await implement({
         task,

@@ -46,7 +46,7 @@ export interface DispatchInput {
   binary?: string;
   /** Skip these providers (e.g. the worker's, so a reviewer comes from a different model family). */
   excludeProviders?: string[];
-  /** Give the worker omp's tools with auto-approval. Only for an isolated cwd (a dedicated git worktree). */
+  /** Give the worker omp's file tools with auto-approval. Only for an isolated cwd (a dedicated git worktree). */
   tools?: boolean;
 }
 

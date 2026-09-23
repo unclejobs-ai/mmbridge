@@ -12,6 +12,11 @@ const LEAN_FLAGS = ['--no-session', '--no-extensions', '--no-skills', '--no-rule
  * bypassing mmbridge's role chain, deny list, and cooldowns. mmbridge owns fallback, so a worker never does.
  */
 const NO_INTERNAL_FALLBACK = 'retry:\n  modelFallback: false\n  usageAwareFallback: false\n';
+/**
+ * Auto-approved (yolo) workers get file tools only: no bash/python (arbitrary commands), browser/computer,
+ * web access, or sub-agents. Validation commands run in mmbridge, chosen by the host — not by the model.
+ */
+const WORKER_TOOLS = 'read,edit,write,grep,glob';
 const STDERR_TAIL_BYTES = 2048;
 /** Extension UI requests that block the turn until the host answers (others, like setWidget, are fire-and-forget). */
 const BLOCKING_UI_METHODS = new Set(['select', 'confirm', 'input', 'editor']);
@@ -26,7 +31,7 @@ export interface OmpPromptInput {
   cwd: string;
   timeoutMs?: number;
   binary?: string;
-  /** Give the worker omp's tools with auto-approval. Only for an isolated cwd (a dedicated git worktree). */
+  /** Give the worker omp's file tools with auto-approval. Only for an isolated cwd (a dedicated git worktree). */
   tools?: boolean;
 }
 
@@ -82,7 +87,7 @@ export function runOmpPrompt(input: OmpPromptInput): Promise<OmpPromptResult> {
   const elapsed = () => Date.now() - startedAt;
   const overlay = join(tmpdir(), 'mmbridge-omp-worker.yml');
   writeFileSync(overlay, NO_INTERNAL_FALLBACK);
-  const toolArgs = input.tools ? ['--approval-mode', 'yolo'] : ['--no-tools'];
+  const toolArgs = input.tools ? ['--tools', WORKER_TOOLS, '--approval-mode', 'yolo'] : ['--no-tools'];
   const args = ['--mode', 'rpc', ...toolArgs, ...LEAN_FLAGS, '--config', overlay, '--cwd', input.cwd];
   const child = spawn(input.binary ?? 'omp', args, {
     cwd: input.cwd,

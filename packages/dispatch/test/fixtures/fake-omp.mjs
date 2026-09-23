@@ -14,7 +14,7 @@ const configArg = process.argv.indexOf('--config');
 const fs = await import('node:fs');
 const fallbackDisabled =
   configArg !== -1 && /modelFallback: false/.test(fs.readFileSync(process.argv[configArg + 1], 'utf8'));
-if (spawnLog) (await import('node:fs')).appendFileSync(spawnLog, 'spawn\n');
+if (spawnLog) (await import('node:fs')).appendFileSync(spawnLog, `spawn ${process.argv.slice(2).join(' ')}\n`);
 // Worker simulation: with tools on (`--approval-mode yolo`, no `--no-tools`), FAKE_OMP_EDIT="path=content" edits cwd.
 const toolsEnabled = !process.argv.includes('--no-tools') && process.argv.includes('yolo');
 const edit = process.env.FAKE_OMP_EDIT;

@@ -16,6 +16,10 @@ const REVIEW_INSTRUCTIONS = `Review the diff below against the task. Respond wit
 {"verdict":"pass"|"block","findings":[{"severity":"critical"|"major"|"minor","file":"<path>","message":"<what is wrong>"}]}
 Use "block" if any finding is critical or major. Use an empty findings array if you found nothing.`;
 
+const WORKER_INSTRUCTIONS =
+  'You can read, search, and edit files only — there is no shell. Do not try to run commands or tests; ' +
+  'make the change, then stop. mmbridge runs review and validation after you finish.';
+
 export interface Finding {
   severity: 'critical' | 'major' | 'minor';
   file?: string;
@@ -145,7 +149,13 @@ export async function implement(input: ImplementInput): Promise<ImplementResult>
   const result: ImplementResult = { gate: 'block', reasons: [], worktree, branch, cleanup, baseRef, diff: '' };
 
   try {
-    result.worker = await dispatch({ role: 'worker', task: input.task, cwd: worktree, tools: true, ...shared });
+    result.worker = await dispatch({
+      role: 'worker',
+      task: `${WORKER_INSTRUCTIONS}\n\n${input.task}`,
+      cwd: worktree,
+      tools: true,
+      ...shared,
+    });
   } catch (err) {
     result.reasons.push(`worker failed: ${errorText(err)}`);
     return result;
