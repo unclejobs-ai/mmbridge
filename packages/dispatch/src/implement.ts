@@ -54,6 +54,8 @@ export interface ImplementResult {
   /** The worker's isolated checkout. Changes are staged there, not committed, and never touch the main checkout. */
   worktree: string;
   branch: string;
+  /** Shell command that removes the worktree and deletes the branch — run it after merging or discarding. */
+  cleanup: string;
   baseRef: string;
   diff: string;
   worker?: DispatchResult;
@@ -64,6 +66,10 @@ export interface ImplementResult {
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd, maxBuffer: MAX_BUFFER });
   return stdout;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 function errorText(err: unknown): string {
@@ -135,7 +141,8 @@ export async function implement(input: ImplementInput): Promise<ImplementResult>
     ...(input.binary ? { binary: input.binary } : {}),
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   };
-  const result: ImplementResult = { gate: 'block', reasons: [], worktree, branch, baseRef, diff: '' };
+  const cleanup = `git -C ${shellQuote(root)} worktree remove --force ${shellQuote(worktree)} && git -C ${shellQuote(root)} branch -D ${shellQuote(branch)}`;
+  const result: ImplementResult = { gate: 'block', reasons: [], worktree, branch, cleanup, baseRef, diff: '' };
 
   try {
     result.worker = await dispatch({ role: 'worker', task: input.task, cwd: worktree, tools: true, ...shared });

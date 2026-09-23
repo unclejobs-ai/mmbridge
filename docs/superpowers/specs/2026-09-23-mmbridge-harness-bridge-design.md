@@ -43,7 +43,7 @@ R4 결론: 아래 네 가지를 **동시에** 하는 도구는 없다 — (1) �
 | D6 | 다른 CLI 에이전트 구동은 **ACP 우선**(Claude Code via adapter, Gemini CLI, `omp acp`), 미지원 CLI는 기존 서브프로세스 어댑터 유지 | reversible | R4/R5: ACP가 2026 멀티벤더 표준 |
 | D7 | **Code Mode는 opt-in, S6**. 주입 지점은 omp RPC의 `set_host_tools` | reversible | R5: 토큰 절감은 체인형 작업에서만 실재, 2026 샌드박스 탈출 CVE → 경계는 바인딩 capability scoping |
 | D8 | durable 상태 = SQLite 이벤트 로그(`SqliteStore` 부활). `SoulStore` 제거. `@mmbridge/skills`는 S6에서 progressive disclosure 엔진으로 부활하거나 삭제 | S5/S6에서 확정 | R1: 세 개 모두 importer 0 |
-| D9 | `codex/harness-engineering` 워크트리(manager.ts reviewer, MemoryProvider, F1 벤치)는 **S3에서 병합**. S1은 새 패키지에 격리해 충돌 면을 `cli/index.ts` 등록 한 줄로 제한 | — | main과 병합 충돌 있음, `core/config.ts`·`types.ts`·`cli/index.ts` 겹침 |
+| D9 | `codex/harness-engineering` 워크트리(manager.ts reviewer, MemoryProvider, F1 벤치)는 ~~S3에서 병합~~ → **S3에서 제외, 별도 브랜치에서 처리** (이유는 S3 결과 참조). S1은 새 패키지에 격리해 충돌 면을 `cli/index.ts` 등록 한 줄로 제한 | — | main과 16파일 충돌, `manager.ts`는 codex 의존(현재 쿼터 소진) |
 
 ## 3. Spike 측정값 (scratchpad, 커밋하지 않음)
 
@@ -108,7 +108,7 @@ R4 결론: 아래 네 가지를 **동시에** 하는 도구는 없다 — (1) �
 
 **S3 결과 (2026-09-23, 같은 브랜치)**
 - 구현: `implement.ts` — `git worktree add -b mmbridge/worker-<id>`(`~/.mmbridge/worktrees/`) → worker dispatch(도구 on, `--approval-mode yolo`, cwd=worktree) → `git add -A` + `diff --cached <base>` → reviewer dispatch(`excludeProviders: [worker provider]`, JSON 스키마 강제, 파싱 실패 = block, critical/major 발견 = block) → `validate` 셸 명령(worktree에서) → `gate: pass|block` + `reasons[]`. 변경은 worktree에 staged로만 남고 커밋·병합은 host가 한다. `dispatch()`는 `dispatch.ts`로 이동(index는 export 모음)
-- MCP `mmbridge_implement`, CLI `mmbridge implement <task> --validate <cmd>`(block이면 exit 1)
+- MCP `mmbridge_implement`, CLI `mmbridge implement <task> --validate <cmd>`(block이면 exit 1). 결과의 `cleanup` 명령이 worktree 제거 + 브랜치 삭제 — host가 병합/폐기 후 실행
 - 실측 (MCP stdio 클라이언트, 1-based 페이지 버그 repo): worker `xai-oauth/grok-4.7` 17.5s가 `(page - 1) * size`로 수정 → reviewer: xai-oauth 제외, codex skipped, `zai/glm-5.3` pass → `node check.js` exit 0 → **gate pass, 전체 24.6s**. 메인 checkout 무변경
 - 검증: lint·typecheck·test(dispatch 28 + 전체)·smoke exit 0
 - 알려진 한계: (1) worktree에는 `node_modules`가 없다 — validate에 설치 명령을 포함해야 함, (2) yolo worker는 git worktree로 격리될 뿐 파일시스템 샌드박스는 아니다(bash로 worktree 밖 접근 가능), (3) Claude Code MCP 타임아웃보다 긴 worker는 미검증

@@ -66,6 +66,12 @@ describe('implement', () => {
     assert.equal(await readFile(path.join(result.worktree, 'calc.js'), 'utf8'), FIXED);
     assert.equal(await readFile(path.join(env.repo, 'calc.js'), 'utf8'), BUGGY, 'the main checkout is untouched');
     assert.match(result.branch, /^mmbridge\//);
+
+    execFileSync('sh', ['-c', result.cleanup]);
+    const worktrees = execFileSync('git', ['worktree', 'list'], { cwd: env.repo, encoding: 'utf8' });
+    const branches = execFileSync('git', ['branch', '--list', 'mmbridge/*'], { cwd: env.repo, encoding: 'utf8' });
+    assert.ok(!worktrees.includes(result.worktree), 'cleanup removes the worktree');
+    assert.equal(branches.trim(), '', 'cleanup deletes the worker branch');
   });
 
   it('blocks when the reviewer blocks', async () => {
