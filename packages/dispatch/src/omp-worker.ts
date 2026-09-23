@@ -26,6 +26,8 @@ export interface OmpPromptInput {
   cwd: string;
   timeoutMs?: number;
   binary?: string;
+  /** Give the worker omp's tools with auto-approval. Only for an isolated cwd (a dedicated git worktree). */
+  tools?: boolean;
 }
 
 export interface TokenUsage {
@@ -80,7 +82,8 @@ export function runOmpPrompt(input: OmpPromptInput): Promise<OmpPromptResult> {
   const elapsed = () => Date.now() - startedAt;
   const overlay = join(tmpdir(), 'mmbridge-omp-worker.yml');
   writeFileSync(overlay, NO_INTERNAL_FALLBACK);
-  const args = ['--mode', 'rpc', '--no-tools', ...LEAN_FLAGS, '--config', overlay, '--cwd', input.cwd];
+  const toolArgs = input.tools ? ['--approval-mode', 'yolo'] : ['--no-tools'];
+  const args = ['--mode', 'rpc', ...toolArgs, ...LEAN_FLAGS, '--config', overlay, '--cwd', input.cwd];
   const child = spawn(input.binary ?? 'omp', args, {
     cwd: input.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],

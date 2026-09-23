@@ -163,6 +163,23 @@ export async function main(): Promise<void> {
       if (result.stopReason === 'error') process.exitCode = 1;
     });
 
+  // ── implement ──
+  program
+    .command('implement <task>')
+    .description('Worker edits an isolated worktree, a different-provider reviewer gates the diff, then validate runs')
+    .option('--validate <command>', 'Shell command run in the worktree after review')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .action(async (task: string, opts: { validate?: string; project?: string }) => {
+      const { implement } = await import('@mmbridge/dispatch');
+      const result = await implement({
+        task,
+        projectDir: opts.project ?? process.cwd(),
+        ...(opts.validate ? { validate: opts.validate } : {}),
+      });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (result.gate === 'block') process.exitCode = 1;
+    });
+
   // ── providers ──
   program
     .command('providers')

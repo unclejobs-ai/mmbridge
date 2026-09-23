@@ -15,6 +15,11 @@ const fs = await import('node:fs');
 const fallbackDisabled =
   configArg !== -1 && /modelFallback: false/.test(fs.readFileSync(process.argv[configArg + 1], 'utf8'));
 if (spawnLog) (await import('node:fs')).appendFileSync(spawnLog, 'spawn\n');
+// Worker simulation: with tools on (`--approval-mode yolo`, no `--no-tools`), FAKE_OMP_EDIT="path=content" edits cwd.
+const toolsEnabled = !process.argv.includes('--no-tools') && process.argv.includes('yolo');
+const edit = process.env.FAKE_OMP_EDIT;
+// Reviewer simulation: the text a reviewer-role prompt gets back.
+const reviewText = process.env.FAKE_OMP_REVIEW;
 const out = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
 let model = null;
 let thinking = null;
@@ -114,6 +119,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       });
       return;
     }
+    if (edit && toolsEnabled) {
+      const eq = edit.indexOf('=');
+      fs.writeFileSync(edit.slice(0, eq), edit.slice(eq + 1));
+    }
+    const text =
+      reviewText !== undefined && cmd.message.includes('You are the reviewer')
+        ? reviewText
+        : `echo:${thinking ?? 'none'}:${cmd.message}`;
     const assistant =
       mode === 'model-error'
         ? {
@@ -128,7 +141,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
             role: 'assistant',
             content: [
               { type: 'thinking', thinking: 'hidden' },
-              { type: 'text', text: `echo:${thinking ?? 'none'}:${cmd.message}` },
+              { type: 'text', text },
             ],
             provider: model.provider,
             model: model.modelId,

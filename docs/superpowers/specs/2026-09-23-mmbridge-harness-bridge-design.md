@@ -106,6 +106,14 @@ R4 결론: 아래 네 가지를 **동시에** 하는 도구는 없다 — (1) �
 - unknown: Claude Code의 MCP 도구 호출 타임아웃이 워커 기본 10분보다 짧을 수 있음 — 몇 분짜리 worker는 비동기(작업 ID 반환 후 조회)로 가야 할 수 있다
 - **인수**: 실제 버그 fixture repo에서 worker 수정 → reviewer pass/block → validate exit code
 
+**S3 결과 (2026-09-23, 같은 브랜치)**
+- 구현: `implement.ts` — `git worktree add -b mmbridge/worker-<id>`(`~/.mmbridge/worktrees/`) → worker dispatch(도구 on, `--approval-mode yolo`, cwd=worktree) → `git add -A` + `diff --cached <base>` → reviewer dispatch(`excludeProviders: [worker provider]`, JSON 스키마 강제, 파싱 실패 = block, critical/major 발견 = block) → `validate` 셸 명령(worktree에서) → `gate: pass|block` + `reasons[]`. 변경은 worktree에 staged로만 남고 커밋·병합은 host가 한다. `dispatch()`는 `dispatch.ts`로 이동(index는 export 모음)
+- MCP `mmbridge_implement`, CLI `mmbridge implement <task> --validate <cmd>`(block이면 exit 1)
+- 실측 (MCP stdio 클라이언트, 1-based 페이지 버그 repo): worker `xai-oauth/grok-4.7` 17.5s가 `(page - 1) * size`로 수정 → reviewer: xai-oauth 제외, codex skipped, `zai/glm-5.3` pass → `node check.js` exit 0 → **gate pass, 전체 24.6s**. 메인 checkout 무변경
+- 검증: lint·typecheck·test(dispatch 28 + 전체)·smoke exit 0
+- 알려진 한계: (1) worktree에는 `node_modules`가 없다 — validate에 설치 명령을 포함해야 함, (2) yolo worker는 git worktree로 격리될 뿐 파일시스템 샌드박스는 아니다(bash로 worktree 밖 접근 가능), (3) Claude Code MCP 타임아웃보다 긴 worker는 미검증
+- **D9 변경**: `codex/harness-engineering` 병합은 S3에서 **제외**. main과 16파일 충돌(core review-pipeline, README, CI, 패키지 버전), `manager.ts`는 기존 review 파이프라인용 codex 합의 검토라 S3 reviewer gate와 별개이고 codex는 현재 쿼터 소진. 별도 브랜치에서 소유자 판단과 함께 처리
+
 ### S4 — Agent Hub TUI
 - 디스패치된 역할당 라이브 패널 1개: role / model / 상태 / 경과 / 토큰·비용 / 마지막 도구. steer(`steer`), kill(`abort`)
 - gate를 버튼으로 (Conductor 패턴: diff 보기 → pass/block)

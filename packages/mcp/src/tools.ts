@@ -18,7 +18,7 @@ import {
   shortDigest,
 } from '@mmbridge/core';
 import type { Finding } from '@mmbridge/core';
-import { ROLES, dispatch, isRole } from '@mmbridge/dispatch';
+import { ROLES, dispatch, implement, isRole } from '@mmbridge/dispatch';
 import { ProjectMemoryStore, RunStore, SessionStore } from '@mmbridge/session-store';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -269,6 +269,24 @@ export const TOOL_DEFINITIONS = [
       required: ['role', 'task'],
     },
   },
+  {
+    name: 'mmbridge_implement',
+    description:
+      'Gated implementation: a worker model edits an isolated git worktree (never the main checkout), a reviewer from a different provider judges the diff as schema-checked JSON, and an optional shell command validates it. Returns gate pass/block with reasons, the diff, the worktree path and branch (changes staged, not committed), and reviewer findings. Merge the branch yourself if the gate passes.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        task: { type: 'string', description: 'What to change, with enough context for another model' },
+        validate: {
+          type: 'string',
+          description: 'Shell command run in the worktree, e.g. "pnpm install --frozen-lockfile && pnpm test"',
+        },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
+        timeoutMs: { type: 'number', description: 'Per-model timeout in ms (default: 600000)' },
+      },
+      required: ['task'],
+    },
+  },
 ];
 
 function textContent(text: string, isError = false) {
@@ -382,6 +400,8 @@ export function registerToolHandlers(server: Server): void {
         return handleContextPacket(safeArgs);
       case 'mmbridge_dispatch':
         return handleDispatch(safeArgs);
+      case 'mmbridge_implement':
+        return handleImplement(safeArgs);
       default:
         return textContent(`Unknown tool: ${name}`, true);
     }
@@ -791,5 +811,21 @@ async function handleDispatch(args: Record<string, unknown>) {
     return textContent(JSON.stringify(result, null, 2), result.stopReason === 'error');
   } catch (err) {
     return textContent(`Dispatch failed: ${errorMessage(err)}`, true);
+  }
+}
+
+async function handleImplement(args: Record<string, unknown>) {
+  const { task, validate, timeoutMs } = args;
+  if (typeof task !== 'string' || task.trim().length === 0) return textContent('task is required', true);
+  try {
+    const result = await implement({
+      task,
+      projectDir: resolveProjectDirArg(args),
+      ...(typeof validate === 'string' && validate.length > 0 ? { validate } : {}),
+      ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}),
+    });
+    return textContent(JSON.stringify(result, null, 2));
+  } catch (err) {
+    return textContent(`Implement failed: ${errorMessage(err)}`, true);
   }
 }
