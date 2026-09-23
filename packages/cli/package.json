@@ -33,6 +33,7 @@
     "@mmbridge/auth": "workspace:*",
     "@mmbridge/context-broker": "workspace:*",
     "@mmbridge/core": "workspace:*",
+    "@mmbridge/dispatch": "workspace:*",
     "@mmbridge/integrations": "workspace:*",
     "@mmbridge/session-store": "workspace:*",
     "@mmbridge/tui": "workspace:*",

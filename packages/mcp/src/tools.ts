@@ -18,6 +18,7 @@ import {
   shortDigest,
 } from '@mmbridge/core';
 import type { Finding } from '@mmbridge/core';
+import { ROLES, dispatch, isRole } from '@mmbridge/dispatch';
 import { ProjectMemoryStore, RunStore, SessionStore } from '@mmbridge/session-store';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -252,6 +253,22 @@ export const TOOL_DEFINITIONS = [
       required: ['task'],
     },
   },
+  {
+    name: 'mmbridge_dispatch',
+    description:
+      'Dispatch one task to a role (worker/scout/reviewer/designer). The role resolves to an ordered chain of already-authenticated models (~/.mmbridge/roles.json, else omp modelRoles + fallbackChains); providers that hit a quota are cooled down and skipped, and the next model answers. Returns the answer plus the model that ran, every attempt, latency, tokens, and cost. Read-only: the worker has no tools, so include any code or diff inline in the task.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        role: { type: 'string', enum: [...ROLES], description: 'Role to dispatch to' },
+        task: { type: 'string', description: 'Task prompt, including any code or diff to examine' },
+        model: { type: 'string', description: 'Pin a model as provider/model[:thinking] instead of the role default' },
+        projectDir: { type: 'string', description: 'Project directory (default: cwd)' },
+        timeoutMs: { type: 'number', description: 'Worker timeout in ms (default: 600000)' },
+      },
+      required: ['role', 'task'],
+    },
+  },
 ];
 
 function textContent(text: string, isError = false) {
@@ -363,6 +380,8 @@ export function registerToolHandlers(server: Server): void {
         return handleDoctor(safeArgs);
       case 'mmbridge_context_packet':
         return handleContextPacket(safeArgs);
+      case 'mmbridge_dispatch':
+        return handleDispatch(safeArgs);
       default:
         return textContent(`Unknown tool: ${name}`, true);
     }
@@ -754,5 +773,23 @@ async function handleDoctor(args: Record<string, unknown>) {
     return textContent(JSON.stringify(report, null, 2));
   } catch (err) {
     return textContent(`Doctor failed: ${errorMessage(err)}`, true);
+  }
+}
+
+async function handleDispatch(args: Record<string, unknown>) {
+  const { role, task, model, timeoutMs } = args;
+  if (!isRole(role)) return textContent(`Invalid role: expected one of ${ROLES.join(', ')}`, true);
+  if (typeof task !== 'string' || task.trim().length === 0) return textContent('task is required', true);
+  try {
+    const result = await dispatch({
+      role,
+      task,
+      cwd: resolveProjectDirArg(args),
+      ...(typeof model === 'string' && model.length > 0 ? { model } : {}),
+      ...(typeof timeoutMs === 'number' ? { timeoutMs } : {}),
+    });
+    return textContent(JSON.stringify(result, null, 2), result.stopReason === 'error');
+  } catch (err) {
+    return textContent(`Dispatch failed: ${errorMessage(err)}`, true);
   }
 }

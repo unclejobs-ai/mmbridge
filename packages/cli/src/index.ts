@@ -19,6 +19,7 @@ import type {
   MemoryShowCommandOptions,
   MemoryTimelineCommandOptions,
 } from './commands/memory.js';
+import type { ProvidersCommandOptions } from './commands/providers.js';
 import type { ResearchCommandOptions } from './commands/research.js';
 import type { ResumeCommandOptions } from './commands/resume.js';
 import type { ReviewCommandOptions } from './commands/review.js';
@@ -140,6 +141,37 @@ export async function main(): Promise<void> {
       const { runTaskCommand } = await import('./commands/run.js');
       const opts = command.optsWithGlobals() as Omit<RunTaskCommandOptions, 'task'>;
       await runTaskCommand({ ...opts, task });
+    });
+
+  // ── dispatch ──
+  program
+    .command('dispatch <task>')
+    .description('Dispatch one task to a role-routed model (debug path for the mmbridge_dispatch MCP tool)')
+    .requiredOption('-r, --role <role>', 'worker | scout | reviewer | designer')
+    .option('-m, --model <selector>', 'Pin a model as provider/model[:thinking]')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .action(async (task: string, opts: { role: string; model?: string; project?: string }) => {
+      const { ROLES, dispatch, isRole } = await import('@mmbridge/dispatch');
+      if (!isRole(opts.role)) throw new Error(`Invalid role "${opts.role}": expected one of ${ROLES.join(', ')}`);
+      const result = await dispatch({
+        role: opts.role,
+        task,
+        cwd: opts.project ?? process.cwd(),
+        ...(opts.model ? { model: opts.model } : {}),
+      });
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (result.stopReason === 'error') process.exitCode = 1;
+    });
+
+  // ── providers ──
+  program
+    .command('providers')
+    .description('Show authenticated providers, cooldowns, and which model each role resolves to')
+    .option('--refresh', 'Re-read the provider catalog from omp instead of the 1h cache')
+    .option('--json', 'Output structured JSON')
+    .action(async (opts: ProvidersCommandOptions) => {
+      const { runProvidersCommand } = await import('./commands/providers.js');
+      await runProvidersCommand(opts);
     });
 
   // ── followup ──

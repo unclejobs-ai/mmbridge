@@ -25,7 +25,8 @@
     "@mmbridge/core": "workspace:*",
     "@mmbridge/adapters": "workspace:*",
     "@mmbridge/context-broker": "workspace:*",
-    "@mmbridge/session-store": "workspace:*"
+    "@mmbridge/session-store": "workspace:*",
+    "@mmbridge/dispatch": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

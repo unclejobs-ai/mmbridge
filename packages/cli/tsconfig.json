@@ -13,6 +13,7 @@
     { "path": "../auth" },
     { "path": "../session-store" },
     { "path": "../context-broker" },
+    { "path": "../dispatch" },
     { "path": "../integrations" },
     { "path": "../tui" }
   ]

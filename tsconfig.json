@@ -12,6 +12,7 @@
     { "path": "packages/context-broker" },
     { "path": "packages/agent" },
     { "path": "packages/auth" },
-    { "path": "packages/skills" }
+    { "path": "packages/skills" },
+    { "path": "packages/dispatch" }
   ]
 }
