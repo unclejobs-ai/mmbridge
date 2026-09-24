@@ -3,17 +3,29 @@ import Spinner from 'ink-spinner';
 import TextInput from 'ink-text-input';
 import type React from 'react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { type HubStore, type LaneState, type LaneStatus, type TraceLine, isLive } from '../hub-state.js';
+import {
+  type GateView,
+  type HubStore,
+  type LaneState,
+  type LaneStatus,
+  type TraceLine,
+  isLive,
+  isOpen,
+} from '../hub-state.js';
 import { colors } from '../theme.js';
 
 const CLOCK_MS = 100;
 /** Hub rows outside the panes: header, activity row, hint row, and the steer composer when open. */
 const CHROME_ROWS = 4;
+/** Gate box rows besides its reasons and details: two borders and the verdict. */
+const GATE_FIXED_ROWS = 3;
 /** Pane rows that are not answer text: two borders, title, facts. */
 const PANE_FIXED_ROWS = 4;
 const MIN_PANE_ROWS = 6;
 
 const STATUS: Record<LaneStatus, { icon: string; label: string; color: string }> = {
+  waiting: { icon: '·', label: 'waiting', color: colors.overlay0 },
+  skipped: { icon: '–', label: 'skipped', color: colors.overlay0 },
   starting: { icon: '○', label: 'starting', color: colors.overlay1 },
   running: { icon: '●', label: 'running', color: colors.blue },
   aborting: { icon: '◌', label: 'aborting', color: colors.peach },
@@ -31,6 +43,8 @@ function tokens(n: number): string {
 }
 
 function facts(lane: LaneState, now: number): string {
+  if (lane.status === 'waiting') return 'starts when the stage before it finishes';
+  if (lane.status === 'skipped') return 'not needed for this run';
   const parts = [seconds((lane.endedAt ?? now) - lane.startedAt)];
   if (lane.readyMs !== undefined) parts.push(`ready ${seconds(lane.readyMs)}`);
   if (lane.toolCalls > 0) parts.push(`${lane.toolCalls} tool${lane.toolCalls === 1 ? '' : 's'}`);
@@ -140,8 +154,29 @@ function WorkerPane({ lane, index, now, selected, rows }: PaneProps): React.Reac
   );
 }
 
+function GateBox({ gate }: { gate: GateView }): React.ReactElement {
+  const pass = gate.verdict === 'pass';
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={pass ? colors.green : colors.red} paddingX={1}>
+      <Text bold color={pass ? colors.green : colors.red}>
+        {pass ? '✓ gate pass' : '✗ gate block'}
+      </Text>
+      {gate.reasons.map((reason) => (
+        <Text key={reason} color={colors.red} wrap="truncate-end">
+          {reason}
+        </Text>
+      ))}
+      {gate.details.map((detail) => (
+        <Text key={detail} color={colors.overlay1} wrap="truncate-end">
+          {detail}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
 export function HubView({ store, title }: { store: HubStore; title: string }): React.ReactElement {
-  const lanes = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const { lanes, busy, activity, gate, startedAt } = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { exit } = useApp();
   const { stdout } = useStdout();
   // Without a TTY (piped, CI) there is no keyboard; renderHub unmounts once every lane has finished.
@@ -154,12 +189,12 @@ export function HubView({ store, title }: { store: HubStore; title: string }): R
   const live = lanes.filter(isLive).length;
   const current = lanes[selected];
 
-  // The wall clock is an external system: tick only while some worker is still running.
+  // The wall clock is an external system: tick only while the run is still going.
   useEffect(() => {
-    if (live === 0) return;
+    if (!busy) return;
     const timer = setInterval(() => setNow(Date.now()), CLOCK_MS);
     return () => clearInterval(timer);
-  }, [live]);
+  }, [busy]);
 
   useInput(
     (input, key) => {
@@ -193,15 +228,16 @@ export function HubView({ store, title }: { store: HubStore; title: string }): R
     setDraft(null);
   };
 
-  const paneRows = Math.max(MIN_PANE_ROWS, Math.floor(((stdout.rows || 40) - CHROME_ROWS) / lanes.length));
-  const startedAt = Math.min(...lanes.map((lane) => lane.startedAt));
+  const gateRows = gate ? GATE_FIXED_ROWS + gate.reasons.length + gate.details.length : 0;
+  const paneRows = Math.max(MIN_PANE_ROWS, Math.floor(((stdout.rows || 40) - CHROME_ROWS - gateRows) / lanes.length));
   const multi = lanes.length > 1;
   const hint = !keyboard
     ? 'exits when every worker finishes'
     : [
         multi ? '↑↓/1-9 select' : null,
-        current && isLive(current) ? 's steer · x abort' : null,
-        live > 0 ? 'q abort all & quit' : 'q quit',
+        current && isLive(current) ? 's steer' : null,
+        current && isOpen(current) ? 'x abort' : null,
+        busy ? 'q abort all & quit' : 'q quit',
       ]
         .filter(Boolean)
         .join(' · ');
@@ -227,14 +263,15 @@ export function HubView({ store, title }: { store: HubStore; title: string }): R
           rows={paneRows}
         />
       ))}
+      {gate ? <GateBox gate={gate} /> : null}
       {/* One spinner per surface (DESIGN.md §6): the activity row owns it; panes carry state as text. */}
       <Box paddingX={1}>
-        {live > 0 ? (
-          <Text color={colors.overlay2}>
+        {busy ? (
+          <Text color={colors.overlay2} wrap="truncate-end">
             <Text color={colors.accent} bold>
               <Spinner type="dots" />
             </Text>{' '}
-            {live} of {lanes.length} running · {seconds(now - startedAt)}
+            {live > 0 ? `${live} of ${lanes.length} running` : (activity ?? 'working')} · {seconds(now - startedAt)}
           </Text>
         ) : (
           <Text color={colors.overlay2}>◇ all finished</Text>

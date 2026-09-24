@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { type Attempt, type DispatchResult, dispatch } from './dispatch.js';
+import type { WorkerControl, WorkerEvent } from './events.js';
 import { DEFAULT_MMBRIDGE_HOME } from './roles.js';
 
 const execFileAsync = promisify(execFile);
@@ -40,6 +41,12 @@ export interface Validation {
   outputTail: string;
 }
 
+/** Live view of an implement run: each model stage's events and how it ended, then validation starting. */
+export type ImplementEvent =
+  | { stage: 'worker' | 'reviewer'; event: WorkerEvent }
+  | { stage: 'worker' | 'reviewer'; ended: DispatchResult | Error }
+  | { stage: 'validate'; command: string };
+
 export interface ImplementInput {
   task: string;
   projectDir: string;
@@ -49,6 +56,9 @@ export interface ImplementInput {
   ompConfigPath?: string;
   binary?: string;
   timeoutMs?: number;
+  onEvent?: (event: ImplementEvent) => void;
+  /** Steer/abort handle for each model stage. Aborting the worker blocks the gate without a review. */
+  onControl?: (stage: 'worker' | 'reviewer', control: WorkerControl) => void;
 }
 
 export interface ImplementResult {
@@ -147,6 +157,12 @@ export async function implement(input: ImplementInput): Promise<ImplementResult>
   };
   const cleanup = `git -C ${shellQuote(root)} worktree remove --force ${shellQuote(worktree)} && git -C ${shellQuote(root)} branch -D ${shellQuote(branch)}`;
   const result: ImplementResult = { gate: 'block', reasons: [], worktree, branch, cleanup, baseRef, diff: '' };
+  const ended = (stage: 'worker' | 'reviewer', outcome: DispatchResult | Error) =>
+    input.onEvent?.({ stage, ended: outcome });
+  const live = (stage: 'worker' | 'reviewer') => ({
+    ...(input.onEvent ? { onEvent: (event: WorkerEvent) => input.onEvent?.({ stage, event }) } : {}),
+    ...(input.onControl ? { onControl: (control: WorkerControl) => input.onControl?.(stage, control) } : {}),
+  });
 
   try {
     result.worker = await dispatch({
@@ -155,13 +171,20 @@ export async function implement(input: ImplementInput): Promise<ImplementResult>
       cwd: worktree,
       tools: true,
       ...shared,
+      ...live('worker'),
     });
+    ended('worker', result.worker);
   } catch (err) {
+    ended('worker', err instanceof Error ? err : new Error(errorText(err)));
     result.reasons.push(`worker failed: ${errorText(err)}`);
     return result;
   }
   if (result.worker.stopReason === 'error') {
     result.reasons.push(`worker failed: ${result.worker.errorMessage ?? 'unknown error'}`);
+    return result;
+  }
+  if (result.worker.stopReason === 'aborted') {
+    result.reasons.push('worker aborted');
     return result;
   }
 
@@ -180,14 +203,19 @@ export async function implement(input: ImplementInput): Promise<ImplementResult>
       cwd: worktree,
       excludeProviders: [result.worker.provider],
       ...shared,
+      ...live('reviewer'),
     });
+    ended('reviewer', reviewer);
   } catch (err) {
+    ended('reviewer', err instanceof Error ? err : new Error(errorText(err)));
     result.reasons.push(`review failed: ${errorText(err)}`);
     return result;
   }
   const verdict = reviewer.stopReason === 'error' ? undefined : parseReview(reviewer.text);
   if (reviewer.stopReason === 'error') {
     result.reasons.push(`review failed: ${reviewer.errorMessage ?? 'unknown error'}`);
+  } else if (reviewer.stopReason === 'aborted') {
+    result.reasons.push('review aborted');
   } else if (!verdict) {
     result.reasons.push('review output is not valid review JSON');
   } else {
@@ -199,6 +227,7 @@ export async function implement(input: ImplementInput): Promise<ImplementResult>
   }
 
   if (input.validate) {
+    input.onEvent?.({ stage: 'validate', command: input.validate });
     result.validate = await runValidate(worktree, input.validate);
     if (result.validate.exitCode !== 0) result.reasons.push(`validate failed (exit ${result.validate.exitCode})`);
   }

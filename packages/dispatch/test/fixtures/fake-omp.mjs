@@ -152,7 +152,12 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       out({ type: 'tool_execution_end', toolCallId: 't1', toolName: 'read', result: {}, isError: false });
       out({ type: 'turn_end', message: { role: 'assistant', content: [], usage: turnUsage(100, 20, 0.5) } });
       await pause();
-      const answer = steered === null ? 'streamed' : `steered:${steered}`;
+      if (edit && toolsEnabled) {
+        const eq = edit.indexOf('=');
+        fs.writeFileSync(edit.slice(0, eq), edit.slice(eq + 1));
+      }
+      const reviewing = reviewText !== undefined && cmd.message.includes('You are the reviewer');
+      const answer = steered !== null ? `steered:${steered}` : reviewing ? reviewText : 'streamed';
       for (const delta of [answer.slice(0, 3), answer.slice(3)]) {
         if (aborted) return abortedEnd();
         out({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta } });

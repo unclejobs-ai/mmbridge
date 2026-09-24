@@ -146,6 +146,13 @@ R4 결론: 아래 네 가지를 **동시에** 하는 도구는 없다 — (1) �
 - 발견: steer 턴 텍스트가 이전 턴에 붙음(`…size.STEERED`) → 턴 종료 후 첫 텍스트는 새 줄에서 시작. 재측정: 40번 항목 다음 줄에 `STEERED`
 - 남은 S4: implement lane(worker 도구 trace + reviewer lane + gate pass/block 버튼)
 
+**S4 implement lane (2026-09-24) — S4 완료**
+- 결정(사용자): gate는 **자동 판정 유지 + 화면 표시**(사람 승인 대기 없음, MCP 계약 불변). steer는 큐 방식 유지(`abort_and_prompt` 미도입)
+- `implement({onEvent, onControl})`: `{stage:'worker'|'reviewer', event}` / `{stage, ended: DispatchResult|Error}` / `{stage:'validate', command}`. worker abort → diff·review 없이 `gate: block`, `reasons: ['worker aborted']`. reviewer abort → `review aborted`
+- hub 일반화: `renderHub({title, roles, run(sink)})` — sink `event/control/finish/activity/gate`. lane 초기 상태 `· waiting`(뒤 stage), 끝까지 안 뜬 lane은 `– skipped`, lane 시간은 자기 시작부터. activity row는 lane이 없을 때 run의 현재 작업(`validate: …`)을 spinner와 함께 표시. gate 박스(✓ pass / ✗ block + 사유 + diff/review/validate/branch/cleanup). CLI `mmbridge hub <task> --implement [--validate <cmd>]`(`commands/hub.ts`)
+- 인수 측정 (실제, tmux 120×40, 37 프레임): worker `xai-oauth/grok-4.7` 도구 trace `glob → read → edit`가 3.6s/6.0s/13.3s에 차례로 등장, 13.3s done(5턴 합산 14.1k in / 745 out) → reviewer: codex `↷ skipped`, xai 제외 → `zai/glm-5.3` 5.2s pass → 20.1s 프레임 activity `validate: sleep 3 && node check.js` → **gate pass, 전체 22.3s**, `EXIT=0`
+- 알려진 한계: abort된 dispatch도 `attempts[]`엔 `outcome:'ok'`(최상위 `stopReason:'aborted'`는 정확). gate 박스의 긴 worktree/cleanup 경로는 잘림 — 전체는 종료 후 JSON에
+
 ### S5 — 속도와 내구성
 - warm pool (lean 기동 1.6s × N 사전 기동), 병렬 fan-out은 기존 `orchestrateReview()`/`runBridge()` 위에
 - `SqliteStore`를 dispatch 이벤트 로그로 부활(step, input hash, output, cost) → 크래시 후 재개, 재실행 시 캐시

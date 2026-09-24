@@ -3,7 +3,16 @@ import type { Attempt, Role, WorkerControl, WorkerEvent } from '@mmbridge/dispat
 /** Tool calls shown per lane (DESIGN.md live trace feed: max 3 lines). */
 const TRACE_LINES = 3;
 
-export type LaneStatus = 'starting' | 'running' | 'aborting' | 'done' | 'aborted' | 'error';
+export type LaneStatus =
+  | 'waiting'
+  | 'starting'
+  | 'running'
+  | 'aborting'
+  | 'done'
+  | 'aborted'
+  | 'error'
+  /** The run ended without ever starting this lane (e.g. no diff, so no review). */
+  | 'skipped';
 
 export interface TraceLine {
   name: string;
@@ -14,6 +23,7 @@ export interface TraceLine {
 export interface LaneState {
   role: Role;
   status: LaneStatus;
+  /** When the lane's first model started (the hub start until then). */
   startedAt: number;
   endedAt?: number;
   /** `provider/model` currently running (or that answered). */
@@ -36,6 +46,8 @@ export interface LaneState {
 /** Worker events, what the user did to the lane, and how the dispatch call itself ended. */
 export type LaneEvent =
   | WorkerEvent
+  | { type: 'started'; at: number }
+  | { type: 'skipped' }
   | { type: 'steer'; message: string }
   | { type: 'abort_requested' }
   | { type: 'done'; at: number; stopReason: string; errorMessage?: string }
@@ -44,7 +56,7 @@ export type LaneEvent =
 export function initialLane(role: Role, startedAt: number): LaneState {
   return {
     role,
-    status: 'starting',
+    status: 'waiting',
     startedAt,
     passed: [],
     trace: [],
@@ -58,8 +70,17 @@ export function initialLane(role: Role, startedAt: number): LaneState {
 
 export function reduceLane(lane: LaneState, event: LaneEvent): LaneState {
   switch (event.type) {
+    case 'started':
+      return { ...lane, startedAt: event.at };
+    case 'skipped':
+      return { ...lane, status: 'skipped' };
     case 'model':
-      return { ...lane, model: `${event.provider}/${event.modelId}`, status: 'starting', text: '' };
+      return {
+        ...lane,
+        model: `${event.provider}/${event.modelId}`,
+        status: lane.status === 'aborting' ? 'aborting' : 'starting',
+        text: '',
+      };
     case 'attempt':
       return event.attempt.outcome === 'ok' ? lane : { ...lane, passed: [...lane.passed, event.attempt] };
     case 'ready':
@@ -107,13 +128,35 @@ export function reduceLane(lane: LaneState, event: LaneEvent): LaneState {
   }
 }
 
+/** A model is working (or being stopped) in this lane. */
 export function isLive(lane: LaneState): boolean {
   return lane.status === 'starting' || lane.status === 'running' || lane.status === 'aborting';
 }
 
-/** One lane per dispatch; workers run outside React and push events here, and the view steers them through it. */
+/** The lane can still be steered or aborted: live, or waiting for its turn. */
+export function isOpen(lane: LaneState): boolean {
+  return isLive(lane) || lane.status === 'waiting';
+}
+
+export interface GateView {
+  verdict: 'pass' | 'block';
+  reasons: string[];
+  details: string[];
+}
+
+export interface HubSnapshot {
+  lanes: LaneState[];
+  startedAt: number;
+  /** The run has not settled yet (a lane may be live, or work between lanes like validation). */
+  busy: boolean;
+  /** What the run is doing when no lane is live, e.g. `validate: pnpm test`. */
+  activity?: string;
+  gate?: GateView;
+}
+
+/** One lane per model stage; work runs outside React and pushes events here, and the view steers it through here. */
 export interface HubStore {
-  getSnapshot: () => LaneState[];
+  getSnapshot: () => HubSnapshot;
   subscribe: (listener: () => void) => () => void;
   apply: (index: number, event: LaneEvent) => void;
   /** The worker now running in this lane (a fallback starts a new one). */
@@ -121,19 +164,34 @@ export interface HubStore {
   steer: (index: number, message: string) => void;
   /** Stops the lane's worker; pressed before the worker is up, it is delivered when the worker starts. */
   abort: (index: number) => void;
+  setActivity: (activity: string | undefined) => void;
+  setGate: (gate: GateView) => void;
+  /** The run ended: lanes that never started are marked skipped. */
+  settle: () => void;
 }
 
-export function createHubStore(lanes: LaneState[]): HubStore {
-  let snapshot = lanes;
+export function createHubStore(roles: Role[], startedAt: number): HubStore {
+  let snapshot: HubSnapshot = { lanes: roles.map((role) => initialLane(role, startedAt)), startedAt, busy: true };
   const listeners = new Set<() => void>();
   const controls = new Map<number, WorkerControl>();
-  const apply = (index: number, event: LaneEvent) => {
-    snapshot = snapshot.map((lane, i) => (i === index ? reduceLane(lane, event) : lane));
+  const publish = (next: HubSnapshot) => {
+    snapshot = next;
     for (const listener of listeners) listener();
   };
-  const liveLane = (index: number) => {
-    const lane = snapshot[index];
-    return lane !== undefined && isLive(lane) ? lane : undefined;
+  const apply = (index: number, event: LaneEvent) => {
+    const lanes = snapshot.lanes.map((lane, i) => {
+      if (i !== index) return lane;
+      const begun =
+        event.type === 'model' && lane.status === 'waiting'
+          ? reduceLane(lane, { type: 'started', at: Date.now() })
+          : lane;
+      return reduceLane(begun, event);
+    });
+    publish({ ...snapshot, lanes });
+  };
+  const open = (index: number) => {
+    const lane = snapshot.lanes[index];
+    return lane !== undefined && isOpen(lane);
   };
   return {
     getSnapshot: () => snapshot,
@@ -144,18 +202,30 @@ export function createHubStore(lanes: LaneState[]): HubStore {
     apply,
     setControl: (index, control) => {
       controls.set(index, control);
-      if (snapshot[index]?.status === 'aborting') control.abort();
+      if (snapshot.lanes[index]?.status === 'aborting') control.abort();
     },
     steer: (index, message) => {
       const control = controls.get(index);
-      if (!liveLane(index) || !control) return;
+      if (!open(index) || !control) return;
       control.steer(message);
       apply(index, { type: 'steer', message });
     },
     abort: (index) => {
-      if (!liveLane(index)) return;
+      if (!open(index)) return;
       controls.get(index)?.abort();
       apply(index, { type: 'abort_requested' });
+    },
+    setActivity: (activity) => {
+      const { activity: _previous, ...rest } = snapshot;
+      publish(activity === undefined ? rest : { ...rest, activity });
+    },
+    setGate: (gate) => publish({ ...snapshot, gate }),
+    settle: () => {
+      const lanes = snapshot.lanes.map((lane) =>
+        lane.status === 'waiting' ? reduceLane(lane, { type: 'skipped' }) : lane,
+      );
+      const { activity: _previous, ...rest } = snapshot;
+      publish({ ...rest, lanes, busy: false });
     },
   };
 }

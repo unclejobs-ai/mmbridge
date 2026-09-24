@@ -7,9 +7,9 @@ function run(events: LaneEvent[]): LaneState {
   return events.reduce(reduceLane, initialLane('worker', 1000));
 }
 
-test('a lane starts before any model is chosen', () => {
+test('a lane waits until its first model is chosen', () => {
   const lane = initialLane('reviewer', 1000);
-  assert.equal(lane.status, 'starting');
+  assert.equal(lane.status, 'waiting');
   assert.equal(lane.model, undefined);
 });
 
@@ -97,35 +97,35 @@ test('a steer is shown on the lane until the worker answers it', () => {
 });
 
 test('the store routes steer and abort to the lane control and records them', () => {
-  const store = createHubStore([initialLane('worker', 0), initialLane('reviewer', 0)]);
+  const store = createHubStore(['worker', 'reviewer'], 0);
   const calls: string[] = [];
   store.setControl(1, { steer: (m) => calls.push(`steer:${m}`), abort: () => calls.push('abort') });
   store.steer(1, 'focus on tests');
   store.abort(1);
   assert.deepEqual(calls, ['steer:focus on tests', 'abort']);
-  const second = store.getSnapshot()[1];
+  const second = store.getSnapshot().lanes[1];
   assert.equal(second?.lastSteer, 'focus on tests');
   assert.equal(second?.status, 'aborting');
 });
 
 test('an abort pressed before the worker is up is delivered once its control arrives', () => {
-  const store = createHubStore([initialLane('worker', 0)]);
+  const store = createHubStore(['worker'], 0);
   store.abort(0);
-  assert.equal(store.getSnapshot()[0]?.status, 'aborting');
+  assert.equal(store.getSnapshot().lanes[0]?.status, 'aborting');
   let aborted = 0;
   store.setControl(0, { steer: () => {}, abort: () => aborted++ });
   assert.equal(aborted, 1);
 });
 
 test('steer and abort do nothing on a finished lane', () => {
-  const store = createHubStore([initialLane('worker', 0)]);
+  const store = createHubStore(['worker'], 0);
   const calls: string[] = [];
   store.setControl(0, { steer: () => calls.push('steer'), abort: () => calls.push('abort') });
   store.apply(0, { type: 'done', at: 10, stopReason: 'stop' });
   store.steer(0, 'late');
   store.abort(0);
   assert.deepEqual(calls, []);
-  assert.equal(store.getSnapshot()[0]?.status, 'done');
+  assert.equal(store.getSnapshot().lanes[0]?.status, 'done');
 });
 
 test('answer text from a later turn (e.g. after a steer) starts on a new line', () => {
@@ -137,4 +137,33 @@ test('answer text from a later turn (e.g. after a steer) starts on a new line', 
     { type: 'turn', usage, costUsd: 0 },
   ]);
   assert.equal(lane.text, '60. last item.\nSTEERED');
+});
+
+test('a lane that starts late measures its time from its own start, and one that never starts is skipped', () => {
+  const store = createHubStore(['worker', 'reviewer'], 0);
+  store.apply(1, { type: 'model', provider: 'zai', modelId: 'glm-5.3' });
+  assert.ok((store.getSnapshot().lanes[1]?.startedAt ?? 0) > 0);
+  assert.equal(store.getSnapshot().lanes[1]?.status, 'starting');
+  store.settle();
+  const { lanes, busy } = store.getSnapshot();
+  assert.equal(lanes[0]?.status, 'skipped');
+  assert.equal(busy, false);
+});
+
+test('an abort held for a waiting lane survives its model starting', () => {
+  const store = createHubStore(['reviewer'], 0);
+  store.abort(0);
+  store.apply(0, { type: 'model', provider: 'zai', modelId: 'glm-5.3' });
+  store.apply(0, { type: 'ready', readyMs: 10 });
+  assert.equal(store.getSnapshot().lanes[0]?.status, 'aborting');
+});
+
+test('activity and gate are shown until the run settles', () => {
+  const store = createHubStore(['worker'], 0);
+  store.setActivity('validate: node check.js');
+  assert.equal(store.getSnapshot().activity, 'validate: node check.js');
+  store.setGate({ verdict: 'pass', reasons: [], details: ['diff: 1 file'] });
+  store.settle();
+  assert.equal(store.getSnapshot().activity, undefined);
+  assert.equal(store.getSnapshot().gate?.verdict, 'pass');
 });

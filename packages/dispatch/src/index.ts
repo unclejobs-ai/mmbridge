@@ -7,6 +7,6 @@ export type { WorkerControl, WorkerEvent, WorkerEventListener } from './events.j
 export { readHealth } from './health.js';
 export { loadCatalog } from './catalog.js';
 export { implement } from './implement.js';
-export type { Finding, ImplementInput, ImplementResult, Review, Validation } from './implement.js';
+export type { Finding, ImplementEvent, ImplementInput, ImplementResult, Review, Validation } from './implement.js';
 export type { Catalog, LoadedCatalog } from './catalog.js';
 export type { Cooldown, ProviderHealth } from './health.js';

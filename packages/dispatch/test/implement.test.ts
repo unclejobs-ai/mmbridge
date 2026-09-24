@@ -47,7 +47,13 @@ function run(env: { repo: string; mmbridgeHome: string }, validate?: string) {
 }
 
 afterEach(() => {
-  for (const key of ['FAKE_OMP_EDIT', 'FAKE_OMP_REVIEW', 'FAKE_OMP_SPAWN_LOG'])
+  for (const key of [
+    'FAKE_OMP_EDIT',
+    'FAKE_OMP_REVIEW',
+    'FAKE_OMP_SPAWN_LOG',
+    'FAKE_OMP_STREAM',
+    'FAKE_OMP_STREAM_DELAY_MS',
+  ])
     Reflect.deleteProperty(process.env, key);
 });
 
@@ -125,5 +131,60 @@ describe('implement', () => {
     assert.match(workerSpawn ?? '', /--tools read,edit,write,grep,glob(\s|$)/);
     assert.doesNotMatch(workerSpawn ?? '', /bash|python|browser|computer|task|web_search/);
     assert.match(reviewerSpawn ?? '', /--no-tools/);
+  });
+
+  it('streams each stage live: worker events, then reviewer events, then validation', async () => {
+    const env = await setup();
+    process.env.FAKE_OMP_STREAM = '1';
+    process.env.FAKE_OMP_EDIT = `calc.js=${FIXED}`;
+    process.env.FAKE_OMP_REVIEW = PASS;
+    const stages: string[] = [];
+    const result = await implement({
+      task: 'add() subtracts; make it add.',
+      projectDir: env.repo,
+      mmbridgeHome: env.mmbridgeHome,
+      binary: fakeOmp,
+      validate: 'node check.js',
+      onEvent: (e) => {
+        const label =
+          e.stage === 'validate'
+            ? `validate:${e.command}`
+            : 'ended' in e
+              ? `${e.stage}:ended:${e.ended instanceof Error ? 'error' : e.ended.stopReason}`
+              : `${e.stage}:${e.event.type}`;
+        if (stages.at(-1) !== label) stages.push(label);
+      },
+    });
+    assert.equal(result.gate, 'pass');
+    assert.deepEqual(stages.slice(0, 2), ['worker:model', 'worker:ready']);
+    assert.ok(stages.includes('worker:tool_start'));
+    const firstReviewer = stages.findIndex((s) => s.startsWith('reviewer:'));
+    assert.ok(firstReviewer > stages.lastIndexOf('worker:attempt'));
+    assert.ok(stages.indexOf('worker:ended:stop') < stages.findIndex((s) => s.startsWith('reviewer:')));
+    assert.equal(stages.at(-2), 'reviewer:ended:stop');
+    assert.equal(stages.at(-1), 'validate:node check.js');
+  });
+
+  it('blocks without reviewing when the host aborts the worker', async () => {
+    const env = await setup();
+    process.env.FAKE_OMP_STREAM = '1';
+    process.env.FAKE_OMP_STREAM_DELAY_MS = '50';
+    process.env.FAKE_OMP_EDIT = `calc.js=${FIXED}`;
+    process.env.FAKE_OMP_REVIEW = PASS;
+    const stages = new Set<string>();
+    const result = await implement({
+      task: 'add() subtracts; make it add.',
+      projectDir: env.repo,
+      mmbridgeHome: env.mmbridgeHome,
+      binary: fakeOmp,
+      onEvent: (e) => stages.add(e.stage),
+      onControl: (stage, control) => {
+        if (stage === 'worker') control.abort();
+      },
+    });
+    assert.equal(result.gate, 'block');
+    assert.deepEqual(result.reasons, ['worker aborted']);
+    assert.equal(result.review, undefined);
+    assert.deepEqual([...stages], ['worker']);
   });
 });

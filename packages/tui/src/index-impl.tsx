@@ -1,14 +1,16 @@
-import type { DispatchResult, Role, WorkerControl, WorkerEventListener } from '@mmbridge/dispatch';
+import type { DispatchResult, Role, WorkerControl, WorkerEvent } from '@mmbridge/dispatch';
 import { render } from 'ink';
 import React from 'react';
 import { App } from './App.js';
 import type { ReplCommandResult } from './App.js';
-import { createHubStore, initialLane } from './hub-state.js';
+import { type GateView, createHubStore } from './hub-state.js';
 import type { TabId } from './store.js';
 import { countBySeverity } from './utils/format.js';
 import { HubView } from './views/HubView.js';
 
 // ─── Re-export domain interfaces for backward compatibility ───────────────────
+
+export type { GateView } from './hub-state.js';
 
 export type {
   DoctorReport,
@@ -41,57 +43,63 @@ export async function renderTui(options?: {
   }
 }
 
-// ─── Agent Hub: one live pane per dispatched worker ──────────────────────────
+// ─── Agent Hub: one live pane per model stage ─────────────────────────────────
 
-export interface HubLane {
-  role: Role;
-  /** Starts the dispatch; the hub renders every event it reports and steers/aborts through the control. */
-  run: (hooks: {
-    onEvent: WorkerEventListener;
-    onControl: (control: WorkerControl) => void;
-  }) => Promise<DispatchResult>;
+/** What a hub run reports to the view. Lanes are indexes into the roles passed to renderHub. */
+export interface HubSink {
+  event: (lane: number, event: WorkerEvent) => void;
+  /** The steer/abort handle of the model now running in the lane. */
+  control: (lane: number, control: WorkerControl) => void;
+  /** The lane's dispatch ended with this result or error. */
+  finish: (lane: number, outcome: DispatchResult | Error) => void;
+  /** Work outside any lane, e.g. validation; undefined clears it. */
+  activity: (label: string | undefined) => void;
+  gate: (gate: GateView) => void;
 }
 
-/** Runs every lane at once in a live view; resolves after the user quits, with each lane's result or error. */
-export async function renderHub(options: { title: string; lanes: HubLane[] }): Promise<Array<DispatchResult | Error>> {
-  const startedAt = Date.now();
-  const store = createHubStore(options.lanes.map((lane) => initialLane(lane.role, startedAt)));
-  const results = Promise.all(
-    options.lanes.map((lane, index) =>
-      lane
-        .run({
-          onEvent: (event) => store.apply(index, event),
-          onControl: (control) => store.setControl(index, control),
-        })
-        .then(
-          (result) => {
-            store.apply(index, {
+/** Runs `run` in a live view with one pane per role; resolves with its result after the user quits. */
+export async function renderHub<T>(options: {
+  title: string;
+  roles: Role[];
+  run: (sink: HubSink) => Promise<T>;
+}): Promise<T> {
+  const store = createHubStore(options.roles, Date.now());
+  const sink: HubSink = {
+    event: (lane, event) => store.apply(lane, event),
+    control: (lane, control) => store.setControl(lane, control),
+    finish: (lane, outcome) =>
+      store.apply(
+        lane,
+        outcome instanceof Error
+          ? { type: 'failed', at: Date.now(), message: outcome.message }
+          : {
               type: 'done',
               at: Date.now(),
-              stopReason: result.stopReason,
-              ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
-            });
-            return result;
-          },
-          (err: unknown) => {
-            const error = err instanceof Error ? err : new Error(String(err));
-            store.apply(index, { type: 'failed', at: Date.now(), message: error.message });
-            return error;
-          },
-        ),
-    ),
+              stopReason: outcome.stopReason,
+              ...(outcome.errorMessage ? { errorMessage: outcome.errorMessage } : {}),
+            },
+      ),
+    activity: (label) => store.setActivity(label),
+    gate: (gate) => store.setGate(gate),
+  };
+  const outcome = options.run(sink).then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
   );
+  void outcome.then(() => store.settle());
 
   const isTTY = process.stdout.isTTY;
   if (isTTY) process.stdout.write('\x1B[?1049h\x1B[2J\x1B[H');
   try {
     const instance = render(<HubView store={store} title={options.title} />);
-    if (!process.stdin.isTTY) void results.then(() => instance.unmount());
+    if (!process.stdin.isTTY) void outcome.then(() => instance.unmount());
     await instance.waitUntilExit();
   } finally {
     if (isTTY) process.stdout.write('\x1B[?1049l');
   }
-  return results;
+  const settled = await outcome;
+  if ('error' in settled) throw settled.error;
+  return settled.value;
 }
 
 // ─── Backward-compatible stubs (replaced blessed renders) ─────────────────────

@@ -13,6 +13,7 @@ import type { FollowupCommandOptions } from './commands/followup.js';
 import type { GateCommandOptions } from './commands/gate.js';
 import type { HandoffCommandOptions } from './commands/handoff.js';
 import type { HookCommandOptions } from './commands/hook.js';
+import type { HubCommandOptions } from './commands/hub.js';
 import type { InitCommandOptions } from './commands/init.js';
 import type {
   MemorySearchCommandOptions,
@@ -168,7 +169,7 @@ export async function main(): Promise<void> {
   // ── hub ──
   program
     .command('hub <task>')
-    .description('Dispatch a task and watch each worker live: model, fallback, tool calls, tokens; steer or abort')
+    .description('Watch dispatched models live — model, fallback, tool calls, tokens — and steer or abort them')
     .option(
       '-r, --role <role>',
       'worker | scout | reviewer | designer — repeat for parallel lanes (default: worker)',
@@ -177,37 +178,12 @@ export async function main(): Promise<void> {
     )
     .option('-m, --model <selector>', 'Pin a model as provider/model[:thinking]')
     .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .option('--implement', 'Gated implement instead: worker lane, reviewer lane, validation, gate')
+    .option('--validate <command>', 'With --implement: shell command run in the worktree after review')
     .action(async (task: string, _opts: unknown, command: Command) => {
-      const opts = command.optsWithGlobals() as { role: string[]; model?: string; project?: string };
-      const { ROLES, dispatch, isRole } = await import('@mmbridge/dispatch');
-      const { renderHub } = await import('@mmbridge/tui');
-      const roles = opts.role.length > 0 ? opts.role : ['worker'];
-      const invalid = roles.find((role) => !isRole(role));
-      if (invalid) throw new Error(`Invalid role "${invalid}": expected one of ${ROLES.join(', ')}`);
-      const results = await renderHub({
-        title: task,
-        lanes: roles.filter(isRole).map((role) => ({
-          role,
-          run: ({ onEvent, onControl }) =>
-            dispatch({
-              role,
-              task,
-              cwd: opts.project ?? process.cwd(),
-              onEvent,
-              onControl,
-              ...(opts.model ? { model: opts.model } : {}),
-            }),
-        })),
-      });
-      const failed = results.some((result) => result instanceof Error || result.stopReason === 'error');
-      process.stdout.write(
-        `${JSON.stringify(
-          results.map((result) => (result instanceof Error ? { error: result.message } : result)),
-          null,
-          2,
-        )}\n`,
-      );
-      if (failed) process.exitCode = 1;
+      const opts = command.optsWithGlobals() as Omit<HubCommandOptions, 'task' | 'roles'> & { role: string[] };
+      const { runHubCommand } = await import('./commands/hub.js');
+      await runHubCommand({ ...opts, task, roles: opts.role });
     });
 
   // ── implement ──
