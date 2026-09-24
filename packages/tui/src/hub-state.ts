@@ -222,7 +222,9 @@ export function createHubStore(roles: Role[], startedAt: number): HubStore {
     setGate: (gate) => publish({ ...snapshot, gate }),
     settle: () => {
       const lanes = snapshot.lanes.map((lane) =>
-        lane.status === 'waiting' ? reduceLane(lane, { type: 'skipped' }) : lane,
+        lane.status === 'waiting' || (lane.status === 'aborting' && lane.model === undefined)
+          ? reduceLane(lane, { type: 'skipped' })
+          : lane,
       );
       const { activity: _previous, ...rest } = snapshot;
       publish({ ...rest, lanes, busy: false });

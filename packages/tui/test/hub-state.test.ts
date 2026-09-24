@@ -167,3 +167,10 @@ test('activity and gate are shown until the run settles', () => {
   assert.equal(store.getSnapshot().activity, undefined);
   assert.equal(store.getSnapshot().gate?.verdict, 'pass');
 });
+
+test('a lane aborted while waiting, whose stage never starts, ends skipped rather than stuck aborting', () => {
+  const store = createHubStore(['worker', 'reviewer'], 0);
+  store.abort(1);
+  store.settle();
+  assert.equal(store.getSnapshot().lanes[1]?.status, 'skipped');
+});
