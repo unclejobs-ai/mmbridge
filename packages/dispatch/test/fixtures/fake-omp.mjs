@@ -27,6 +27,9 @@ const stream = process.env.FAKE_OMP_STREAM === '1';
 const streamDelayMs = Number(process.env.FAKE_OMP_STREAM_DELAY_MS ?? 0);
 const pause = () => new Promise((resolve) => setTimeout(resolve, streamDelayMs));
 const turnUsage = (input, output, cost) => ({ input, output, cacheRead: 0, cacheWrite: 0, cost: { total: cost } });
+// Like real omp: `steer` is answered in a later turn, `abort` ends the turn at once with stopReason "aborted".
+let steered = null;
+let aborted = false;
 let model = null;
 let thinking = null;
 
@@ -45,7 +48,13 @@ if (process.argv[2] === 'models') {
 out({ type: 'ready' });
 createInterface({ input: process.stdin }).on('line', async (line) => {
   const cmd = JSON.parse(line);
-  if (cmd.type === 'set_model') {
+  if (cmd.type === 'steer') {
+    steered = cmd.message;
+    out({ id: cmd.id, type: 'response', command: 'steer', success: true });
+  } else if (cmd.type === 'abort') {
+    aborted = true;
+    out({ id: cmd.id, type: 'response', command: 'abort', success: true });
+  } else if (cmd.type === 'set_model') {
     if (mode === 'reject-model' || unknownModels.includes(`${cmd.provider}/${cmd.modelId}`)) {
       out({ id: cmd.id, type: 'response', command: 'set_model', success: false, error: 'Model not found' });
       return;
@@ -130,20 +139,28 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       fs.writeFileSync(edit.slice(0, eq), edit.slice(eq + 1));
     }
     if (stream && mode !== 'model-error') {
+      const abortedEnd = () => {
+        const end = { role: 'assistant', content: [], stopReason: 'aborted', errorMessage: 'Interrupted by user' };
+        out({ type: 'turn_end', message: end });
+        out({ type: 'agent_end', messages: [end] });
+      };
       out({ type: 'turn_start' });
       await pause();
       out({ type: 'tool_execution_start', toolCallId: 't1', toolName: 'read', args: {}, intent: 'Reading task' });
       await pause();
+      if (aborted) return abortedEnd();
       out({ type: 'tool_execution_end', toolCallId: 't1', toolName: 'read', result: {}, isError: false });
       out({ type: 'turn_end', message: { role: 'assistant', content: [], usage: turnUsage(100, 20, 0.5) } });
       await pause();
-      for (const delta of ['str', 'eamed']) {
+      const answer = steered === null ? 'streamed' : `steered:${steered}`;
+      for (const delta of [answer.slice(0, 3), answer.slice(3)]) {
+        if (aborted) return abortedEnd();
         out({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta } });
         await pause();
       }
       const final = {
         role: 'assistant',
-        content: [{ type: 'text', text: 'streamed' }],
+        content: [{ type: 'text', text: answer }],
         provider: model.provider,
         model: model.modelId,
         stopReason: 'stop',

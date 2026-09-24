@@ -56,7 +56,9 @@ describe('toWorkerEvent (characterization against captured omp output)', () => {
 
 describe('dispatch onEvent', () => {
   afterEach(() => {
-    for (const key of ['FAKE_OMP_STREAM', 'FAKE_OMP_QUOTA']) Reflect.deleteProperty(process.env, key);
+    for (const key of ['FAKE_OMP_STREAM', 'FAKE_OMP_QUOTA', 'FAKE_OMP_STREAM_DELAY_MS']) {
+      Reflect.deleteProperty(process.env, key);
+    }
   });
 
   it('streams the fallback, tool calls, text, and per-turn usage, and totals usage across turns', async () => {
@@ -98,5 +100,45 @@ describe('dispatch onEvent', () => {
     assert.equal(result.text, 'streamed');
     assert.deepEqual(result.usage, { input: 110, output: 25, cacheRead: 0, cacheWrite: 0 });
     assert.equal(result.costUsd, 0.75);
+  });
+
+  it('steers a running worker: the answer comes from the steered turn', async () => {
+    process.env.FAKE_OMP_STREAM = '1';
+    process.env.FAKE_OMP_STREAM_DELAY_MS = '50';
+    const result = await dispatch({
+      role: 'worker',
+      task: 't',
+      cwd: tmpdir(),
+      model: 'xai-oauth/grok-4.7',
+      binary: path.join(fixtures, 'fake-omp.mjs'),
+      mmbridgeHome: await mkdtemp(path.join(tmpdir(), 'mmbridge-events-')),
+      onControl: (control) => control.steer('use (page - 1)'),
+    });
+    assert.equal(result.text, 'steered:use (page - 1)');
+  });
+
+  it('aborts a running worker: stopReason aborted, and no fallback to the next model', async () => {
+    process.env.FAKE_OMP_STREAM = '1';
+    process.env.FAKE_OMP_STREAM_DELAY_MS = '50';
+    const home = await mkdtemp(path.join(tmpdir(), 'mmbridge-events-'));
+    await writeFile(
+      path.join(home, 'roles.json'),
+      JSON.stringify({ roles: { worker: ['xai-oauth/grok-4.7', 'zai/glm-5.3'] } }),
+    );
+    const result = await dispatch({
+      role: 'worker',
+      task: 't',
+      cwd: tmpdir(),
+      binary: path.join(fixtures, 'fake-omp.mjs'),
+      mmbridgeHome: home,
+      ompConfigPath: path.join(home, 'missing.yml'),
+      onControl: (control) => control.abort(),
+    });
+    assert.equal(result.stopReason, 'aborted');
+    assert.equal(result.errorMessage, 'Interrupted by user');
+    assert.deepEqual(
+      result.attempts.map((a) => a.modelId),
+      ['grok-4.7'],
+    );
   });
 });

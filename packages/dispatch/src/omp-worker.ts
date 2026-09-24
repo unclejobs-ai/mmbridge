@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { type WorkerEventListener, isRecord, toWorkerEvent, usageOf } from './events.js';
+import { type WorkerControl, type WorkerEventListener, isRecord, toWorkerEvent, usageOf } from './events.js';
 import type { ModelRef } from './roles.js';
 
 /** Flags that cut omp cold start from ~42s to ~1.6s (measured 2026-09-23). */
@@ -36,6 +36,8 @@ export interface OmpPromptInput {
   tools?: boolean;
   /** Live view of the run: model turns, tool calls, and answer text as they happen. */
   onEvent?: WorkerEventListener;
+  /** Receives the worker's steer/abort handle once its prompt is sent. */
+  onControl?: (control: WorkerControl) => void;
 }
 
 export interface TokenUsage {
@@ -97,13 +99,24 @@ export function runOmpPrompt(input: OmpPromptInput): Promise<OmpPromptResult> {
     stderrTail = (stderrTail + chunk.toString('utf8')).slice(-STDERR_TAIL_BYTES);
   });
   const send = (command: Record<string, unknown>) => child.stdin.write(`${JSON.stringify(command)}\n`);
+  const sendPrompt = () => {
+    send({ id: 'prompt', type: 'prompt', message: input.prompt });
+    input.onControl?.({
+      steer: (message) => {
+        if (!settled) send({ id: 'steer', type: 'steer', message });
+      },
+      abort: () => {
+        if (!settled) send({ id: 'abort', type: 'abort' });
+      },
+    });
+  };
+  let settled = false;
 
   return new Promise<OmpPromptResult>((resolve, reject) => {
     let readyMs = -1;
     let waitMs: number | undefined;
     // omp reports usage per turn; a worker that calls tools runs several turns.
     const total = { turns: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 0 };
-    let settled = false;
     const finish = (outcome: { result: OmpPromptResult } | { error: Error }) => {
       if (settled) return;
       settled = true;
@@ -163,12 +176,12 @@ export function runOmpPrompt(input: OmpPromptInput): Promise<OmpPromptResult> {
         if (input.model.thinking) {
           send({ id: 'thinking', type: 'set_thinking_level', level: input.model.thinking });
         } else {
-          send({ id: 'prompt', type: 'prompt', message: input.prompt });
+          sendPrompt();
         }
         return;
       }
       if (event.type === 'response' && event.command === 'set_thinking_level') {
-        send({ id: 'prompt', type: 'prompt', message: input.prompt });
+        sendPrompt();
         return;
       }
       if (event.type === 'auto_retry_end' && typeof event.finalError === 'string') {

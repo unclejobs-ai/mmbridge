@@ -138,6 +138,14 @@ R4 결론: 아래 네 가지를 **동시에** 하는 도구는 없다 — (1) �
 - 함께 잡은 것: ink 5 `isRawModeSupported`는 non-TTY에서 `undefined`이고 `useInput`은 `isActive === false`일 때만 꺼짐 → 명시적 `=== true`. CLI 테스트가 HOME 격리 + `env node`라 HOME 의존 node shim(`~/.bun/bin/node`)이 PATH 앞이면 실패 → 테스트가 자기 node를 PATH 앞에 둠
 - 남은 S4: 3 lane 병렬, steer/abort, implement(worker+reviewer lane, 도구 trace, gate)
 
+**S4 3 lane + steer/abort (2026-09-24)**
+- spike(실제 omp): `steer`는 큐에 들어가 **현재 턴이 끝난 뒤** 새 턴으로 전달(최종 답 = steer 턴). `abort`는 6ms 내 `stopReason:"aborted"`, `errorMessage:"Interrupted by user"` → `agent_end`
+- 계약: `WorkerControl{steer, abort}`를 `dispatch({onControl})`로 받는다(fallback이 새 워커를 띄우면 새 control). abort는 error가 아니므로 **fallback하지 않음**(테스트). 워커가 뜨기 전 누른 abort는 보류했다가 control 도착 시 전달, 끝난 lane엔 무시
+- TUI: `mmbridge hub <task> -r worker -r scout -r reviewer`(반복 = 병렬 lane). `↑↓/1-9` 선택(테두리 색 + `›` 마커 — 색만으로 신호 금지), `s` steer 입력줄, `x` abort(즉시 `◌ aborting` → `■ aborted`), `q` 살아 있는 lane 전부 abort 후 종료. 패널 높이 = (터미널 행 − 4) / lane 수, 답은 남는 행만큼 tail
+- 인수 측정 (tmux 120×40, 0.5초 캡처 + 시각별 키 입력, 하네스 scratchpad `hub/scenario.sh`): 실제 3모델 병렬 — worker `xai-oauth/grok-4.7`, scout `zai/glm-5.3-flash`, reviewer codex `↷ skipped` → `xai-oauth/grok-4.6`. 7.3s steer(lane 1) → 목록 턴 종료 후 `STEERED` 턴, 25.0s done. 8.7s abort(lane 3) → 다음 프레임 `■ aborted`(lane 경과 8.5s), 결과 `stopReason:"aborted"`. scout 54.5s done. 86 프레임, `EXIT=0`
+- 발견: steer 턴 텍스트가 이전 턴에 붙음(`…size.STEERED`) → 턴 종료 후 첫 텍스트는 새 줄에서 시작. 재측정: 40번 항목 다음 줄에 `STEERED`
+- 남은 S4: implement lane(worker 도구 trace + reviewer lane + gate pass/block 버튼)
+
 ### S5 — 속도와 내구성
 - warm pool (lean 기동 1.6s × N 사전 기동), 병렬 fan-out은 기존 `orchestrateReview()`/`runBridge()` 위에
 - `SqliteStore`를 dispatch 이벤트 로그로 부활(step, input hash, output, cost) → 크래시 후 재개, 재실행 시 캐시

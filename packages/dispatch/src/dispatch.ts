@@ -1,4 +1,4 @@
-import type { WorkerEventListener } from './events.js';
+import type { WorkerControl, WorkerEventListener } from './events.js';
 import { readHealth, recordCooldown } from './health.js';
 import { type OmpPromptResult, OmpTimeoutError, runOmpPrompt } from './omp-worker.js';
 import {
@@ -51,6 +51,8 @@ export interface DispatchInput {
   tools?: boolean;
   /** Live view of the run, including which model in the chain is running and how earlier ones ended. */
   onEvent?: WorkerEventListener;
+  /** Receives a steer/abort handle for each model the dispatch starts. */
+  onControl?: (control: WorkerControl) => void;
 }
 
 export interface Attempt {
@@ -114,6 +116,7 @@ export async function dispatch(input: DispatchInput): Promise<DispatchResult> {
         ...(input.binary ? { binary: input.binary } : {}),
         ...(input.tools ? { tools: true } : {}),
         ...(input.onEvent ? { onEvent: input.onEvent } : {}),
+        ...(input.onControl ? { onControl: input.onControl } : {}),
       });
     } catch (err) {
       // A timeout means the model was working, just slowly — retrying elsewhere would double the wait.

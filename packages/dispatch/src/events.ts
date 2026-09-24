@@ -19,6 +19,14 @@ export type WorkerEvent =
 
 export type WorkerEventListener = (event: WorkerEvent) => void;
 
+/** Steers or stops a running worker. Calls after the worker has finished are ignored. */
+export interface WorkerControl {
+  /** Queue a message for the model; omp delivers it when the current turn ends. */
+  steer: (message: string) => void;
+  /** Stop the current turn. The dispatch ends with stopReason "aborted" and does not fall back. */
+  abort: () => void;
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

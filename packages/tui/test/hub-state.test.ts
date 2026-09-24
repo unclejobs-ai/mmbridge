@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { initialLane, reduceLane } from '../dist/hub-state.js';
+import { createHubStore, initialLane, reduceLane } from '../dist/hub-state.js';
 import type { LaneEvent, LaneState } from '../dist/hub-state.js';
 
 function run(events: LaneEvent[]): LaneState {
@@ -73,4 +73,68 @@ test('a provider error or a thrown failure ends the lane as error with the messa
   const failed = run([{ type: 'failed', at: 2000, message: 'omp exited' }]);
   assert.equal(failed.status, 'error');
   assert.equal(failed.errorMessage, 'omp exited');
+});
+
+test('abort shows immediately as aborting, then aborted when the worker stops', () => {
+  const aborting = run([{ type: 'ready', readyMs: 500 }, { type: 'abort_requested' }]);
+  assert.equal(aborting.status, 'aborting');
+  const stopped = reduceLane(aborting, {
+    type: 'done',
+    at: 3000,
+    stopReason: 'aborted',
+    errorMessage: 'Interrupted by user',
+  });
+  assert.equal(stopped.status, 'aborted');
+});
+
+test('a steer is shown on the lane until the worker answers it', () => {
+  const lane = run([
+    { type: 'ready', readyMs: 500 },
+    { type: 'steer', message: 'use (page - 1)' },
+  ]);
+  assert.equal(lane.lastSteer, 'use (page - 1)');
+  assert.equal(lane.status, 'running');
+});
+
+test('the store routes steer and abort to the lane control and records them', () => {
+  const store = createHubStore([initialLane('worker', 0), initialLane('reviewer', 0)]);
+  const calls: string[] = [];
+  store.setControl(1, { steer: (m) => calls.push(`steer:${m}`), abort: () => calls.push('abort') });
+  store.steer(1, 'focus on tests');
+  store.abort(1);
+  assert.deepEqual(calls, ['steer:focus on tests', 'abort']);
+  const second = store.getSnapshot()[1];
+  assert.equal(second?.lastSteer, 'focus on tests');
+  assert.equal(second?.status, 'aborting');
+});
+
+test('an abort pressed before the worker is up is delivered once its control arrives', () => {
+  const store = createHubStore([initialLane('worker', 0)]);
+  store.abort(0);
+  assert.equal(store.getSnapshot()[0]?.status, 'aborting');
+  let aborted = 0;
+  store.setControl(0, { steer: () => {}, abort: () => aborted++ });
+  assert.equal(aborted, 1);
+});
+
+test('steer and abort do nothing on a finished lane', () => {
+  const store = createHubStore([initialLane('worker', 0)]);
+  const calls: string[] = [];
+  store.setControl(0, { steer: () => calls.push('steer'), abort: () => calls.push('abort') });
+  store.apply(0, { type: 'done', at: 10, stopReason: 'stop' });
+  store.steer(0, 'late');
+  store.abort(0);
+  assert.deepEqual(calls, []);
+  assert.equal(store.getSnapshot()[0]?.status, 'done');
+});
+
+test('answer text from a later turn (e.g. after a steer) starts on a new line', () => {
+  const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 };
+  const lane = run([
+    { type: 'text', delta: '60. last item.' },
+    { type: 'turn', usage, costUsd: 0 },
+    { type: 'text', delta: 'STEERED' },
+    { type: 'turn', usage, costUsd: 0 },
+  ]);
+  assert.equal(lane.text, '60. last item.\nSTEERED');
 });

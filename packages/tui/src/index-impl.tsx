@@ -1,4 +1,4 @@
-import type { DispatchResult, Role, WorkerEventListener } from '@mmbridge/dispatch';
+import type { DispatchResult, Role, WorkerControl, WorkerEventListener } from '@mmbridge/dispatch';
 import { render } from 'ink';
 import React from 'react';
 import { App } from './App.js';
@@ -45,8 +45,11 @@ export async function renderTui(options?: {
 
 export interface HubLane {
   role: Role;
-  /** Starts the dispatch; the hub renders every event it reports. */
-  run: (onEvent: WorkerEventListener) => Promise<DispatchResult>;
+  /** Starts the dispatch; the hub renders every event it reports and steers/aborts through the control. */
+  run: (hooks: {
+    onEvent: WorkerEventListener;
+    onControl: (control: WorkerControl) => void;
+  }) => Promise<DispatchResult>;
 }
 
 /** Runs every lane at once in a live view; resolves after the user quits, with each lane's result or error. */
@@ -56,7 +59,10 @@ export async function renderHub(options: { title: string; lanes: HubLane[] }): P
   const results = Promise.all(
     options.lanes.map((lane, index) =>
       lane
-        .run((event) => store.apply(index, event))
+        .run({
+          onEvent: (event) => store.apply(index, event),
+          onControl: (control) => store.setControl(index, control),
+        })
         .then(
           (result) => {
             store.apply(index, {

@@ -168,31 +168,36 @@ export async function main(): Promise<void> {
   // ── hub ──
   program
     .command('hub <task>')
-    .description('Dispatch a task and watch the worker live: model, fallback, tool calls, tokens, answer')
-    .option('-r, --role <role>', 'worker | scout | reviewer | designer', 'worker')
+    .description('Dispatch a task and watch each worker live: model, fallback, tool calls, tokens; steer or abort')
+    .option(
+      '-r, --role <role>',
+      'worker | scout | reviewer | designer — repeat for parallel lanes (default: worker)',
+      (role: string, roles: string[]) => [...roles, role],
+      [],
+    )
     .option('-m, --model <selector>', 'Pin a model as provider/model[:thinking]')
     .option('-p, --project <dir>', 'Project directory (default: cwd)')
     .action(async (task: string, _opts: unknown, command: Command) => {
-      const opts = command.optsWithGlobals() as { role: string; model?: string; project?: string };
+      const opts = command.optsWithGlobals() as { role: string[]; model?: string; project?: string };
       const { ROLES, dispatch, isRole } = await import('@mmbridge/dispatch');
       const { renderHub } = await import('@mmbridge/tui');
-      const role = opts.role;
-      if (!isRole(role)) throw new Error(`Invalid role "${role}": expected one of ${ROLES.join(', ')}`);
+      const roles = opts.role.length > 0 ? opts.role : ['worker'];
+      const invalid = roles.find((role) => !isRole(role));
+      if (invalid) throw new Error(`Invalid role "${invalid}": expected one of ${ROLES.join(', ')}`);
       const results = await renderHub({
         title: task,
-        lanes: [
-          {
-            role,
-            run: (onEvent) =>
-              dispatch({
-                role,
-                task,
-                cwd: opts.project ?? process.cwd(),
-                onEvent,
-                ...(opts.model ? { model: opts.model } : {}),
-              }),
-          },
-        ],
+        lanes: roles.filter(isRole).map((role) => ({
+          role,
+          run: ({ onEvent, onControl }) =>
+            dispatch({
+              role,
+              task,
+              cwd: opts.project ?? process.cwd(),
+              onEvent,
+              onControl,
+              ...(opts.model ? { model: opts.model } : {}),
+            }),
+        })),
       });
       const failed = results.some((result) => result instanceof Error || result.stopReason === 'error');
       process.stdout.write(
