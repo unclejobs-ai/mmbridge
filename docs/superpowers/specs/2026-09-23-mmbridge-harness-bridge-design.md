@@ -119,11 +119,24 @@ R4 결론: 아래 네 가지를 **동시에** 하는 도구는 없다 — (1) �
 - 명령 주입(`validate` → `sh -c`) → **설계상 유지**: validate는 host가 고르는 명령이고 모델이 고르지 않는다. MCP 설명에 "당신의 권한으로 실행, 직접 돌릴 명령만" 명시. Claude Code에서는 MCP 도구 호출 승인이 게이트
 - 함께 잡은 CLI 버그: 루트 명령의 `-p/--project`·`--model`이 `dispatch`/`implement`의 같은 옵션을 삼킴 → `optsWithGlobals()`. 버그 상태에서 `implement -p <repo>`가 **현재 디렉터리(mmbridge repo)에 worktree를 만들었음**(cleanup으로 제거 확인). 회귀 테스트는 가짜 omp를 PATH에, HOME 격리, 비-git cwd에서 실행
 
+**S1–S3 세션 내 인수 (2026-09-24, Claude Code → repo `.mcp.json` `mmbridge-dev`)**
+- `mmbridge_dispatch({role:"reviewer"})`: codex skipped(쿨다운) → `xai-oauth/grok-4.6` off-by-one 지적, `readyMs 1124` / `totalMs 9523` / `$0.014`, 벽시계 ≈10s
+- `mmbridge_implement`(스크래치 repo, 1-based 페이지 버그, `validate: node check.js`): worker `xai-oauth/grok-4.7` 11.5s(ready 0.58s) → reviewer codex skipped → `zai/glm-5.3` pass 17.6s → validate exit 0 → **gate pass, 벽시계 34.5s**. cleanup 명령으로 worktree·브랜치 제거 확인
+- 여전히 미검증: 몇 분짜리 worker가 Claude Code MCP 호출 타임아웃을 넘는지(이번 호출은 모두 35s 이내)
+
 ### S4 — Agent Hub TUI
 - 디스패치된 역할당 라이브 패널 1개: role / model / 상태 / 경과 / 토큰·비용 / 마지막 도구. steer(`steer`), kill(`abort`)
 - gate를 버튼으로 (Conductor 패턴: diff 보기 → pass/block)
 - unclecode `DESIGN.md` 규칙 채택(표시폭 안전 CJK 레이아웃, spinner 1개 규칙)
 - **인수**: 워커 3개 병렬 실행 스크린샷 + steer 반영 확인
+
+**S4 tracer bullet (2026-09-24): dispatch 1건 → 패널 1개**
+- 계약: `WorkerEvent`(`packages/dispatch/src/events.ts`) — `model` / `attempt` / `ready` / `text` / `tool_start{name,intent}` / `tool_end{isError}` / `turn{usage,costUsd}`. omp 원시 프레임(thinking delta마다 partial 메시지 전체 반복)은 seam을 넘지 않는다. `toWorkerEvent()`는 실제 omp 캡처(`test/fixtures/omp-rpc-worker-events.ndjson`, grok-4.7 worker 5턴)로 characterization 테스트
+- 발견 4: omp `turn_end` usage는 **턴별**이다. 기존 `runOmpPrompt`는 마지막 assistant 메시지 usage만 반환 → 도구를 쓰는 worker의 토큰·비용을 과소 보고(캡처: 5턴 input 합 14,532 중 마지막 턴 366만). 이제 `turn_end` 합산, 턴 이벤트가 없으면 기존 동작
+- `dispatch({onEvent})` → `renderHub({lanes})`(`packages/tui`, `useSyncExternalStore` 스토어, 워커는 React 밖에서 시작) → CLI `mmbridge hub <task> -r <role>`. spinner는 하단 activity row 1개, 패널은 `○ starting / ● running / ✓ done / ✗ error` 텍스트로 상태 표시(DESIGN.md §6). TTY가 없으면 입력 끄고 전 lane 종료 시 자동 unmount
+- 측정 (tmux 120×40, 1초마다 `capture-pane`, 하네스는 scratchpad `hub/capture.sh`): 실제 reviewer → codex `↷ skipped` 표시 → `xai-oauth/grok-4.6` 프레임 7개 `starting(0.3s) → running(ready 1.0s) → 답 스트리밍(5.7s) → done(6.2s)`, 패널 `3.0k in / 308 out · $0.008` = 결과 JSON `3036/308, $0.00792, readyMs 1041, totalMs 6180`. `q` → JSON 출력, exit 0
+- 함께 잡은 것: ink 5 `isRawModeSupported`는 non-TTY에서 `undefined`이고 `useInput`은 `isActive === false`일 때만 꺼짐 → 명시적 `=== true`. CLI 테스트가 HOME 격리 + `env node`라 HOME 의존 node shim(`~/.bun/bin/node`)이 PATH 앞이면 실패 → 테스트가 자기 node를 PATH 앞에 둠
+- 남은 S4: 3 lane 병렬, steer/abort, implement(worker+reviewer lane, 도구 trace, gate)
 
 ### S5 — 속도와 내구성
 - warm pool (lean 기동 1.6s × N 사전 기동), 병렬 fan-out은 기존 `orchestrateReview()`/`runBridge()` 위에

@@ -23,6 +23,7 @@
   "dependencies": {
     "@mmbridge/adapters": "workspace:*",
     "@mmbridge/core": "workspace:*",
+    "@mmbridge/dispatch": "workspace:*",
     "@mmbridge/session-store": "workspace:*",
     "ink": "^5",
     "ink-spinner": "^5.0.0",

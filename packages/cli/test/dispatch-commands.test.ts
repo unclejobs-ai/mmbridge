@@ -31,7 +31,9 @@ async function sandbox() {
   await writeFile(path.join(repo, 'calc.js'), 'export const add = (a, b) => a - b;\n');
   git('add', '-A');
   git('commit', '-qm', 'init');
-  const env = { ...process.env, HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` };
+  // The fake omp runs via `env node`; put this node first, since a node shim earlier on PATH may depend on the real HOME.
+  const nodeBin = path.dirname(process.execPath);
+  const env = { ...process.env, HOME: home, PATH: [bin, nodeBin, process.env.PATH ?? ''].join(path.delimiter) };
   return { root, repo, env };
 }
 

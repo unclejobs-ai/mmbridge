@@ -21,6 +21,12 @@ const edit = process.env.FAKE_OMP_EDIT;
 // Reviewer simulation: the text a reviewer-role prompt gets back.
 const reviewText = process.env.FAKE_OMP_REVIEW;
 const out = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
+// Live-view simulation: FAKE_OMP_STREAM=1 runs two turns (a `read` tool call, then the answer) with per-turn usage,
+// FAKE_OMP_STREAM_DELAY_MS spaces the events out.
+const stream = process.env.FAKE_OMP_STREAM === '1';
+const streamDelayMs = Number(process.env.FAKE_OMP_STREAM_DELAY_MS ?? 0);
+const pause = () => new Promise((resolve) => setTimeout(resolve, streamDelayMs));
+const turnUsage = (input, output, cost) => ({ input, output, cacheRead: 0, cacheWrite: 0, cost: { total: cost } });
 let model = null;
 let thinking = null;
 
@@ -37,7 +43,7 @@ if (process.argv[2] === 'models') {
 }
 
 out({ type: 'ready' });
-createInterface({ input: process.stdin }).on('line', (line) => {
+createInterface({ input: process.stdin }).on('line', async (line) => {
   const cmd = JSON.parse(line);
   if (cmd.type === 'set_model') {
     if (mode === 'reject-model' || unknownModels.includes(`${cmd.provider}/${cmd.modelId}`)) {
@@ -122,6 +128,30 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     if (edit && toolsEnabled) {
       const eq = edit.indexOf('=');
       fs.writeFileSync(edit.slice(0, eq), edit.slice(eq + 1));
+    }
+    if (stream && mode !== 'model-error') {
+      out({ type: 'turn_start' });
+      await pause();
+      out({ type: 'tool_execution_start', toolCallId: 't1', toolName: 'read', args: {}, intent: 'Reading task' });
+      await pause();
+      out({ type: 'tool_execution_end', toolCallId: 't1', toolName: 'read', result: {}, isError: false });
+      out({ type: 'turn_end', message: { role: 'assistant', content: [], usage: turnUsage(100, 20, 0.5) } });
+      await pause();
+      for (const delta of ['str', 'eamed']) {
+        out({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta } });
+        await pause();
+      }
+      const final = {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'streamed' }],
+        provider: model.provider,
+        model: model.modelId,
+        stopReason: 'stop',
+        usage: turnUsage(10, 5, 0.25),
+      };
+      out({ type: 'turn_end', message: final });
+      out({ type: 'agent_end', messages: [final] });
+      return;
     }
     const text =
       reviewText !== undefined && cmd.message.includes('You are the reviewer')

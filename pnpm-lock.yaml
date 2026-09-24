@@ -144,6 +144,9 @@ importers:
       '@mmbridge/core':
         specifier: workspace:*
         version: link:../core
+      '@mmbridge/dispatch':
+        specifier: workspace:*
+        version: link:../dispatch
       '@mmbridge/session-store':
         specifier: workspace:*
         version: link:../session-store

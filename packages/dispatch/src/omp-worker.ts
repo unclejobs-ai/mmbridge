@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { type WorkerEventListener, isRecord, toWorkerEvent, usageOf } from './events.js';
 import type { ModelRef } from './roles.js';
 
 /** Flags that cut omp cold start from ~42s to ~1.6s (measured 2026-09-23). */
@@ -33,6 +34,8 @@ export interface OmpPromptInput {
   binary?: string;
   /** Give the worker omp's file tools with auto-approval. Only for an isolated cwd (a dedicated git worktree). */
   tools?: boolean;
+  /** Live view of the run: model turns, tool calls, and answer text as they happen. */
+  onEvent?: WorkerEventListener;
 }
 
 export interface TokenUsage {
@@ -64,10 +67,6 @@ interface AssistantMessage {
   stopReason?: string;
   errorMessage?: string;
   usage?: TokenUsage & { cost?: { total?: number } };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isAssistantMessage(value: unknown): value is AssistantMessage {
@@ -102,6 +101,8 @@ export function runOmpPrompt(input: OmpPromptInput): Promise<OmpPromptResult> {
   return new Promise<OmpPromptResult>((resolve, reject) => {
     let readyMs = -1;
     let waitMs: number | undefined;
+    // omp reports usage per turn; a worker that calls tools runs several turns.
+    const total = { turns: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 0 };
     let settled = false;
     const finish = (outcome: { result: OmpPromptResult } | { error: Error }) => {
       if (settled) return;
@@ -131,9 +132,20 @@ export function runOmpPrompt(input: OmpPromptInput): Promise<OmpPromptResult> {
         return;
       }
       if (!isRecord(event)) return;
+      const view = toWorkerEvent(event);
+      if (view?.type === 'turn') {
+        total.turns += 1;
+        total.usage.input += view.usage.input;
+        total.usage.output += view.usage.output;
+        total.usage.cacheRead += view.usage.cacheRead;
+        total.usage.cacheWrite += view.usage.cacheWrite;
+        total.costUsd += view.costUsd;
+      }
+      if (view) input.onEvent?.(view);
 
       if (event.type === 'ready') {
         readyMs = elapsed();
+        input.onEvent?.({ type: 'ready', readyMs });
         send({ id: 'model', type: 'set_model', provider: input.model.provider, modelId: input.model.modelId });
         return;
       }
@@ -170,7 +182,9 @@ export function runOmpPrompt(input: OmpPromptInput): Promise<OmpPromptResult> {
           finish({ error: new Error('omp finished without an assistant message') });
           return;
         }
-        const { cost, ...usage } = last.usage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+        const lastTurn = usageOf(last);
+        const usage = total.turns > 0 ? total.usage : (lastTurn?.usage ?? total.usage);
+        const costUsd = total.turns > 0 ? total.costUsd : lastTurn?.costUsd;
         finish({
           result: {
             text: textOf(last),
@@ -179,13 +193,8 @@ export function runOmpPrompt(input: OmpPromptInput): Promise<OmpPromptResult> {
             stopReason: last.stopReason ?? 'unknown',
             ...(last.errorMessage ? { errorMessage: last.errorMessage } : {}),
             ...(waitMs !== undefined ? { waitMs } : {}),
-            usage: {
-              input: usage.input,
-              output: usage.output,
-              cacheRead: usage.cacheRead,
-              cacheWrite: usage.cacheWrite,
-            },
-            ...(typeof cost?.total === 'number' ? { costUsd: cost.total } : {}),
+            usage,
+            ...(costUsd !== undefined ? { costUsd } : {}),
             readyMs,
             totalMs: elapsed(),
           },

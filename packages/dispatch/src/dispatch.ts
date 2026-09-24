@@ -1,3 +1,4 @@
+import type { WorkerEventListener } from './events.js';
 import { readHealth, recordCooldown } from './health.js';
 import { type OmpPromptResult, OmpTimeoutError, runOmpPrompt } from './omp-worker.js';
 import {
@@ -48,6 +49,8 @@ export interface DispatchInput {
   excludeProviders?: string[];
   /** Give the worker omp's file tools with auto-approval. Only for an isolated cwd (a dedicated git worktree). */
   tools?: boolean;
+  /** Live view of the run, including which model in the chain is running and how earlier ones ended. */
+  onEvent?: WorkerEventListener;
 }
 
 export interface Attempt {
@@ -85,6 +88,10 @@ export async function dispatch(input: DispatchInput): Promise<DispatchResult> {
   }
   const health = await readHealth(home);
   const attempts: Attempt[] = [];
+  const record = (attempt: Attempt) => {
+    attempts.push(attempt);
+    input.onEvent?.({ type: 'attempt', attempt });
+  };
   let lastFailure: OmpPromptResult | undefined;
 
   for (const model of chain) {
@@ -92,10 +99,11 @@ export async function dispatch(input: DispatchInput): Promise<DispatchResult> {
     const cooldown = health[model.provider];
     if (!pinned && cooldown && cooldown.until > Date.now()) {
       const until = new Date(cooldown.until).toISOString();
-      attempts.push({ ...target, outcome: 'skipped', errorMessage: `cooling down until ${until}: ${cooldown.reason}` });
+      record({ ...target, outcome: 'skipped', errorMessage: `cooling down until ${until}: ${cooldown.reason}` });
       continue;
     }
 
+    input.onEvent?.({ type: 'model', ...target });
     let result: OmpPromptResult;
     try {
       result = await runOmpPrompt({
@@ -105,19 +113,20 @@ export async function dispatch(input: DispatchInput): Promise<DispatchResult> {
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
         ...(input.binary ? { binary: input.binary } : {}),
         ...(input.tools ? { tools: true } : {}),
+        ...(input.onEvent ? { onEvent: input.onEvent } : {}),
       });
     } catch (err) {
       // A timeout means the model was working, just slowly — retrying elsewhere would double the wait.
       if (err instanceof OmpTimeoutError) throw err;
-      attempts.push({ ...target, outcome: 'error', errorMessage: errorText(err) });
+      record({ ...target, outcome: 'error', errorMessage: errorText(err) });
       continue;
     }
 
     if (result.stopReason !== 'error') {
-      attempts.push({ ...target, outcome: 'ok', totalMs: result.totalMs });
+      record({ ...target, outcome: 'ok', totalMs: result.totalMs });
       return { role: input.role, ...result, attempts };
     }
-    attempts.push({
+    record({
       ...target,
       outcome: 'error',
       totalMs: result.totalMs,

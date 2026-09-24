@@ -165,6 +165,46 @@ export async function main(): Promise<void> {
       if (result.stopReason === 'error') process.exitCode = 1;
     });
 
+  // ── hub ──
+  program
+    .command('hub <task>')
+    .description('Dispatch a task and watch the worker live: model, fallback, tool calls, tokens, answer')
+    .option('-r, --role <role>', 'worker | scout | reviewer | designer', 'worker')
+    .option('-m, --model <selector>', 'Pin a model as provider/model[:thinking]')
+    .option('-p, --project <dir>', 'Project directory (default: cwd)')
+    .action(async (task: string, _opts: unknown, command: Command) => {
+      const opts = command.optsWithGlobals() as { role: string; model?: string; project?: string };
+      const { ROLES, dispatch, isRole } = await import('@mmbridge/dispatch');
+      const { renderHub } = await import('@mmbridge/tui');
+      const role = opts.role;
+      if (!isRole(role)) throw new Error(`Invalid role "${role}": expected one of ${ROLES.join(', ')}`);
+      const results = await renderHub({
+        title: task,
+        lanes: [
+          {
+            role,
+            run: (onEvent) =>
+              dispatch({
+                role,
+                task,
+                cwd: opts.project ?? process.cwd(),
+                onEvent,
+                ...(opts.model ? { model: opts.model } : {}),
+              }),
+          },
+        ],
+      });
+      const failed = results.some((result) => result instanceof Error || result.stopReason === 'error');
+      process.stdout.write(
+        `${JSON.stringify(
+          results.map((result) => (result instanceof Error ? { error: result.message } : result)),
+          null,
+          2,
+        )}\n`,
+      );
+      if (failed) process.exitCode = 1;
+    });
+
   // ── implement ──
   program
     .command('implement <task>')

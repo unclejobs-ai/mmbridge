@@ -1,9 +1,12 @@
+import type { DispatchResult, Role, WorkerEventListener } from '@mmbridge/dispatch';
 import { render } from 'ink';
 import React from 'react';
 import { App } from './App.js';
 import type { ReplCommandResult } from './App.js';
+import { createHubStore, initialLane } from './hub-state.js';
 import type { TabId } from './store.js';
 import { countBySeverity } from './utils/format.js';
+import { HubView } from './views/HubView.js';
 
 // ─── Re-export domain interfaces for backward compatibility ───────────────────
 
@@ -36,6 +39,53 @@ export async function renderTui(options?: {
       process.stdout.write('\x1B[?1049l'); // restore original screen
     }
   }
+}
+
+// ─── Agent Hub: one live pane per dispatched worker ──────────────────────────
+
+export interface HubLane {
+  role: Role;
+  /** Starts the dispatch; the hub renders every event it reports. */
+  run: (onEvent: WorkerEventListener) => Promise<DispatchResult>;
+}
+
+/** Runs every lane at once in a live view; resolves after the user quits, with each lane's result or error. */
+export async function renderHub(options: { title: string; lanes: HubLane[] }): Promise<Array<DispatchResult | Error>> {
+  const startedAt = Date.now();
+  const store = createHubStore(options.lanes.map((lane) => initialLane(lane.role, startedAt)));
+  const results = Promise.all(
+    options.lanes.map((lane, index) =>
+      lane
+        .run((event) => store.apply(index, event))
+        .then(
+          (result) => {
+            store.apply(index, {
+              type: 'done',
+              at: Date.now(),
+              stopReason: result.stopReason,
+              ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+            });
+            return result;
+          },
+          (err: unknown) => {
+            const error = err instanceof Error ? err : new Error(String(err));
+            store.apply(index, { type: 'failed', at: Date.now(), message: error.message });
+            return error;
+          },
+        ),
+    ),
+  );
+
+  const isTTY = process.stdout.isTTY;
+  if (isTTY) process.stdout.write('\x1B[?1049h\x1B[2J\x1B[H');
+  try {
+    const instance = render(<HubView store={store} title={options.title} />);
+    if (!process.stdin.isTTY) void results.then(() => instance.unmount());
+    await instance.waitUntilExit();
+  } finally {
+    if (isTTY) process.stdout.write('\x1B[?1049l');
+  }
+  return results;
 }
 
 // ─── Backward-compatible stubs (replaced blessed renders) ─────────────────────

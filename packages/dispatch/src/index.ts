@@ -3,6 +3,7 @@ export type { Attempt, DispatchInput, DispatchResult } from './dispatch.js';
 export { ROLES, isRole, parseModelRef, resolveRoleChain } from './roles.js';
 export type { ModelRef, Role, RoleSources } from './roles.js';
 export type { OmpPromptResult, TokenUsage } from './omp-worker.js';
+export type { WorkerEvent, WorkerEventListener } from './events.js';
 export { readHealth } from './health.js';
 export { loadCatalog } from './catalog.js';
 export { implement } from './implement.js';
