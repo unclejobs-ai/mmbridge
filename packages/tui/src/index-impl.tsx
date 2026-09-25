@@ -61,11 +61,22 @@ export async function renderHub<T>(options: {
 
   const isTTY = process.stdout.isTTY;
   if (isTTY) process.stdout.write('\x1B[?1049h\x1B[2J\x1B[H');
+  // Each Ink frame erases every line and writes them again; wrapped in synchronized
+  // output (CSI ?2026) the terminal paints the frame at once instead of showing the
+  // erased screen in between, which is what flickered.
+  const write = process.stdout.write;
+  if (isTTY) {
+    process.stdout.write = function (this: NodeJS.WriteStream, chunk: unknown, ...rest: unknown[]) {
+      const framed = typeof chunk === 'string' ? `\x1B[?2026h${chunk}\x1B[?2026l` : chunk;
+      return (write as (...args: unknown[]) => boolean).call(this, framed, ...rest);
+    } as typeof process.stdout.write;
+  }
   try {
     const instance = render(<HubView store={store} title={options.title} />);
     if (!process.stdin.isTTY) void outcome.then(() => instance.unmount());
     await instance.waitUntilExit();
   } finally {
+    process.stdout.write = write;
     if (isTTY) process.stdout.write('\x1B[?1049l');
   }
   const settled = await outcome;

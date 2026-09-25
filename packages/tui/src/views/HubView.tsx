@@ -1,5 +1,4 @@
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
-import Spinner from 'ink-spinner';
 import TextInput from 'ink-text-input';
 import type React from 'react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
@@ -14,7 +13,13 @@ import {
 } from '../hub-state.js';
 import { colors } from '../theme.js';
 
-const CLOCK_MS = 100;
+/**
+ * One redraw per tick: Ink 5 erases and rewrites the whole frame on every render,
+ * so the tick sets the repaint rate. The spinner glyph follows the same clock
+ * instead of running its own 80 ms timer.
+ */
+const CLOCK_MS = 250;
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 /** Hub rows outside the panes: header, activity row, hint row, and the steer composer when open. */
 const CHROME_ROWS = 4;
 /** Gate box rows besides its reasons and details: two borders and the verdict. */
@@ -269,7 +274,7 @@ export function HubView({ store, title }: { store: HubStore; title: string }): R
         {busy ? (
           <Text color={colors.overlay2} wrap="truncate-end">
             <Text color={colors.accent} bold>
-              <Spinner type="dots" />
+              {SPINNER[Math.floor(now / CLOCK_MS) % SPINNER.length]}
             </Text>{' '}
             {live > 0 ? `${live} of ${lanes.length} running` : (activity ?? 'working')} · {seconds(now - startedAt)}
           </Text>
