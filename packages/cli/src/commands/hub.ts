@@ -67,6 +67,20 @@ async function runImplementHub(options: HubCommandOptions, cwd: string): Promise
   if (result.gate === 'block') process.exitCode = 1;
 }
 
+/** `mmbridge hub` with no task asks for one first, instead of a missing-argument error. */
+export async function promptHubTask(): Promise<string> {
+  if (!process.stdin.isTTY) throw new Error('mmbridge hub needs a task: mmbridge hub "<task>"');
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const task = (await rl.question('mmbridge hub · task (worker by default, -r to pick roles): ')).trim();
+    if (!task) throw new Error('No task given.');
+    return task;
+  } finally {
+    rl.close();
+  }
+}
+
 export async function runHubCommand(options: HubCommandOptions): Promise<void> {
   const cwd = options.project ?? process.cwd();
   if (options.implement) {

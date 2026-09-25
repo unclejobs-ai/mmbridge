@@ -168,7 +168,7 @@ export async function main(): Promise<void> {
 
   // ── hub ──
   program
-    .command('hub <task>')
+    .command('hub [task]')
     .description('Watch dispatched models live — model, fallback, tool calls, tokens — and steer or abort them')
     .option(
       '-r, --role <role>',
@@ -180,10 +180,10 @@ export async function main(): Promise<void> {
     .option('-p, --project <dir>', 'Project directory (default: cwd)')
     .option('--implement', 'Gated implement instead: worker lane, reviewer lane, validation, gate')
     .option('--validate <command>', 'With --implement: shell command run in the worktree after review')
-    .action(async (task: string, _opts: unknown, command: Command) => {
+    .action(async (task: string | undefined, _opts: unknown, command: Command) => {
       const opts = command.optsWithGlobals() as Omit<HubCommandOptions, 'task' | 'roles'> & { role: string[] };
-      const { runHubCommand } = await import('./commands/hub.js');
-      await runHubCommand({ ...opts, task, roles: opts.role });
+      const { promptHubTask, runHubCommand } = await import('./commands/hub.js');
+      await runHubCommand({ ...opts, task: task ?? (await promptHubTask()), roles: opts.role });
     });
 
   // ── implement ──
