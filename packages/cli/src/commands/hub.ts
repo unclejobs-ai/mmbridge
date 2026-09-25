@@ -67,15 +67,33 @@ async function runImplementHub(options: HubCommandOptions, cwd: string): Promise
   if (result.gate === 'block') process.exitCode = 1;
 }
 
+/**
+ * An answer to the hub's task prompt. A bare role name ("worker") is the
+ * question misread as "which role?" — sending it as the task left the model
+ * with nothing to do, and it went looking through handoffs for one.
+ */
+export function resolveHubTaskAnswer(answer: string): { task: string } | { retry: string } {
+  const task = answer.trim();
+  if (!task) return { retry: 'Type what the model should do.' };
+  const role = task.toLowerCase();
+  if ((['worker', 'scout', 'reviewer', 'designer'] as const).some((name) => name === role)) {
+    return { retry: `"${task}" is a role, not a task. Pick roles with -r (mmbridge hub -r ${role}); type the task.` };
+  }
+  return { task };
+}
+
 /** `mmbridge hub` with no task asks for one first, instead of a missing-argument error. */
-export async function promptHubTask(): Promise<string> {
+export async function promptHubTask(roles: readonly string[] = []): Promise<string> {
   if (!process.stdin.isTTY) throw new Error('mmbridge hub needs a task: mmbridge hub "<task>"');
+  const who = roles.length > 0 ? roles.join(' + ') : 'worker';
   const { createInterface } = await import('node:readline/promises');
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const task = (await rl.question('mmbridge hub · task (worker by default, -r to pick roles): ')).trim();
-    if (!task) throw new Error('No task given.');
-    return task;
+    for (;;) {
+      const answer = resolveHubTaskAnswer(await rl.question(`mmbridge hub · what should the ${who} do? › `));
+      if ('task' in answer) return answer.task;
+      process.stdout.write(`  ${answer.retry}\n`);
+    }
   } finally {
     rl.close();
   }

@@ -153,7 +153,7 @@ export async function main(): Promise<void> {
     .action(async (task: string | undefined, _opts: unknown, command: Command) => {
       const opts = command.optsWithGlobals() as Omit<HubCommandOptions, 'task' | 'roles'> & { role: string[] };
       const { promptHubTask, runHubCommand } = await import('./commands/hub.js');
-      await runHubCommand({ ...opts, task: task ?? (await promptHubTask()), roles: opts.role });
+      await runHubCommand({ ...opts, task: task ?? (await promptHubTask(opts.role)), roles: opts.role });
     });
 
   // ── implement ──
