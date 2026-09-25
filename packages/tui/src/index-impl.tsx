@@ -1,10 +1,7 @@
 import type { DispatchResult, Role, WorkerControl, WorkerEvent } from '@mmbridge/dispatch';
 import { render } from 'ink';
 import React from 'react';
-import { App } from './App.js';
-import type { ReplCommandResult } from './App.js';
 import { type GateView, createHubStore } from './hub-state.js';
-import type { TabId } from './store.js';
 import { countBySeverity } from './utils/format.js';
 import { HubView } from './views/HubView.js';
 
@@ -16,32 +13,6 @@ export type {
   DoctorReport,
   ReviewReport,
 } from './legacy-types.js';
-
-// ─── TUI entry point ──────────────────────────────────────────────────────────
-
-export async function renderTui(options?: {
-  tab?: TabId;
-  version?: string;
-  onReplCommand?: (command: string) => Promise<ReplCommandResult>;
-}): Promise<void> {
-  const isTTY = process.stdout.isTTY;
-
-  if (isTTY) {
-    process.stdout.write('\x1B[?1049h'); // alternate screen buffer
-    process.stdout.write('\x1B[2J\x1B[H'); // clear + cursor home
-  }
-
-  try {
-    const instance = render(
-      <App initialTab={options?.tab} version={options?.version} onReplCommand={options?.onReplCommand} />,
-    );
-    await instance.waitUntilExit();
-  } finally {
-    if (isTTY) {
-      process.stdout.write('\x1B[?1049l'); // restore original screen
-    }
-  }
-}
 
 // ─── Agent Hub: one live pane per model stage ─────────────────────────────────
 

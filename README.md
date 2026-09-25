@@ -39,7 +39,7 @@ See [VISION.md](./VISION.md) for the external product vision and [docs/vision/co
 
 ### Operations
 
-- **Interactive TUI**: Open the terminal control plane with `mmbridge tui`
+- **Agent Hub**: `mmbridge hub` (or `mmbridge tui`) — watch dispatched models live, steer or abort them
 - **Finding parser**: Extract structured findings from raw AI output
 - **Secret redaction**: Auto-redact API keys, tokens, and passwords from context
 - **Export**: Generate markdown reports with `--export report.md`
@@ -117,7 +117,7 @@ mmbridge security --tool all --bridge standard
 
 | Command | Description |
 |---------|-------------|
-| `mmbridge tui` | Open the interactive TUI control plane |
+| `mmbridge tui` | Open the Agent Hub (same as `mmbridge hub`) |
 | `mmbridge doctor` | Inspect local tooling and binary installation |
 | `mmbridge init` | Initialize project config interactively |
 | `mmbridge sync-agents` | Sync agent definitions to Claude Code |

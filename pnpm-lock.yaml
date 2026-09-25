@@ -138,9 +138,6 @@ importers:
 
   packages/tui:
     dependencies:
-      '@mmbridge/adapters':
-        specifier: workspace:*
-        version: link:../adapters
       '@mmbridge/core':
         specifier: workspace:*
         version: link:../core

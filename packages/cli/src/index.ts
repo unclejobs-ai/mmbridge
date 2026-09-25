@@ -55,10 +55,6 @@ export type {
   ContextPacketCommandOptions,
 };
 
-function supportsInteractiveTui(): boolean {
-  return Boolean(process.stdin.isTTY && process.stdout.isTTY && typeof process.stdin.setRawMode === 'function');
-}
-
 function isCommand(value: unknown): value is Command {
   return (
     typeof value === 'object' &&
@@ -70,32 +66,6 @@ function isCommand(value: unknown): value is Command {
 
 function commandOptions<T extends object>(value: T | Command): T {
   return isCommand(value) ? (value.opts() as T) : value;
-}
-
-async function runTuiOrFallback(
-  program: Command,
-  options?: { tab?: 'dashboard' | 'sessions' | 'config' },
-): Promise<void> {
-  if (!supportsInteractiveTui()) {
-    process.stderr.write(
-      '[mmbridge] Interactive TUI requires a terminal with raw input mode. Falling back to help.\n\n',
-    );
-    program.outputHelp();
-    process.stderr.write(
-      '\nTry `mmbridge doctor`, `mmbridge review --json`, or run `mmbridge tui` in an interactive terminal.\n',
-    );
-    return;
-  }
-
-  const { renderTui } = await import('@mmbridge/tui');
-  const { executeReplCommand } = await import('./commands/repl-router.js');
-  await renderTui({
-    tab: options?.tab,
-    version: program.version(),
-    onReplCommand: async (command: string) => {
-      return await executeReplCommand(command);
-    },
-  });
 }
 
 export async function main(): Promise<void> {
@@ -421,14 +391,13 @@ export async function main(): Promise<void> {
     });
 
   // ── tui ──
+  // The old review tabs are gone; the hub is mmbridge's one TUI.
   program
     .command('tui')
-    .description('Open the interactive TUI control plane')
-    .option('--tab <tab>', 'Open directly to a tab (dashboard|sessions|config)')
-    .action(async (opts: { tab?: string }) => {
-      await runTuiOrFallback(program, {
-        tab: opts.tab as 'dashboard' | 'sessions' | 'config',
-      });
+    .description('Open the Agent Hub (same as `mmbridge hub`)')
+    .action(async () => {
+      const { promptHubTask, runHubCommand } = await import('./commands/hub.js');
+      await runHubCommand({ task: await promptHubTask(), roles: [] });
     });
 
   // ── diff ──

@@ -23,7 +23,7 @@ test('root help uses the control-plane taxonomy', () => {
   const output = getHelpOutput(['--help']);
 
   assert.match(output, /Multi-model thinking and review control plane for coding agents/);
-  assert.match(output, /\n {2}tui \[options\]\s+Open the interactive TUI control plane/);
+  assert.match(output, /\n {2}tui\s+Open the Agent Hub \(same as `mmbridge hub`\)/);
   assert.match(output, /\n {2}review \[options\]\s+Run a multi-model review for a change or/);
   assert.match(output, /\n {2}run \[options\] <task>\s+Run one task through a declared read-only/);
   assert.match(output, /\n {2}research \[options\] <topic>\s+Research a topic using multiple AI models/);
@@ -54,11 +54,11 @@ test('root help uses the control-plane taxonomy', () => {
   assert.doesNotMatch(output, /mmbridge dashboard/);
 });
 
-test('tui help still exposes the tab switcher', () => {
+test('tui opens the Agent Hub; the old review tabs are gone', () => {
   const output = getHelpOutput(['tui', '--help']);
 
-  assert.match(output, /Open the interactive TUI control plane/);
-  assert.match(output, /Open directly to a tab \(dashboard\|sessions\|config\)/);
+  assert.match(output, /Open the Agent Hub \(same as `mmbridge hub`\)/);
+  assert.doesNotMatch(output, /--tab/);
 });
 
 test('doctor help matches the documented tooling wording', () => {

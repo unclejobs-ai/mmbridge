@@ -21,7 +21,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@mmbridge/adapters": "workspace:*",
     "@mmbridge/core": "workspace:*",
     "@mmbridge/dispatch": "workspace:*",
     "@mmbridge/session-store": "workspace:*",

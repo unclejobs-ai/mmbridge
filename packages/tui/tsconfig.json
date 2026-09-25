@@ -11,7 +11,6 @@
   "references": [
     { "path": "../core" },
     { "path": "../dispatch" },
-    { "path": "../adapters" },
     { "path": "../session-store" }
   ]
 }
