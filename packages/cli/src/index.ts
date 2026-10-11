@@ -596,6 +596,27 @@ export async function main(): Promise<void> {
   );
   addAps(
     apsCmd,
+    'adopt <card>',
+    'adopt',
+    [
+      ['--agent <agent>', 'Existing open worker session'],
+      ['--worktree <path>', 'Absolute git worktree checked out on --branch'],
+      ['--branch <branch>', 'Checked-out worktree branch'],
+      ['--base-sha <sha>', '40 or 64 hex base sha (default: merge-base origin/main, else main)'],
+      ['--pid <pid>', 'Live process id of the lane'],
+      ['--pane <pane>', 'Live herdr pane id'],
+      ['--harness <harness>', 'herdr|omp|devin|grok (default: herdr if --pane, else omp)'],
+      ['--kind <kind>', 'herdr worker kind: omp|devin|grok (default omp)'],
+      ['--model <model>', 'Worker model (default: agent model)'],
+      ['--session-ref <path>', 'Session transcript or directory'],
+    ],
+    async () => {
+      const { runApsAdoptCommand } = await import('./commands/aps-adopt.js');
+      return { runApsCommand: runApsAdoptCommand };
+    },
+  );
+  addAps(
+    apsCmd,
     'collect [card]',
     'collect',
     [

@@ -569,3 +569,11 @@ enriches that lane), vision verdicts of the last 24 h, and quota. `buildAudit` r
 `FINISHED_OPEN`. `--out` writes the markdown atomically; `--json` prints the report.
 Exit 4 when violations exist, 1 when the audit itself failed. MBP runs it every 30 min
 via launchd `com.ss.aps-audit` into `~/ss-work/squads/Reports/aps-audit-latest.md`.
+
+### 12.6 `aps adopt`
+
+`mmbridge aps adopt <card> --by <manager> --agent <id> --worktree <abs> --branch <branch> [--base-sha <hex>] [--pid <n>] [--pane <id>] [--harness herdr|omp|devin|grok] [--kind omp|devin|grok] [--model <model>] [--session-ref <path>]` links a lane that is already running. Exit 2 unless `--pid` or `--pane` is set, the pid is alive (`kill -0`), the pane is present, `--worktree` is an absolute git checkout of `--branch`, and `--agent` is open.
+
+One transaction: an `issued` card is `startCard`'d for `--agent`; it must then be `working` with that assignee. A live run is `APS-N01`. Run id is `<card>-a<attempt>-adopt-<yyyymmddHHMMSS>`. Harness defaults to `herdr` when `--pane` is set, else `omp`; herdr kind defaults to `omp` and is stored only for herdr; model defaults to the agent model; `base_sha` is `--base-sha` or `git merge-base HEAD origin/main`, else `main`. `createRun` writes `intent`, then `launched` `{adopted:true,pid,pane_id,session_ref}`, and `<ledger dir>/dispatch/<run>/adopt.json` stores the same facts.
+
+Collect and foreman leave an adopted run `running` while its pid is alive or its pane is present, and never mark it `failed` in that state. Once both are gone, a report already recorded for the attempt takes the normal close path; otherwise the run event is `blocked` (card stays `working`) and the outcome is `blocked` with message `adopted lane ended without report; record aps report`.
