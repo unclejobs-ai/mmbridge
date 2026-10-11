@@ -833,3 +833,85 @@ test('L5: pipelines belong in a repository script', () => {
   assert.match(doc, /Pipelines belong in a repository script\./);
   assert.doesNotMatch(doc, /or explicit shell argv/);
 });
+
+test('H1: adding when to a base gate is drift and does not skip the gate', (t) => {
+  const f = fixture(t);
+  const baseGate = structuredClone(gate);
+  f.config([baseGate]);
+  f.baseline(5);
+  const base = f.commit();
+  const drifted = structuredClone(baseGate);
+  drifted.when = { changedPaths: ['src/**'] };
+  f.config([drifted]);
+  f.commit();
+  const res = f.run(['--base-ref', base], 1).value;
+  assert.notEqual(res.gates[0].status, 'skipped');
+  assert.equal(res.verdict, 'fail');
+  assert.match(res.gates[0].message, /when changed/);
+});
+
+test('H1: flipping metric direction is drift', (t) => {
+  const f = fixture(t);
+  const baseGate = structuredClone(gate);
+  f.config([baseGate]);
+  f.baseline(4);
+  const base = f.commit();
+  const flipped = structuredClone(baseGate);
+  if (flipped.metrics?.[0]) flipped.metrics[0].direction = 'higher';
+  f.config([flipped]);
+  f.baseline(4);
+  f.commit();
+  const res = f.run(['--base-ref', base], 1).value;
+  assert.equal(res.verdict, 'fail');
+  assert.match(res.gates[0].message, /direction changed from lower to higher/);
+});
+
+test('M3: card detail stores a short redacted message and never raw stderr', (t) => {
+  const f = fixture(t);
+  const failGate = structuredClone(gate);
+  failGate.mode = 'required';
+  failGate.metrics = undefined;
+  const token = 'TOKEN=ghp_probe_not_real';
+  failGate.run.argv = [
+    process.execPath,
+    '-e',
+    `console.error(${JSON.stringify(token)} + 'Y'.repeat(5000) + ${JSON.stringify(token)}); process.exit(1);`,
+  ];
+  f.config([failGate]);
+  const base = f.commit();
+  const dbPath = join(f.root, 'ledger.db');
+  const db = openApsDb(dbPath);
+  db.exec(`INSERT INTO projects(id,prefix,name) VALUES('test','TEST','test');
+    INSERT INTO agents(id,name,layer,model,vendor) VALUES('manager','manager','L2','local','local'),('worker','worker','L3','local','local');
+    INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner,assignee)
+    VALUES('TEST-C-0001','test','gate','mech','S','scope','[{"id":"AC1","text":"gates","command":"mmbridge aps gate","expect":"exit 0"}]','none',0,0,'manager','worker');`);
+  const res = f.run(['--base-ref', base, '--card', 'TEST-C-0001', '--db', dbPath, '--by', 'worker'], 1).value;
+
+  const message = res.gates[0].message as string;
+  assert.ok(Buffer.byteLength(message) <= 2048);
+  assert.doesNotMatch(message, /ghp_probe_not_real/);
+  assert.match(message, /REDACTED/);
+  const link = db.prepare('SELECT detail_json FROM card_links').get() as { detail_json: string };
+  assert.ok(Buffer.byteLength(link.detail_json) < 8192);
+  assert.doesNotMatch(link.detail_json, /ghp_probe_not_real/);
+  assert.doesNotMatch(link.detail_json, /"stderr"/);
+  assert.doesNotMatch(link.detail_json, /"stdout"/);
+  db.close();
+});
+
+test('update-baseline still rejects a loosened baseline on a skipped gate', (t) => {
+  const f = fixture(t);
+  const skipped = structuredClone(gate);
+  skipped.when = { changedPaths: ['src/**'] };
+  f.config([skipped]);
+  f.baseline(4);
+  const base = f.commit();
+  f.baseline(10);
+  f.commit();
+  const before = readFileSync(join(f.root, '.aps/baseline.json'), 'utf8');
+  const res = f.run(['--base-ref', base, '--update-baseline'], 1).value;
+  assert.equal(res.verdict, 'fail');
+  assert.equal(res.baselineUpdated, false);
+  assert.match(res.warnings.join(' '), /head-baseline-loosened/);
+  assert.equal(readFileSync(join(f.root, '.aps/baseline.json'), 'utf8'), before);
+});

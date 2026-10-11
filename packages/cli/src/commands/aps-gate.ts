@@ -11,7 +11,7 @@ import {
   parseDocument,
   repoPath,
 } from './aps-gate-config.js';
-import { appendGateEvidence, validateLedgerOptions } from './aps-gate-ledger.js';
+import { appendGateEvidence, redactBoundedText, validateLedgerOptions } from './aps-gate-ledger.js';
 import { type MetricResult, compareMetric, extractMetric, worse } from './aps-gate-metrics.js';
 import type { ApsCommandOptions } from './aps-shared.js';
 import { importCore } from './helpers.js';
@@ -171,10 +171,12 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
       metrics: [],
     };
     gates.push(row);
+    const baseGate = options.baseRef ? baseConfig?.gates.find((candidate) => candidate.id === gate.id) : undefined;
+    const skipWhen = baseGate ? baseGate.when : gate.when;
     if (
       options.baseRef &&
-      gate.when &&
-      !changedPaths.some((path) => gate.when?.changedPaths.some((glob) => minimatch(path, glob, { dot: true })))
+      skipWhen &&
+      !changedPaths.some((path) => skipWhen.changedPaths.some((glob) => minimatch(path, glob, { dot: true })))
     ) {
       row.status = 'skipped';
       row.message = 'No matching changed paths';
@@ -195,14 +197,13 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
     if (command.code < 0 || !(gate.run.okExitCodes ?? [0]).includes(command.code)) {
       row.status = command.code >= 0 && gate.mode === 'required' ? (gateExemption ? 'exempt' : 'fail') : 'error';
       row.exemption = row.status === 'exempt' ? (gateExemption?.id ?? null) : null;
-      row.message = command.stderr.trim() || `Command exited ${command.code}`;
-      const tailBytes = (text: string): string => {
-        const buf = Buffer.from(text, 'utf8');
-        if (buf.byteLength <= 8192) return text;
-        return buf.subarray(buf.byteLength - 8192).toString('utf8');
-      };
-      row.stdout = tailBytes(command.stdout);
-      row.stderr = tailBytes(command.stderr);
+      row.message = redactBoundedText(
+        core.redactContent,
+        command.stderr.trim() || `Command exited ${command.code}`,
+        2048,
+      );
+      row.stdout = redactBoundedText(core.redactContent, command.stdout, 8192);
+      row.stderr = redactBoundedText(core.redactContent, command.stderr, 8192);
       continue;
     }
     for (const metric of gate.metrics ?? []) {
@@ -244,13 +245,8 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
           ? 'exempt'
           : 'pass';
     if (row.status === 'fail' || row.status === 'error') {
-      const tailBytes = (text: string): string => {
-        const buf = Buffer.from(text, 'utf8');
-        if (buf.byteLength <= 8192) return text;
-        return buf.subarray(buf.byteLength - 8192).toString('utf8');
-      };
-      row.stdout = tailBytes(command.stdout);
-      row.stderr = tailBytes(command.stderr);
+      row.stdout = redactBoundedText(core.redactContent, command.stdout, 8192);
+      row.stderr = redactBoundedText(core.redactContent, command.stderr, 8192);
     }
     row.message = row.metrics
       .filter((metric) => !['pass', 'exempt'].includes(metric.status))
@@ -293,8 +289,17 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
       const bCodes = bGate.run.okExitCodes ?? [0];
       const hCodes = hGate.run.okExitCodes ?? [0];
       if (hCodes.some((code) => !bCodes.includes(code))) relaxationReasons.push('okExitCodes widened');
-      if (bGate.when && (!hGate.when || bGate.when.changedPaths.some((p) => !hGate.when?.changedPaths.includes(p))))
-        relaxationReasons.push('changedPaths narrowed');
+      const bPaths = bGate.when?.changedPaths ?? [];
+      const hPaths = hGate.when?.changedPaths ?? [];
+      const whenChanged =
+        Boolean(bGate.when) !== Boolean(hGate.when) ||
+        bPaths.length !== hPaths.length ||
+        bPaths.some((path, index) => path !== hPaths[index]);
+      if (whenChanged) {
+        if (bGate.when && (!hGate.when || bGate.when.changedPaths.some((p) => !hGate.when?.changedPaths.includes(p))))
+          relaxationReasons.push('changedPaths narrowed');
+        else relaxationReasons.push('when changed');
+      }
       for (const bMetric of bGate.metrics ?? []) {
         const hMetric = hGate.metrics?.find((m) => m.id === bMetric.id);
         const metricExemption =
@@ -304,6 +309,10 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
           continue;
         }
         if (metricExemption) continue;
+        if (hMetric.direction !== bMetric.direction)
+          relaxationReasons.push(
+            `metric ${bMetric.id} direction changed from ${bMetric.direction} to ${hMetric.direction}`,
+          );
         const bTol = bMetric.tolerance ?? 0;
         const hTol = hMetric.tolerance ?? 0;
         if (hTol > bTol) relaxationReasons.push(`metric ${bMetric.id} tolerance raised from ${bTol} to ${hTol}`);
@@ -337,37 +346,43 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
       }
     }
   }
-  if (options.baseRef && !options.updateBaseline) {
+  const skippedGateIds: Record<string, true> = {};
+  for (const gate of gates) if (gate.status === 'skipped') skippedGateIds[gate.id] = true;
+  let skippedBaselineLoosened = false;
+  if (options.baseRef) {
     for (const [gateId, bMetrics] of Object.entries(baseBaseline.gates)) {
+      if (options.updateBaseline && !skippedGateIds[gateId]) continue;
       const hMetrics = headBaseline.gates[gateId];
       const gateDef = config.gates.find((g) => g.id === gateId);
       for (const [metricId, bEntry] of Object.entries(bMetrics)) {
         const hEntry = hMetrics?.[metricId];
         const metricDef = gateDef?.metrics?.find((m) => m.id === metricId);
         const direction = metricDef?.direction ?? 'lower';
-        if (!hEntry) {
-          warnings.push(`head-baseline-loosened: key ${gateId}.${metricId} deleted from head baseline`);
-          const gRow = gates.find((g) => g.id === gateId);
-          if (gRow) {
-            gRow.status = 'fail';
-            gRow.message = gRow.message ? `${gRow.message}; baseline key deleted` : 'baseline key deleted in head';
-          }
-        } else if (direction === 'lower' ? hEntry.value > bEntry.value : hEntry.value < bEntry.value) {
-          warnings.push(
-            `head-baseline-loosened: ${gateId}.${metricId} head baseline ${hEntry.value} worse than base baseline ${bEntry.value}`,
-          );
-          const gRow = gates.find((g) => g.id === gateId);
-          if (gRow) {
-            gRow.status = 'fail';
-            gRow.message = gRow.message ? `${gRow.message}; baseline loosened` : 'baseline loosened in head';
-          }
+        const loosened = !hEntry || (direction === 'lower' ? hEntry.value > bEntry.value : hEntry.value < bEntry.value);
+        if (!loosened) continue;
+        if (options.updateBaseline) skippedBaselineLoosened = true;
+        warnings.push(
+          hEntry
+            ? `head-baseline-loosened: ${gateId}.${metricId} head baseline ${hEntry.value} worse than base baseline ${bEntry.value}`
+            : `head-baseline-loosened: key ${gateId}.${metricId} deleted from head baseline`,
+        );
+        const gRow = gates.find((g) => g.id === gateId);
+        if (gRow) {
+          gRow.enforcement = 'block';
+          gRow.status = 'fail';
+          gRow.message = gRow.message
+            ? `${gRow.message}; ${hEntry ? 'baseline loosened' : 'baseline key deleted'}`
+            : hEntry
+              ? 'baseline loosened in head'
+              : 'baseline key deleted in head';
         }
       }
     }
   }
   let baselineUpdated = false;
   if (options.updateBaseline) {
-    let refused = false;
+    let refused = skippedBaselineLoosened;
+
     for (const [index, gate] of config.gates.entries()) {
       const row = gates[index];
       if (row.status === 'skipped') continue;
