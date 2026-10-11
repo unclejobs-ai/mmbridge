@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { APS_DB_ENV, listMigrations, openApsDb, resolveApsDbPath } from '../dist/index.js';
+import { APS_DB_ENV, APS_SQL_DIR, listMigrations, openApsDb, resolveApsDbPath } from '../dist/index.js';
 import {
   CARD,
   ITEM,
@@ -114,24 +114,55 @@ test('a closed agent session cannot move cards', () => {
   );
 });
 
-test('openApsDb applies migration 0001 once and refuses a newer ledger (APS-U01)', () => {
+test('openApsDb applies migrations once and refuses a newer ledger (APS-U01)', () => {
   assert.deepEqual(
     listMigrations().map((m) => m.version),
-    [1],
+    [1, 2],
   );
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aps-'));
   const file = path.join(dir, 'nested', 'aps.db');
   openApsDb(file).close();
   const reopened = openApsDb(file);
-  assert.equal((reopened.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 1);
-  assert.equal((reopened.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys, 1);
+  assert.equal(reopened.prepare('PRAGMA user_version').get()?.user_version, 2);
+  assert.equal(reopened.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
   reopened.close();
 
   const raw = new DatabaseSync(file);
   raw.exec('PRAGMA user_version = 99');
   raw.close();
-  assert.throws(() => openApsDb(file), { message: 'APS-U01: ledger schema v99 is newer than this build (max v1)' });
+  assert.throws(() => openApsDb(file), { message: 'APS-U01: ledger schema v99 is newer than this build (max v2)' });
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('migration catalogue rejects duplicate versions on fresh and migrated ledgers', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aps-duplicate-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'aps.db');
+  openApsDb(file).close();
+  fs.copyFileSync(path.join(APS_SQL_DIR, '0001_aps.sql'), path.join(dir, '0001_aps.sql'));
+  fs.copyFileSync(path.join(APS_SQL_DIR, '0002_worker_runs.sql'), path.join(dir, '0002_worker_runs.sql'));
+  fs.writeFileSync(
+    path.join(dir, '0002_legacy_items.sql'),
+    'CREATE TABLE legacy_items(id TEXT); PRAGMA user_version=2;',
+  );
+  assert.throws(() => listMigrations(dir), /duplicate APS migration version 2/);
+  assert.throws(() => openApsDb(':memory:', dir), /duplicate APS migration version 2/);
+  assert.throws(() => openApsDb(file, dir), /duplicate APS migration version 2/);
+  const unchanged = openApsDb(file);
+  t.after(() => unchanged.close());
+  assert.equal(unchanged.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='legacy_items'").get()?.n, 0);
+});
+
+test('migration loader refuses a file that stamps the wrong user_version', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aps-version-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.copyFileSync(path.join(APS_SQL_DIR, '0001_aps.sql'), path.join(dir, '0001_aps.sql'));
+  fs.copyFileSync(path.join(APS_SQL_DIR, '0002_worker_runs.sql'), path.join(dir, '0002_worker_runs.sql'));
+  fs.writeFileSync(
+    path.join(dir, '0003_legacy_items.sql'),
+    'BEGIN IMMEDIATE; CREATE TABLE legacy_items(id TEXT); PRAGMA user_version=2; COMMIT;',
+  );
+  assert.throws(() => openApsDb(':memory:', dir), /0003_legacy_items.sql set user_version 2, expected 3/);
 });
 
 test('resolveApsDbPath precedence: flag > env > config > default', () => {

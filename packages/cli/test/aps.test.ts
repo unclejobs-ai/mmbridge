@@ -133,7 +133,7 @@ function fixture(t: TestContext) {
 
 test('aps init/project add/agent new: persisted records, generated IDs, text output', (t) => {
   const f = fixture(t);
-  assert.equal(f.run(['init']).value.user_version, 1);
+  assert.equal(f.run(['init']).value.user_version, 2);
   const result = f.run(
     ['agent', 'new', '--name', 'New Worker', '--layer', 'L3', '--model', 'test', '--vendor', 'test'],
     0,
@@ -482,7 +482,7 @@ test('TS guards H01/H02/H04 and newer schema refuse without mutation', async (t)
   const newer = openApsDb(f.dbPath);
   newer.exec('PRAGMA user_version=99');
   newer.close();
-  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v1\)/);
+  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v2\)/);
 });
 test('missing actor and unreadable JSON are input errors', (t) => {
   const f = fixture(t);

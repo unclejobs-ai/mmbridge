@@ -28,8 +28,9 @@ export function guardMessages(): Map<string, string> {
     .map((migration) => readFileSync(`${APS_SQL_DIR}${migration.file}`, 'utf8'))
     .join('\n');
   const messages = new Map<string, string>();
-  for (const match of sql.matchAll(/RAISE\(ABORT, '(APS-([A-Z]\d{2}): [^']*)'\)/g)) {
-    const [, message, code] = match;
+  for (const match of sql.matchAll(/RAISE\(ABORT, '(APS-([A-Z]\d{2}): (?:[^']|'')*)'\)/g)) {
+    const [, encodedMessage, code] = match;
+    const message = encodedMessage.replaceAll("''", "'");
     const seen = messages.get(code);
     assert.ok(seen === undefined || seen === message, `${code} has two different messages`);
     messages.set(code, message);
@@ -47,8 +48,10 @@ export function rejects(db: DatabaseSync, code: string, sql: string): void {
 }
 
 /** Project ss, agents and card SS-C-0001 (assignee w1, manager mgr), state issued. */
-export function seed(opts: { needsOwner?: 0 | 1; needsVision?: 0 | 1; size?: 'S' | 'M' | 'L' } = {}): DatabaseSync {
-  const db = openApsDb(':memory:');
+export function seed(
+  opts: { needsOwner?: 0 | 1; needsVision?: 0 | 1; size?: 'S' | 'M' | 'L'; sqlDir?: string } = {},
+): DatabaseSync {
+  const db = openApsDb(':memory:', opts.sqlDir);
   db.exec(`
     INSERT INTO projects(id,prefix,name) VALUES('ss','SS','SceneSteller');
     INSERT INTO agents(id,name,layer,model,vendor) VALUES

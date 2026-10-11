@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 export * from './analytics.js';
 export * from './ledger.js';
 export * from './render.js';
+export * from './runs.js';
 export * from './usage.js';
 export const APS_DB_ENV = 'MMBRIDGE_APS_DB';
 export const APS_SQL_DIR = fileURLToPath(new URL('../sql/', import.meta.url));
@@ -35,11 +36,19 @@ export interface ApsMigration {
 }
 
 export function listMigrations(sqlDir: string = APS_SQL_DIR): ApsMigration[] {
-  return readdirSync(sqlDir)
+  const migrations = readdirSync(sqlDir)
     .map((file) => ({ file, match: MIGRATION_FILE.exec(file) }))
     .filter((entry): entry is { file: string; match: RegExpExecArray } => entry.match !== null)
     .map(({ file, match }) => ({ version: Number(match[1]), file }))
     .sort((a, b) => a.version - b.version);
+  for (let i = 1; i < migrations.length; i++) {
+    if (migrations[i].version === migrations[i - 1].version) {
+      throw new Error(
+        `duplicate APS migration version ${migrations[i].version}: ${migrations[i - 1].file}, ${migrations[i].file}`,
+      );
+    }
+  }
+  return migrations;
 }
 
 function userVersion(db: DatabaseSync): number {
@@ -52,11 +61,11 @@ function userVersion(db: DatabaseSync): number {
  * Each migration file sets its own `PRAGMA user_version` inside its transaction.
  */
 export function openApsDb(path: string, sqlDir: string = APS_SQL_DIR): DatabaseSync {
+  const migrations = listMigrations(sqlDir);
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
 
-  const migrations = listMigrations(sqlDir);
   const latest = migrations.at(-1)?.version ?? 0;
   const current = userVersion(db);
   if (current > latest) {
@@ -67,6 +76,10 @@ export function openApsDb(path: string, sqlDir: string = APS_SQL_DIR): DatabaseS
     if (migration.version <= current) continue;
     try {
       db.exec(readFileSync(join(sqlDir, migration.file), 'utf8'));
+      const applied = userVersion(db);
+      if (applied !== migration.version) {
+        throw new Error(`APS migration ${migration.file} set user_version ${applied}, expected ${migration.version}`);
+      }
     } catch (error) {
       // Closing with the migration transaction still open rolls it back.
       db.close();

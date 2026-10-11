@@ -128,12 +128,16 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | K02 | feedback update | `APS-K02: partial or reject responses need a reason` | `guards-ledger.test.ts` › feedback: K00–K04 |
 | K03 | feedback update | `APS-K03: feedback from/to/kind/card/body/created_at are immutable` | `guards-ledger.test.ts` › feedback: K00–K04 |
 | K04 | feedback update | `APS-K04: escalation cannot be cleared` | `guards-ledger.test.ts` › feedback: K00–K04 |
-| L01 | 25 triggers (update+delete) on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits | `APS-L01: ledger rows are append-only` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table |
-| L02 | insert on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits | `APS-L02: ledger rows cannot be replaced` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table |
+| L01 | 31 triggers (update+delete) on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits, worker_runs, run_events, run_usage | `APS-L01: ledger rows are append-only` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table; `guards-runs.test.ts` › run tables are append-only |
+| L02 | insert on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits, worker_runs, run_events, run_usage | `APS-L02: ledger rows cannot be replaced` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table; `guards-runs.test.ts` › run tables are append-only |
 | L03 | insert, update, delete on: defect_categories, state_edges, states | `APS-L03: reference tables change only via migrations` | `guards-ledger.test.ts` › reference tables: L03 on insert, update and delete |
 | M01 | merges insert | `APS-M01: merge confirmation needs state accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | M02 | merges insert | `APS-M02: merge sha must be the reported sha and carry an accept review` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | M03 | merges insert | `APS-M03: merge must be verified by a live agent other than the assignee` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
+| N01 | worker_runs insert | `APS-N01: card already has a live run` | `guards-runs.test.ts` › N01 refuses a second live run |
+| N02 | worker_runs insert | `APS-N02: run must match the card's working attempt and assignee` | `guards-runs.test.ts` › N02 refuses run for non-working card |
+| N03 | run_events insert | `APS-N03: run event is not a forward lifecycle step` | `guards-runs.test.ts` › N03 refuses backward event |
+| N04 | run_events insert | `APS-N04: closed run event needs close evidence` | `guards-runs.test.ts` › N04 closed needs evidence |
 | O01 | owner_oks insert | `APS-O01: owner OK needs state inspecting, accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | O02 | owner_oks insert | `APS-O02: owner OK sha must be the current attempt reported sha` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | O03 | owner_oks insert | `APS-O03: owner OK must be recorded by a live L0 or L1 agent` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
@@ -157,12 +161,12 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | R02 | reports insert | `APS-R02: evidence has fewer items than the card has acceptance criteria` | `guards-card.test.ts` › reports: R01–R03, P01–P08 |
 | R03 | reports insert | `APS-R03: evidence does not cover every acceptance id` | `guards-card.test.ts` › reports: R01–R03, P01–P08 |
 | S01 | transitions insert | `APS-S01: closed_session requires the assignee agent session to be closed` | `guards-card.test.ts` › session close: S01 |
-| T00 | card_links insert, transitions insert | `APS-T00: unknown card or agent` | `guards-card.test.ts` › transitions: T00–T05 |
+| T00 | card_links, transitions, worker_runs, run_events, run_usage insert | `APS-T00: unknown card or agent` | `guards-card.test.ts` › transitions: T00–T05; `guards-runs.test.ts` › FK-off raw SQL cannot orphan or replace run identity |
 | T01 | transitions insert | `APS-T01: from_state does not match the current card state` | `guards-card.test.ts` › transitions: T00–T05 |
 | T02 | transitions insert | `APS-T02: transition not allowed by the state machine` | `guards-card.test.ts` › transitions: T00–T05 |
 | T03 | transitions insert | `APS-T03: this transition requires a note` | `guards-card.test.ts` › transitions: T00–T05 |
 | T04 | transitions insert | `APS-T04: the assignee cannot perform manager-side transitions on its own card` | `guards-card.test.ts` › transitions: T00–T05 |
-| T05 | transitions insert | `APS-T05: a closed agent session cannot perform transitions` | `guards-card.test.ts` › transitions: T00–T05 |
+| T05 | transitions, worker_runs, run_events insert | `APS-T05: a closed agent session cannot perform transitions` | `guards-card.test.ts` › transitions: T00–T05; `guards-runs.test.ts` › closed agent sessions cannot create or advance runs |
 | V01 | transitions insert | `APS-V01: accepted requires the latest review of the current attempt to be accept` | `guards-card.test.ts` › verdict transitions: V01–V03 |
 | V02 | transitions insert | `APS-V02: revise requires a latest revise review or a latest failed vision audit on the current attempt` | `guards-card.test.ts` › verdict transitions: V01–V03 |
 | V03 | transitions insert | `APS-V03: rejecting an inspected card requires a latest reject review` | `guards-card.test.ts` › verdict transitions: V01–V03 |
@@ -249,7 +253,7 @@ Other shapes:
 
 ## 7. Self-check (executed)
 
-`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 84 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 runs on all 15 protected tables (update+delete or delete), L02 on all 15 (`INSERT OR REPLACE … SELECT *`), L03 on insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
+`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 88 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 and L02 cover all 15 original protected tables plus the 3 run tables; L02 also refuses replacement by the usage natural key. L03 covers insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
 
 ```
 seed()                                                      -- project, agents, card SS-C-0001 (issued)
@@ -347,6 +351,11 @@ When the imported session has `handoffId`/`handoffPath`, insert `card_links(kind
 - Changing a guard: `DROP TRIGGER` + `CREATE TRIGGER` in a migration, plus the §5 row (coverage test enforces it). Changing the state machine: drop the L03 lock triggers on `state_edges`, edit rows, recreate the locks, in the same migration.
 - A newer `user_version` than the build knows → `APS-U01`, nothing is written.
 - Raw `DROP TRIGGER` or `writable_schema` can't be prevented, only detected (`aps doctor`).
+- Applied migration catalogue: `0001_aps.sql` (v1: cards and original guards); `0002_worker_runs.sql` (v2: worker_runs, run_events, run_usage, N01–N04, append-only/no-replace guards, v_run_current and v_run_cost).
+- Run writes join the caller's `commandTransaction`; `createRun` and `addUsage` also use short atomic transactions when called standalone. `createRun` records identity plus the first intent event. Runs with no events reserve the live slot too; `getLiveRun(db, card)` includes them with NULL status. Launch metadata remains visible after later events. Missing run/card/agent references fail closed even with foreign keys off (T00); closed agent sessions cannot create or advance runs (T05). `worker_runs` is WITHOUT ROWID to prevent rowid-based identity replacement.
+- Usage identity is `(run_id, source, source_ref, model, supersedes_id)`, with NULL models deduplicated too. `addUsage` returns the existing id only for identical evidence; differing payloads raise `ApsInputError`. To replace unknown evidence with actual evidence, supply `supersedes_id` naming that unknown row for the same run. The new row is appended, not updated; each unknown row can have only one actual successor. Both same-identity correction and recovery from `source=none` to a real source are supported. Raw replacement is refused by L02. Explicit event ids cannot move the latest-event cursor backwards (N03).
+- `v_run_cost` totals only unsuperseded evidence: input+output tokens, separate cache-read tokens, unknown evidence counts and effective usage rows. `usd_actual` is a lower bound, not a complete bill: it is 0.0 for unknown-only or uncollected runs. Consumers must inspect `unknown_rows` and `usage_rows`. Token counts cannot be negative, and `source=none` implies `basis=unknown`. Close evidence must be a non-empty string or an object.
+- Migration versions must be unique: the loader refuses duplicate catalogue numbers before opening the database and asserts `user_version` equals each file's version after applying it.
 
 ### 10.2 Test plan (for L3)
 
@@ -354,7 +363,7 @@ Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message
 
 ### 10.3 Extension points
 
-- **B (TODO import):** open TODO items become `issued` cards (or `working` with an assignee) with `source_ref` = the TODO line. History goes to a `legacy_items` table in migration 0002, never as fake `done` cards (done guards can't be satisfied for them). Kanban column ↔ `states.kanban_ko` 1:1.
+- **B (TODO import):** open TODO items become `issued` cards (or `working` with an assignee) with `source_ref` = the TODO line. History goes to a `legacy_items` table in the next free migration number (0003+; 0002 is worker_runs), never as fake `done` cards (done guards can't be satisfied for them). Kanban column ↔ `states.kanban_ko` 1:1.
 - **C (metrics):** WIP = non-terminal states except `issued`; review queue = `reported` + `closed_session`; rework rate = `→revise` / `→reported` per day (p-chart, UCL/LCL in TS); DPMO = `count(defects) × 1e6 / Σ acceptance count` over inspected attempts; cycle time = first `→working` to `→done`; flow efficiency = time in `working` / (`done` − `created_at`); pass rate by model = first review verdict per attempt joined to the reporting agent's `model`; quota from `quota_samples`.
 - **D (mmbridge + scc):** `reviews.mmbridge_session_id`/`gate_json`, `merges.gate_json`, the stale-review trigger (§9.1), `card_links(mmbridge_run|handoff|context_node)`, `pdca_runs`. Money/security changes need an Opus reviewer (APS §11): a migration adds a `cards.risk_class` and a trigger on accept reviews.
 - **E (vision):** X01–X08 and D04 are in place; E adds the viewer lane and `taste-ledger.md` refs in `items_json[].ref`.
