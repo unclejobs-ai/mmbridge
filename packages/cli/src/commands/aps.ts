@@ -230,6 +230,7 @@ export async function runApsCommand(
             gate_json: gate,
           },
           links,
+          { partial: options.partial === true },
         );
       }
       case 'vision':

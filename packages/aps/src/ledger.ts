@@ -151,7 +151,11 @@ export function recordReview(
   by: string,
   values: Row,
   links: LedgerLink[] = [],
+  options?: { partial?: boolean },
 ): Transition[] {
+  if (options?.partial && values.verdict !== 'accept') {
+    throw new ApsInputError('partial requires verdict accept');
+  }
   return transaction(db, () => {
     const card = getCard(db, id);
     const transitions: Transition[] = [];
@@ -167,7 +171,7 @@ export function recordReview(
     for (const link of links) addLink(db, id, by, link.kind, link.ref, link.detail);
     if (values.verdict === 'revise' || values.verdict === 'reject')
       transitions.push(moveCard(db, id, values.verdict === 'revise' ? 'revise' : 'rejected', by));
-    else if (getCard(db, id).state === 'inspecting') {
+    else if (!options?.partial && getCard(db, id).state === 'inspecting') {
       transitions.push(moveCard(db, id, 'accepted', by));
       transitions.push(moveCard(db, id, 'merge_wait', by));
     }

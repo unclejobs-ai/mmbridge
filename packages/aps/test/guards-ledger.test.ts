@@ -2,7 +2,22 @@
 import assert from 'node:assert/strict';
 import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { CARD, ITEM, SHA, SHOTS4, merge, move, rejects, review, seed, toInspecting } from './fixture.ts';
+import { ApsInputError, recordReview } from '../dist/index.js';
+import {
+  CARD,
+  ITEM,
+  SHA,
+  SHOTS4,
+  cardState,
+  closeAgent,
+  merge,
+  move,
+  rejects,
+  report,
+  review,
+  seed,
+  toInspecting,
+} from './fixture.ts';
 
 const LEDGER_TABLES = [
   'transitions',
@@ -147,4 +162,52 @@ test('auto defects from a revise review carry the card opportunity count', () =>
     rows.map((row) => ({ ...row })),
     [{ source: 'review', category: 'correctness', n: 2, review_id: 1 }],
   );
+});
+
+function toClosedSession(db: DatabaseSync): void {
+  move(db, 'issued', 'working', 'w1');
+  report(db);
+  move(db, 'working', 'reported', 'w1');
+  closeAgent(db, 'w1');
+  move(db, 'reported', 'closed_session', 'mgr');
+}
+
+test('partial accept on closed_session stops at inspecting; later accept reaches merge_wait', () => {
+  const db = seed();
+  toClosedSession(db);
+  const first = recordReview(db, CARD, 'rev', { verdict: 'accept', items_json: '[]' }, [], { partial: true });
+  assert.deepEqual(
+    first.map((row) => [row.from, row.to]),
+    [['closed_session', 'inspecting']],
+  );
+  assert.equal(cardState(db).state, 'inspecting');
+  assert.equal(db.prepare('SELECT count(*) AS n FROM reviews').get()?.n, 1);
+
+  const second = recordReview(db, CARD, 'viz', { verdict: 'accept', items_json: '[]' });
+  assert.deepEqual(
+    second.map((row) => row.to),
+    ['accepted', 'merge_wait'],
+  );
+  assert.equal(cardState(db).state, 'merge_wait');
+  assert.equal(db.prepare('SELECT count(*) AS n FROM reviews').get()?.n, 2);
+});
+
+test('partial with a non-accept verdict is refused', () => {
+  const db = seed();
+  toClosedSession(db);
+  assert.throws(
+    () => recordReview(db, CARD, 'rev', { verdict: 'revise', items_json: ITEM }, [], { partial: true }),
+    (error: unknown) => error instanceof ApsInputError && error.message === 'partial requires verdict accept',
+  );
+  assert.equal(cardState(db).state, 'closed_session');
+  assert.equal(db.prepare('SELECT count(*) AS n FROM reviews').get()?.n, 0);
+});
+
+test('partial accept on inspecting leaves the state unchanged', () => {
+  const db = seed();
+  toInspecting(db);
+  const transitions = recordReview(db, CARD, 'rev', { verdict: 'accept', items_json: '[]' }, [], { partial: true });
+  assert.deepEqual(transitions, []);
+  assert.equal(cardState(db).state, 'inspecting');
+  assert.equal(db.prepare('SELECT reviewer, verdict FROM reviews').get()?.reviewer, 'rev');
 });
