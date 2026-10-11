@@ -160,6 +160,19 @@ For managed dispatch instead of the manual start/report sequence:
 Use `--dry-run` to preview without ledger or packet writes. Workers hand off via
 the packet's atomic `report.json` and `report.md`; see the collect contract in `card.md`.
 
+`--auto` picks the worker from the built-in registry by tier, quota (omp/codexbar),
+and vendor load, and falls back to the next worker when a launch dies on a usage
+limit, auth, or outage; every fallback is a `failed` run event in the ledger.
+`mmbridge foreman <parent-card> --repo /abs/repo` collects, inspects (acceptance
+commands and card scope), and dispatches a parent's child cards; `mmbridge audit`
+reports lane placement, quota, stalled and unclosed lanes read-only (exit 4 on violations).
+
+```bash
+mmbridge aps dispatch SS-C-0002 --auto --worktree /abs/worktree --dry-run
+mmbridge foreman SS-C-0001 --repo /abs/repo --wait 2h
+mmbridge audit --out ~/reports/aps-audit-latest.md
+```
+
 Use `--db <path>` on any leaf command to isolate a ledger. Resolution is
 `--db` → `MMBRIDGE_APS_DB` → `APS_DB` (demo alias) → config `aps.dbPath` →
 `~/ss-work/aps/aps.db`. Every command accepts `--by` (default `APS_AGENT`) and

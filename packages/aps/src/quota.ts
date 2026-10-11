@@ -49,6 +49,8 @@ export interface AssessQuotaOptions {
   minRemaining?: number;
   /** Pace is not projected before this fraction of the window has elapsed. Default 0.02. */
   minElapsed?: number;
+  /** Pace is not projected below this used fraction: a few % early in a window is noise, not a burn. Default 0.1. */
+  minUsed?: number;
 }
 
 /** `codexbar usage --json` provider names → omp provider ids. */
@@ -160,10 +162,11 @@ export function parseCodexbarUsage(json: unknown): QuotaWindow[] {
 }
 
 /** Projected exhaustion epoch ms for one window, or null when it cannot be paced or lasts to reset. */
-function exhaustsAtOf(window: QuotaWindow, now: number, minElapsed: number): number | null {
+function exhaustsAtOf(window: QuotaWindow, now: number, minElapsed: number, minUsed: number): number | null {
   const { usedFraction, resetsAt, durationMs } = window;
   if (usedFraction >= 1) return now;
-  if (resetsAt === null || durationMs === null || durationMs <= 0 || usedFraction <= 0) return null;
+  if (resetsAt === null || durationMs === null || durationMs <= 0 || usedFraction < minUsed || usedFraction <= 0)
+    return null;
   const elapsed = clamp01(1 - (resetsAt - now) / durationMs);
   if (elapsed < minElapsed) return null;
   const exhaustsAt = now + ((1 - usedFraction) * elapsed * durationMs) / usedFraction;
@@ -178,6 +181,7 @@ function exhaustsAtOf(window: QuotaWindow, now: number, minElapsed: number): num
 export function assessQuota(windows: QuotaWindow[], now: number, options: AssessQuotaOptions = {}): ProviderQuota[] {
   const minRemaining = options.minRemaining ?? 0.15;
   const minElapsed = options.minElapsed ?? 0.02;
+  const minUsed = options.minUsed ?? 0.1;
 
   const byProvider = new Map<string, QuotaWindow[]>();
   for (const window of windows) {
@@ -210,7 +214,7 @@ export function assessQuota(windows: QuotaWindow[], now: number, options: Assess
         if (window.resetsAt !== null && (resetsAt === null || window.resetsAt < resetsAt)) {
           resetsAt = window.resetsAt;
         }
-        const projected = exhaustsAtOf(window, now, minElapsed);
+        const projected = exhaustsAtOf(window, now, minElapsed, minUsed);
         if (projected === null) {
           runsOutBeforeReset = false;
         } else if (exhaustsAt === null || projected > exhaustsAt) {

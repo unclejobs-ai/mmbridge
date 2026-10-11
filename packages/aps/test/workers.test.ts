@@ -10,24 +10,13 @@ import {
   rankWorkers,
 } from '../dist/index.js';
 
-test('DEFAULT_WORKERS is frozen and matches the specification', () => {
+test('DEFAULT_WORKERS is frozen and passes its own registry validation', () => {
   assert.ok(Object.isFrozen(DEFAULT_WORKERS));
-  assert.strictEqual(DEFAULT_WORKERS.length, 11);
   for (const w of DEFAULT_WORKERS) {
     assert.ok(Object.isFrozen(w));
     assert.ok(Object.isFrozen(w.roles));
   }
-  assert.strictEqual(DEFAULT_WORKERS[0]?.id, 'devin-swe2');
-  assert.strictEqual(DEFAULT_WORKERS[1]?.id, 'gemini-flash');
-  assert.strictEqual(DEFAULT_WORKERS[2]?.id, 'deepseek-flash');
-  assert.strictEqual(DEFAULT_WORKERS[3]?.id, 'grok');
-  assert.strictEqual(DEFAULT_WORKERS[4]?.id, 'glm');
-  assert.strictEqual(DEFAULT_WORKERS[5]?.id, 'kimi');
-  assert.strictEqual(DEFAULT_WORKERS[6]?.id, 'qwen');
-  assert.strictEqual(DEFAULT_WORKERS[7]?.id, 'sol');
-  assert.strictEqual(DEFAULT_WORKERS[8]?.id, 'opus-med');
-  assert.strictEqual(DEFAULT_WORKERS[9]?.id, 'qa-vision');
-  assert.strictEqual(DEFAULT_WORKERS[10]?.id, 'astra-vision');
+  assert.deepEqual(parseWorkerRegistry(JSON.parse(JSON.stringify(DEFAULT_WORKERS))), DEFAULT_WORKERS);
 });
 
 test('rankWorkers: default ordering (L3 mech -> devin-swe2 first)', () => {

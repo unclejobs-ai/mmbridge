@@ -16,6 +16,7 @@ import {
   doctor,
   getLiveRun,
   openApsDb,
+  transaction,
 } from '../dist/index.js';
 import { CARD, SHA, closeAgent, move, rejects, seed } from './fixture.ts';
 
@@ -77,6 +78,22 @@ test('N01 reserves runs without events and createRun is atomic standalone', (t) 
   addRunEvent(db, RUN, 'intent', 'mgr');
   rejects(db, 'N01', runSql('run-2'));
   assert.equal(db.prepare("SELECT count(*) AS n FROM v_run_current WHERE status='intent'").get()?.n, 1);
+});
+
+test('ledger helpers join an outer synchronous transaction and roll back with it', (t) => {
+  const db = seed();
+  t.after(() => db.close());
+  move(db, 'issued', 'working', 'w1');
+  assert.throws(
+    () =>
+      transaction(db, () => {
+        createRun(db, values);
+        throw new Error('caller failure');
+      }),
+    /caller failure/,
+  );
+  assert.equal(db.isTransaction, false);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM worker_runs').get()?.n, 0);
 });
 
 test('N02 refuses run for non-working card', (t) => {

@@ -63,6 +63,17 @@ export const DEFAULT_WORKERS: readonly WorkerSpec[] = Object.freeze([
   worker('glm', 'L3', 'zai', 'zai', 'omp', 'zai/glm-5.3:high', 'w-glm', ['mech']),
   worker('kimi', 'L3', 'moonshot', 'opencode-go', 'omp', 'opencode-go/kimi-k3', null, ['mech']),
   worker('qwen', 'L3', 'alibaba', 'opencode-go', 'omp', 'opencode-go/qwen3.8-max', null, ['mech']),
+  // MODEL-ROUTING §0.1: Opus-class review/design runs on Devin Fusion first; Anthropic opus-med is the fallback.
+  worker(
+    'opus-fusion',
+    'L2',
+    'devin',
+    'devin',
+    'omp',
+    'devin/fusion-claude-opus-5-5-medium-sidekick-swe-2-high',
+    'w-opus-med',
+    ['review', 'design'],
+  ),
   worker('sol', 'L2', 'openai', 'openai-codex', 'omp', 'openai-codex/gpt-6.1-sol:high', 'w-sol', [
     'mech',
     'review',

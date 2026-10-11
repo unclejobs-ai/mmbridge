@@ -68,6 +68,7 @@ export interface ApsCommandOptions {
   source?: string;
   severity?: string;
   ref?: string;
+  auto?: boolean;
 }
 export function required(value: unknown, flag: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new InputError(`--${flag} is required`);

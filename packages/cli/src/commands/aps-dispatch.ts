@@ -27,8 +27,12 @@ export interface ApsDispatchOptions extends ApsCommandOptions {
   workspace?: string;
   permissionMode?: string;
   ompId?: string;
+  /** omp agent definition appended as system prompt for headless omp runs (e.g. w-gemini). */
+  ompAgent?: string;
   dryRun?: boolean;
 }
+
+export type DispatchRecord = Record<string, unknown>;
 
 const HEADLESS_RUNNER = `
 const fs = require('node:fs');
@@ -46,12 +50,13 @@ child.on('error', error => { fs.appendFileSync(packet + '/dispatch.log', error.m
 child.on('exit', code => { fs.writeFileSync(packet + '/exit', String(code ?? 128) + '\\n'); process.exitCode = code ?? 128; });
 `;
 
-function executable(binary: string): string {
+/** Presence check only: workers are spawned by bare name (MBP's `devin` wrapper must not be bypassed by path). */
+function requireOnPath(binary: string): void {
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     const path = resolve(dir, binary);
     try {
       accessSync(path, constants.X_OK);
-      if (statSync(path).isFile()) return path;
+      if (statSync(path).isFile()) return;
     } catch {}
   }
   throw new ApsInputError(`${binary} is not on PATH`);
@@ -102,10 +107,30 @@ function reportSchema(run: string, card: string, attempt: number, branch: string
   };
 }
 
-function workerArgs(kind: WorkerKind, model: string, worktree: string, mode?: string): string[] {
+function workerArgs(kind: WorkerKind, model: string, worktree: string, mode: string | undefined) {
   if (kind === 'omp') return ['--model', model, '--cwd', worktree];
-  if (kind === 'devin') return ['--model', model, '--permission-mode', mode ?? 'accept-edits'];
+  // Owner rule 2026-10-11: Devin never waits on a permission prompt. Print mode rejects edits and shell under
+  // smart/auto/accept-edits, and a TUI in accept mode stalls on prompts, so herdr and headless both run dangerous.
+  if (kind === 'devin')
+    return ['--respect-workspace-trust', 'false', '--model', model, '--permission-mode', mode ?? 'dangerous'];
   return ['--model', model, '--permission-mode', mode ?? 'acceptEdits', '--no-subagents'];
+}
+
+/** Disables omp's own retry.fallbackChains for this run so the ledger model is the model that ran. */
+export function ompNoFallbackConfig(model: string): string {
+  const bare = model.replace(/:[a-z]+$/, '');
+  const keys = new Set([bare, model]);
+  if (bare.includes('/')) keys.add(`${bare.split('/')[0]}/*`);
+  const chains = [...keys].map((key) => `    ${JSON.stringify(key)}: []`).join('\n');
+  return `retry:\n  usageAwareFallback: false\n  fallbackChains:\n${chains}\n`;
+}
+
+export function dispatchExitCode(error: unknown): 1 | 2 | 3 {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith('APS-')) return 3;
+  return error instanceof ApsInputError || /(?:CHECK|NOT NULL|UNIQUE|FOREIGN KEY) constraint failed/.test(message)
+    ? 2
+    : 1;
 }
 
 async function headless(binary: string, args: string[], packet: string, worktree: string, output: string) {
@@ -138,6 +163,15 @@ export async function runApsDispatchCommand(
   id: string | undefined,
   options: ApsDispatchOptions,
 ): Promise<void> {
+  try {
+    emit(await dispatchCard(id, options), options.json);
+  } catch (error) {
+    exitWithError(error instanceof Error ? error.message : String(error), dispatchExitCode(error));
+  }
+}
+
+/** Preflight + intent + launch for one worker. Returns the emitted record; throws on refusal or launch failure. */
+export async function dispatchCard(id: string | undefined, options: ApsDispatchOptions): Promise<DispatchRecord> {
   const aps = await importAps();
   let db: DatabaseSync | undefined;
   try {
@@ -154,18 +188,25 @@ export async function runApsDispatchCommand(
     const worktree = required(options.worktree, 'worktree');
     if (!isAbsolute(worktree) || !existsSync(worktree) || !statSync(worktree).isDirectory())
       throw new ApsInputError('--worktree must be an existing absolute directory');
-    const ompId = harness === 'omp' ? required(options.ompId, 'omp-id') : undefined;
-    if (ompId && !/^[A-Za-z0-9._@-]+$/.test(ompId)) throw new ApsInputError('--omp-id must be a task agent ID');
+    // omp with --omp-id = pointer for the parent's task tool; omp without it = headless `omp -p` run.
+    const ompId = harness === 'omp' ? options.ompId : undefined;
+    if (ompId !== undefined && !/^[A-Za-z0-9._@-]+$/.test(ompId))
+      throw new ApsInputError('--omp-id must be a task agent ID');
     if (harness !== 'omp' && options.ompId !== undefined)
       throw new ApsInputError('--omp-id is only valid for omp task dispatch');
+    if (options.ompAgent !== undefined && (harness !== 'omp' || ompId !== undefined))
+      throw new ApsInputError('--omp-agent is only valid for headless omp dispatch');
+    const ompAgentFile = options.ompAgent
+      ? join(homedir(), '.omp', 'agent', 'agents', `${options.ompAgent}.md`)
+      : undefined;
+    if (ompAgentFile && !existsSync(ompAgentFile)) throw new ApsInputError(`omp agent ${options.ompAgent} not found`);
+    const headlessOmp = harness === 'omp' && ompId === undefined;
     if (options.permissionMode !== undefined) {
       if (kind === 'omp') throw new ApsInputError('--permission-mode is not supported for omp');
       choice(
         options.permissionMode,
         'permission-mode',
-        kind === 'devin'
-          ? ['auto', 'accept-edits', 'smart', 'dangerous']
-          : ['default', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions', 'plan'],
+        kind === 'devin' ? ['dangerous'] : ['default', 'acceptEdits', 'auto', 'dontAsk', 'bypassPermissions', 'plan'],
       );
     }
     const core = await importCore();
@@ -193,7 +234,8 @@ export async function runApsDispatchCommand(
       throw new ApsInputError('--branch must match the checked-out worktree branch');
     const baseSha = await git(['rev-parse', '--verify', 'HEAD']);
     let workspace: string | undefined;
-    const binary = harness === 'omp' ? undefined : executable(harness);
+    if (harness !== 'omp' || headlessOmp) requireOnPath(harness);
+    const binary = harness === 'omp' && !headlessOmp ? undefined : harness;
     if (harness === 'herdr') {
       const wanted = options.workspace ?? String(card.project);
       const matches = (await listWorkspaces()).filter((ws) => ws.workspace_id === wanted || ws.label === wanted);
@@ -222,7 +264,22 @@ export async function runApsDispatchCommand(
         ? [...args, '--prompt-file', join(packet, 'card.md'), '-p']
         : harness === 'grok'
           ? ['--cwd', worktree, ...args, '--prompt-file', join(packet, 'card.md'), '--output-format', 'json']
-          : args;
+          : headlessOmp
+            ? [
+                '-p',
+                '--no-title',
+                '--auto-approve',
+                '--mode',
+                'json',
+                ...args,
+                '--session-dir',
+                join(packet, 'session'),
+                '--config',
+                join(packet, 'omp-config.yml'),
+                ...(ompAgentFile ? ['--append-system-prompt', ompAgentFile] : []),
+                `${pointer} Stop once report.json is written.`,
+              ]
+            : args;
     const plan =
       harness === 'herdr'
         ? [
@@ -246,7 +303,7 @@ export async function runApsDispatchCommand(
             ['herdr', 'agent', 'prompt', herdrName, pointer, '--wait', '--until', 'working', '--timeout', '15000'],
             ['herdr', 'pane', 'get', '<resolved-pane>'],
           ]
-        : harness === 'omp'
+        : harness === 'omp' && !headlessOmp
           ? []
           : [
               [
@@ -273,19 +330,15 @@ export async function runApsDispatchCommand(
     };
     const schema = reportSchema(run, cardId, attempt, branch);
     if (options.dryRun) {
-      emit(
-        {
-          ...metadata,
-          dryRun: true,
-          packet,
-          cardMd: aps.renderCardPrompt(db, cardId) + contract(run, cardId, attempt, packet, branch),
-          reportSchema: schema,
-          spawnArgv: plan,
-          ...(ompId ? { ompPrompt, omp_id: ompId } : {}),
-        },
-        options.json,
-      );
-      return;
+      return {
+        ...metadata,
+        dryRun: true,
+        packet,
+        cardMd: aps.renderCardPrompt(db, cardId) + contract(run, cardId, attempt, packet, branch),
+        reportSchema: schema,
+        spawnArgv: plan,
+        ...(ompId ? { ompPrompt, omp_id: ompId } : {}),
+      };
     }
     db.close();
     db = aps.openApsDb(dbPath);
@@ -343,6 +396,7 @@ export async function runApsDispatchCommand(
       );
       writeFileSync(join(packet, 'report.schema.json'), `${JSON.stringify(schema, null, 2)}\n`);
       writeFileSync(join(packet, 'dispatch.json'), `${JSON.stringify({ ...metadata, agent }, null, 2)}\n`);
+      if (headlessOmp) writeFileSync(join(packet, 'omp-config.yml'), ompNoFallbackConfig(model));
       let launch: Record<string, unknown>;
       if (harness === 'herdr') {
         await herdr([
@@ -403,7 +457,7 @@ export async function runApsDispatchCommand(
           terminal_id: terminalId,
           session_ref: pane.pane.agent_session?.value ?? null,
         };
-      } else if (harness === 'omp') {
+      } else if (harness === 'omp' && !headlessOmp) {
         step = 'omp task prompt';
         // Task tools inherit the parent's session directory, which need not be the worker worktree.
         // Collect must resolve this glob unambiguously or require --omp-session-dir.
@@ -423,6 +477,7 @@ export async function runApsDispatchCommand(
             worktree,
             harness === 'grok' ? 'out.json' : 'out.log',
           ),
+          ...(headlessOmp ? { session_ref: join(packet, 'session') } : {}),
         };
       }
       step = 'record launch';
@@ -430,21 +485,19 @@ export async function runApsDispatchCommand(
         aps.addRunEvent(ledger, run, 'launched', by, launch);
         if (paneId) ledger.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(paneId, agent);
       });
-      emit(
-        {
-          run,
-          agent,
-          card: cardId,
-          attempt,
-          packet,
-          harness,
-          ...launch,
-          ...(paneId ? { pane: paneId } : {}),
-          ...(ompId ? { ompPrompt } : {}),
-          next: `mmbridge aps collect ${cardId} --by ${by} --wait 90m`,
-        },
-        options.json,
-      );
+      return {
+        run,
+        agent,
+        card: cardId,
+        attempt,
+        packet,
+        harness,
+        model,
+        ...launch,
+        ...(paneId ? { pane: paneId } : {}),
+        ...(ompId ? { ompPrompt } : {}),
+        next: `mmbridge aps collect ${cardId} --by ${by} --wait 90m`,
+      };
     } catch (error) {
       const failedStep = step;
       const message = error instanceof Error ? error.message : String(error);
@@ -479,16 +532,6 @@ export async function runApsDispatchCommand(
       });
       throw new Error(`dispatch failed: ${failedStep}: ${message}`);
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const code = message.startsWith('APS-')
-      ? 3
-      : error instanceof ApsInputError || /(?:CHECK|NOT NULL|UNIQUE|FOREIGN KEY) constraint failed/.test(message)
-        ? 2
-        : 1;
-    db?.close();
-    db = undefined;
-    exitWithError(message, code);
   } finally {
     db?.close();
   }

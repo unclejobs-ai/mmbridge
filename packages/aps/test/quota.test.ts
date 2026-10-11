@@ -160,6 +160,28 @@ test('assessQuota ignores pace before minElapsed of the window has passed', () =
   assert.equal(quotas[0].reason, null);
 });
 
+test('assessQuota paces a fast burn but not a few percent early in a long window (live Devin 2026-10-11)', () => {
+  const week = 7 * 86_400_000;
+  const now = 1_000_000_000;
+  const window = (provider: string, usedFraction: number) => ({
+    provider,
+    source: 'omp' as const,
+    account: 'a',
+    label: '7d',
+    usedFraction,
+    resetsAt: now + 0.97 * week,
+    durationMs: week,
+  });
+  const quotas = assessQuota([window('devin', 0.05), window('codex', 0.32)], now);
+  assert.deepEqual(
+    quotas.map((quota) => [quota.provider, quota.blocked]),
+    [
+      ['codex', true],
+      ['devin', false],
+    ],
+  );
+});
+
 test('parseOmpUsageReport clamps usedFraction into [0,1]', () => {
   const windows = parseOmpUsageReport({
     reports: [
