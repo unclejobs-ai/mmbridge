@@ -153,6 +153,22 @@ Turn the surrounding workflow into something observable, resumable, and increasi
 - claiming that `mmbridge` is already an agent OS
 - building a tmux-style execution harness as the core identity of the product
 
+### Execution Backlog
+
+This is a candidate backlog, not a commitment to build a proprietary runtime, authentication layer, or bidirectional agent network. Prefer existing harnesses, schemas, and platform authentication before adding new infrastructure. Keep the screen simple, the UX smooth, and the execution boundary explicit.
+
+- [x] deliver a minimal Codex read-only one-shot execution path (`5acf14d`, hardened in `1a04d20`); this validates one narrow path, not universal sandboxing or complete runtime support
+- [x] deliver APS work cards, run ledgers, and read-only inspection surfaces: work-card ledger (`b718051` #4), omp usage parser (`85e9ada` #5), worker run ledger (`59c23c5` #6), herdr adapter (`c8d6ccf` #7), read-only APS board (`80e8c73` #8, `63ed4ee` #9), pane-level close proof (`b33dcf3` #12), managed dispatch and collect packets (`703f3aa` #13)
+- [ ] decide the product boundary between isolated workers and optional bidirectional agent collaboration
+- [ ] define a capability and authentication model covering isolation, resumability, subscription, OAuth, API keys, and unavailable states
+- [ ] detect installed runtimes and authentication status without automatically initiating login
+- [ ] define a safe, explicit path when Codex is unavailable; do not silently degrade to an unisolated runtime
+- [ ] recommend available harnesses by role, such as reviewer, researcher, implementer, and follow-up worker (partly: APS board / managed dispatch)
+- [ ] unify `run`, `review`, and `followup` into one consistent selection, evidence, error, and resumability UX
+- [ ] build a minimal runtime TUI only after the command model is stable; evaluate Laya-style interaction rather than assuming it should be copied (partly: APS board / managed dispatch)
+- [ ] evaluate Pi and Unclecode-style context or cache reuse only where it measurably reduces repeated work without provider lock-in
+- [ ] validate cancellation, evidence, isolation, and comprehensibility in real multi-agent workflows before expanding orchestration claims
+
 ## Priority Order Across Axes
 
 When priorities conflict, prefer this order:

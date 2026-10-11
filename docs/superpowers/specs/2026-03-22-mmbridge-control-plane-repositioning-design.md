@@ -42,7 +42,7 @@ The product story should now match the implementation surface:
 - Preserve review as a core capability without making it the entire identity
 - Make the CLI help text reflect command groups that already exist
 - Update package metadata so npm surfaces tell the same story as the README
-- Clarify differentiation from agent harnesses such as `oh-my-codex`, `oh-my-claude-code`, and `oh-my-openagent`
+- Clarify differentiation from agent harnesses such as `third-party Codex orchestration`, `oh-my-claude-code`, and `oh-my-openagent`
 
 ## Non-Goals
 
@@ -93,7 +93,7 @@ This keeps the public copy aligned with the current command behavior.
 
 ## Competitive Framing
 
-Compared with `oh-my-codex`, `oh-my-claude-code`, and `oh-my-openagent`:
+Compared with `third-party Codex orchestration`, `oh-my-claude-code`, and `oh-my-openagent`:
 
 - those tools are closer to execution harnesses and agent workflow runtimes
 - `mmbridge` should instead emphasize multi-model thought expansion, consensus, freshness, memory, and workflow continuation
