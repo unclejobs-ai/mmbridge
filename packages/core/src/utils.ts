@@ -32,6 +32,19 @@ export async function runCommand(
 
     let stdout = '';
     let stderr = '';
+    const maxCaptureBytes = 1024 * 1024;
+    const appendCapture = (current: string, chunk: string): string => {
+      if (Buffer.byteLength(chunk) >= maxCaptureBytes) {
+        return Buffer.from(chunk)
+          .subarray(Buffer.byteLength(chunk) - maxCaptureBytes)
+          .toString('utf8');
+      }
+      const next = current + chunk;
+      if (Buffer.byteLength(next) <= maxCaptureBytes) return next;
+      return Buffer.from(next)
+        .subarray(Buffer.byteLength(next) - maxCaptureBytes)
+        .toString('utf8');
+    };
     let timedOut = false;
     let forcedKill = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -62,7 +75,8 @@ export async function runCommand(
         return;
       }
       const pid = child.pid;
-      const killer = spawn('sh', ['-c', `sleep 2; kill -KILL -${pid}`], { detached: true, stdio: 'ignore' });
+      const killer = spawn('/bin/sh', ['-c', `sleep 2; kill -KILL -${pid}`], { detached: true, stdio: 'ignore' });
+      killer.on('error', () => {});
       killer.unref();
     };
 
@@ -100,13 +114,13 @@ export async function runCommand(
     }, timeoutMs);
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
-      stdout += text;
+      stdout = appendCapture(stdout, text);
       onStdoutCb?.(text);
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
-      stderr += text;
+      stderr = appendCapture(stderr, text);
       onStderrCb?.(text);
     });
 

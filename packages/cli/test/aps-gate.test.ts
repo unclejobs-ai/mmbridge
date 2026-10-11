@@ -1086,6 +1086,83 @@ test('R4: each gate token rule redacts a sample the built-ins miss', () => {
     assert.doesNotMatch(redacted, item.leak, item.sample);
     assert.match(redacted, /\[REDACTED_URL_USERINFO\]/);
   }
+  assert.equal(
+    redactBoundedText(redactContent, 'GET https://registry.npmjs.org/@mmbridge%2Fcore', 2048),
+    'GET https://registry.npmjs.org/@mmbridge%2Fcore',
+  );
+  assert.equal(
+    redactBoundedText(redactContent, '{"url":"https://a.example/x","email":"me@x.example"}', 2048),
+    '{"url":"https://a.example/x","email":"me@x.example"}',
+  );
+});
+
+test('REG-1: closed suffixes and long prefixes redact; safe names do not', () => {
+  const leaks = [
+    'password_hash=$2b$12$hunter2hash',
+    'secret_value=s3cr3t-value-123456',
+    'TOKEN_VALUE=tokenvalue123456',
+    'api_key_id=abcd1234efgh5678',
+    'API_KEY_VALUE=abcd1234efgh5678',
+    'AWS_SECRET_ACCESS_KEY_ID=AKIAsecretvalue1',
+    'SECRET_KEY_BASE=6f1eabcdef123456',
+    'PRIVATE_KEY_PEM=BEGIN-PRIVATE-KEY',
+    'AUTH_TOKEN_RAW=rawtokenvalue1234',
+    'DB_PASSWORD_PLAIN=plainpassvalue1',
+    'tokens=tokensecretvalue',
+    'secretKeyBase64=YWJjZGVmZ2hpams',
+    '{"passwordHash":"hunter2-secret-value"}',
+    '{"tokenValue":"abcd1234efgh5678zz"}',
+    'passwords: ["hunter2-secret-value"]',
+    'CLIENT_SECRET_ID=clientsecretvalue',
+    `${'n'.repeat(70)}_PASSWORD=secretvalue99`,
+    '{"password":"ab\\"cd-tail-secret"}',
+  ];
+  for (const sample of leaks) {
+    const redacted = redactBoundedText(redactContent, sample, 2048);
+    assert.doesNotMatch(
+      redacted,
+      /hunter2hash|s3cr3t-value-123456|tokenvalue123456|abcd1234efgh5678|AKIAsecretvalue1|6f1eabcdef123456|BEGIN-PRIVATE-KEY|rawtokenvalue1234|plainpassvalue1|tokensecretvalue|YWJjZGVmZ2hpams|hunter2-secret-value|secretvalue99|cd-tail-secret/,
+      sample,
+    );
+    assert.match(redacted, /\[REDACTED_/);
+  }
+  assert.equal(redactBoundedText(redactContent, 'author: Jane Doe', 2048), 'author: Jane Doe');
+  assert.equal(redactBoundedText(redactContent, 'auth_failures: fail', 2048), 'auth_failures: fail');
+  assert.equal(
+    redactContent('const key = "some long sentence with spaces here"').redacted,
+    'const key = "some long sentence with spaces here"',
+  );
+});
+
+test('N14/N15: gate-only quoted key and spaced value are not covered by core rules', () => {
+  const quotedKey = '{"auth_token":"abcd1234"}';
+  const spacedValue = '{"auth_token":"ab cd12ef"}';
+  assert.equal(redactContent(quotedKey).redacted, quotedKey);
+  assert.equal(redactContent(spacedValue).redacted, spacedValue);
+  for (const sample of [quotedKey, spacedValue]) {
+    const redacted = redactBoundedText(redactContent, sample, 2048);
+    assert.doesNotMatch(redacted, /abcd1234|cd12ef/, sample);
+    assert.match(redacted, /\[REDACTED_SECRET\]/);
+  }
+});
+
+test('N16: redactBoundedText windows a URL run larger than maxBytes within 1s', () => {
+  const sample = 'x://'.repeat(Math.ceil((256 * 1024) / 4));
+  const started = Date.now();
+  const redacted = redactBoundedText(redactContent, sample, 2048);
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 1000, `URL run took ${elapsed}ms`);
+  assert.ok(Buffer.byteLength(redacted) <= 2048 + 16);
+  const straddled = `${'S'.repeat(20000)}TAILSECRET\nkept-visible`;
+  const tail = redactBoundedText(redactContent, `password=${straddled}`, 64);
+  assert.doesNotMatch(tail, /TAILSECRET/);
+  assert.match(tail, /kept-visible/);
+  // No newline: full-text redaction collapses the prefix secret into a short tail.
+  // The byte window never sees the password keyword, so the suffix stays unlabelled.
+  const marker = 'VISIBLE_TAIL_MARKER';
+  const collapsed = redactBoundedText(redactContent, `password=${'s'.repeat(100_000)} ${marker}`, 64);
+  assert.match(collapsed, /VISIBLE_TAIL_MARKER/);
+  assert.doesNotMatch(collapsed, /REDACTED/);
 });
 
 test('NEW-2: a 256 KiB word run and a repeated-keyword run redact within 1s', () => {
@@ -1271,4 +1348,43 @@ await runCommand(process.execPath, ['-e', ${JSON.stringify(child)}], { detached:
   }
   spawnSync('kill', ['-9', String(childPid)]);
   assert.fail(`trapped gate ${childPid} still alive after SIGKILL follow-up`);
+});
+
+test('N12b: close escalates to SIGKILL when a grandchild traps SIGTERM', async (t) => {
+  const f = fixture(t);
+  const pidFile = join(f.root, 'trap-grand.pid');
+  const readyFile = join(f.root, 'trap-grand.ready');
+  const utilsPath = resolve(import.meta.dirname, '../../core/dist/utils.js');
+  const script = join(f.root, 'close-trap.mjs');
+  const grand = `process.on('SIGTERM',()=>{});process.on('SIGINT',()=>{});require('node:fs').writeFileSync(${JSON.stringify(readyFile)},'ready');setInterval(()=>{},1000);`;
+  const child = [
+    "const {spawn}=require('node:child_process');const fs=require('node:fs');",
+    `const grand=spawn(process.execPath,['-e',${JSON.stringify(grand)}],{stdio:'ignore'});`,
+    `fs.writeFileSync(${JSON.stringify(pidFile)}, String(grand.pid));`,
+    `while (!fs.existsSync(${JSON.stringify(readyFile)})) {}`,
+    'grand.unref();',
+  ].join('');
+  writeFileSync(
+    script,
+    `import { runCommand } from ${JSON.stringify(utilsPath)};
+const result = await runCommand(process.execPath, ['-e', ${JSON.stringify(child)}], { detached: true, timeoutMs: 10000 });
+if (result.code !== 0) process.exit(result.code || 1);
+`,
+  );
+  const helper = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 8000 });
+  assert.equal(helper.status, 0, `${helper.stdout}\n${helper.stderr}`);
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  // Real wait: close-path SIGKILL is a detached sleep 2, so fake timers cannot advance it.
+  const started = Date.now();
+  while (Date.now() - started < 6000) {
+    if (spawnSync('kill', ['-0', String(pid)]).status !== 0) {
+      assert.ok(Date.now() - started >= 1500, 'grandchild died before the SIGKILL follow-up');
+      return;
+    }
+    const { promise, resolve: done } = Promise.withResolvers<void>();
+    setTimeout(done, 50);
+    await promise;
+  }
+  spawnSync('kill', ['-9', String(pid)]);
+  assert.fail(`trapped grandchild ${pid} still alive after close-path SIGKILL`);
 });

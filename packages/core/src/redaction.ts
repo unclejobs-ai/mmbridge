@@ -18,13 +18,13 @@ const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: stri
   { pattern: /whsk_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_WEBHOOK_SECRET]', label: 'Webhook secret' },
   {
     pattern:
-      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,64}(?:password|passwd|pwd)(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S{8,})/gi,
+      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:password|passwd|pwd)s?(?:[_-]?(?:hash|value|base|raw|plain|pem|id|b64|base64|data|str|string))?(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S{8,})/gi,
     replacement: '[REDACTED_PASSWORD]',
     label: 'Password value',
   },
   {
     pattern:
-      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,64}(?:secret|token|key)(?![A-Za-z0-9_])["']?\s*[:=]\s*["'][^"'[\]]{16,}["']/gi,
+      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:secret|token|key)s?(?:[_-]?(?:hash|value|base|raw|plain|pem|id|b64|base64|data|str|string))?(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"(?:[^"\\\s\[]|\\.){16,}"|'(?:[^'\\\s\[]|\\.){16,}'|[^\s"'[\]]{16,})/gi,
     replacement: '[REDACTED_SECRET]',
     label: 'Generic secret/token',
   },

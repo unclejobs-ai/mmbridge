@@ -13,17 +13,17 @@ export const GATE_TOKEN_RULES = [
     flags: 'i',
   },
   {
-    // Keyword must end the identifier so `author` and `auth_failures` stay visible.
-    // Prefix length is bounded so a word run cannot backtrack.
+    // Closed suffix so password_hash / SECRET_KEY_BASE redact, while author and auth_failures do not.
+    // Prefix is bounded, including a 70-character name before the keyword.
     pattern:
-      '(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,64}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?![A-Za-z0-9_])["\']?\\s*[:=]\\s*(?:"[^"]*"|\'[^\']*\'|\\S+)',
+      '(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)s?(?:[_-]?(?:hash|value|base|raw|plain|pem|id|b64|base64|data|str|string))?(?![A-Za-z0-9_])["\']?\\s*[:=]\\s*(?:"(?:[^"\\\\]|\\\\.)*"|\'[^\']*\'|\\S+)',
     replacement: '[REDACTED_SECRET]',
     label: 'secret assignment',
     flags: 'i',
   },
   {
-    // Greedy userinfo up to the last @ before the host, including token-only and / or @ in the password.
-    pattern: '[a-z][a-z0-9+.-]{0,32}://[^\\s]*@(?=[^\\s/@])',
+    // Userinfo only: stop at quotes and at a path @ (scoped packages). Password may contain / or @.
+    pattern: '[a-z][a-z0-9+.-]{0,32}://[^\\s/:"@]{1,256}(?::[^\\s"]{0,512})?@(?=[^\\s/"@])',
     replacement: '[REDACTED_URL_USERINFO]',
     label: 'URL userinfo',
     flags: 'i',
@@ -41,7 +41,11 @@ export function redactBoundedText(
 ): string {
   const buf = Buffer.from(text, 'utf8');
   const windowBytes = maxBytes + REDACT_TAIL_SLACK_BYTES;
-  const slice = buf.byteLength <= windowBytes ? text : buf.subarray(buf.byteLength - windowBytes).toString('utf8');
+  let slice = buf.byteLength <= windowBytes ? text : buf.subarray(buf.byteLength - windowBytes).toString('utf8');
+  if (buf.byteLength > windowBytes) {
+    const newline = slice.indexOf('\n');
+    if (newline >= 0) slice = slice.slice(newline + 1);
+  }
   const redacted = redact(slice, GATE_TOKEN_RULES).redacted;
   const out = Buffer.from(redacted, 'utf8');
   if (out.byteLength <= maxBytes) return redacted;
