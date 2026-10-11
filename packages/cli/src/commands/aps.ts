@@ -46,6 +46,27 @@ export async function runApsCommand(
             herdr_pane: options.herdrPane ?? null,
           }),
         };
+      case 'agent-list': {
+        const status = choice(options.status, 'status', ['active', 'idle', 'closed', 'open', 'all'], 'open');
+        const layer = options.layer === undefined ? null : choice(options.layer, 'layer', ['L0', 'L1', 'L2', 'L3']);
+        const project = options.project ?? null;
+        const rows = db
+          .prepare(
+            `SELECT id,name,layer,model,vendor,project,herdr_pane,status,started_at,closed_at,close_note
+             FROM agents
+             WHERE (?='all' OR (?='open' AND status<>'closed') OR status=?)
+               AND (? IS NULL OR project=?)
+               AND (? IS NULL OR layer=?)
+             ORDER BY layer, project, started_at, id`,
+          )
+          .all(status, status, status, project, project, layer, layer);
+        if (options.json) return rows;
+        return rows
+          .map(
+            (row) => `${row.id} ${row.layer} ${row.status} ${row.model} ${row.project ?? '-'} ${row.herdr_pane ?? '-'}`,
+          )
+          .join('\n');
+      }
       case 'card-new': {
         const changes = aps.issueCard(db, {
           project: required(options.project, 'project'),

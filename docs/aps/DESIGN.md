@@ -298,6 +298,7 @@ On success a state-changing command prints one line `<card> <from>→<to> by <ag
 | `aps init` | — | `openApsDb` (creates file, applies migrations); prints `user_version` | A |
 | `aps project add <id> --prefix SS --name …` | | insert `projects` | A |
 | `aps agent new --name … --layer L0..L3 --model … --vendor … [--project] [--herdr-pane]` | | insert `agents`; prints the new session id (`<slug(name)>-<yyyymmddHHMMss>`, matching the `agents.id` CHECK) | A |
+| `aps agent list [--status active|idle|closed|open|all] [--project <id>] [--layer L0|L1|L2|L3]` | | read `agents` (`id,name,layer,model,vendor,project,herdr_pane,status,started_at,closed_at,close_note`) ordered by `layer, project, started_at, id`; default `--status open` excludes `closed`; `--json` prints the array; plain: `<id> <layer> <status> <model> <project or -> <pane or ->` | A |
 | `aps card new --project --title --kind --size --scope --acceptance <file.json> --forbidden … --needs-owner 0|1 --needs-vision 0|1 --owner <agent> [--assignee] [--parent] [--body <file.md>] [--source-ref]` | acceptance per §6 | id = `printf('%s-C-%04d', prefix, next_seq)` read inside the transaction; insert `cards` (auto `→issued`); if the project dir is a git repo, append a context node (§9.2) | A |
 | `aps card show <id> [--as-prompt|--json]` | | read `cards` + `v_card_current` + history; `--as-prompt` template in §8.4 | A |
 | `aps card list [--project] [--state] [--assignee]` | | read `v_kanban` | A |

@@ -252,6 +252,108 @@ test('aps init/project add/agent new: persisted records, generated IDs, text out
   f.run(['agent', 'new', '--name', 'bad', '--layer', 'L9', '--model', 'test', '--vendor', 'test'], 2);
   assert.match(f.run(['project', 'add', 'other', '--prefix', 'TS', '--name', 'duplicate'], 3).stderr, /APS-L02:/);
 });
+test('agent list: default excludes closed; status, project and layer filter', (t) => {
+  const f = fixture(t);
+  const listed = f.run([
+    'agent',
+    'new',
+    '--name',
+    'listed',
+    '--layer',
+    'L3',
+    '--model',
+    'flash',
+    '--vendor',
+    'test',
+    '--project',
+    'test',
+    '--herdr-pane',
+    'w9:p2',
+  ]).value.id as string;
+  const idler = f.run(['agent', 'new', '--name', 'idler', '--layer', 'L0', '--model', 'opus', '--vendor', 'test']).value
+    .id as string;
+  const gone = f.run([
+    'agent',
+    'new',
+    '--name',
+    'gone',
+    '--layer',
+    'L2',
+    '--model',
+    'haiku',
+    '--vendor',
+    'test',
+    '--project',
+    'test',
+  ]).value.id as string;
+  f.run(['close-session', gone, '--note', 'pane ended']);
+  const db = openApsDb(f.dbPath);
+  try {
+    db.prepare("UPDATE agents SET status='idle' WHERE id=?").run(idler);
+  } finally {
+    db.close();
+  }
+  const ids = (rows: { id: string }[]) => rows.map((row) => row.id);
+  const open = f.run(['agent', 'list']).value as {
+    id: string;
+    layer: string;
+    project: string | null;
+    status: string;
+    started_at: string;
+  }[];
+  assert.equal(ids(open).includes(gone), false);
+  assert.ok(ids(open).includes(listed));
+  assert.ok(ids(open).includes(idler));
+  assert.ok(open.every((row) => row.status !== 'closed'));
+  const cmp = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? -1 : b === null ? 1 : a < b ? -1 : 1);
+  for (let i = 1; i < open.length; i++) {
+    const prev = open[i - 1];
+    const row = open[i];
+    const order =
+      cmp(prev.layer, row.layer) ||
+      cmp(prev.project, row.project) ||
+      cmp(prev.started_at, row.started_at) ||
+      cmp(prev.id, row.id);
+    assert.ok(order <= 0, `${prev.id} before ${row.id}`);
+  }
+  const closed = f.run(['agent', 'list', '--status', 'closed']).value as {
+    id: string;
+    name: string;
+    status: string;
+    close_note: string;
+  }[];
+  assert.deepEqual(ids(closed), [gone]);
+  assert.equal(closed[0].status, 'closed');
+  assert.equal(closed[0].close_note, 'pane ended');
+  for (const key of [
+    'id',
+    'name',
+    'layer',
+    'model',
+    'vendor',
+    'project',
+    'herdr_pane',
+    'status',
+    'started_at',
+    'closed_at',
+    'close_note',
+  ])
+    assert.equal(key in closed[0], true, key);
+  assert.deepEqual(ids(f.run(['agent', 'list', '--project', 'test']).value), [listed]);
+  assert.deepEqual(ids(f.run(['agent', 'list', '--layer', 'L0']).value), [idler]);
+  assert.deepEqual(ids(f.run(['agent', 'list', '--status', 'all', '--project', 'test']).value), [gone, listed]);
+  const active = ids(f.run(['agent', 'list', '--status', 'active']).value);
+  assert.equal(active.includes(idler), false);
+  assert.equal(active.includes(gone), false);
+  assert.ok(active.includes(listed));
+  assert.equal(
+    f.run(['agent', 'list', '--project', 'test'], 0, false).stdout.trim(),
+    `${listed} L3 active flash test w9:p2`,
+  );
+  assert.equal(f.run(['agent', 'list', '--status', 'idle'], 0, false).stdout.trim(), `${idler} L0 idle opus - -`);
+  assert.match(f.run(['agent', 'list', '--status', 'nope'], 2).stderr, /--status must be/);
+  f.run(['agent', 'list', '--layer', 'L9'], 2);
+});
 test('card new/show/list/as-prompt: full acceptance and when-done payload', (t) => {
   const f = fixture(t);
   const id = f.card();
