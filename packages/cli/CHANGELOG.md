@@ -1,5 +1,11 @@
 # @mmbridge/cli
 
+## Unreleased
+
+### Added
+
+- Add the APS herdr adapter for pane/workspace discovery, tab creation, agent start/prompt, and pane closure. Calls use a 15-second subprocess timeout. Pane-end confirmation accepts only explicit `pane_not_found` or a changed terminal identity; an open bare-shell pane still refuses with `APS-H01`. Tab creation resolves exactly one pane by workspace and tab label.
+
 ## 0.7.3
 
 ### Patch Changes
