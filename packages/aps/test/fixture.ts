@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import { APS_SQL_DIR, openApsDb } from '../dist/index.js';
+import { APS_SQL_DIR, listMigrations, openApsDb } from '../dist/index.js';
 
 export const SHA = 'a'.repeat(40);
 export const SHA2 = 'b'.repeat(40);
@@ -24,7 +24,9 @@ export const ITEM = JSON.stringify([{ severity: 'major', category: 'correctness'
 
 /** code → exact RAISE message, parsed from every migration file. */
 export function guardMessages(): Map<string, string> {
-  const sql = readFileSync(`${APS_SQL_DIR}0001_aps.sql`, 'utf8');
+  const sql = listMigrations()
+    .map((migration) => readFileSync(`${APS_SQL_DIR}${migration.file}`, 'utf8'))
+    .join('\n');
   const messages = new Map<string, string>();
   for (const match of sql.matchAll(/RAISE\(ABORT, '(APS-([A-Z]\d{2}): [^']*)'\)/g)) {
     const [, message, code] = match;
