@@ -193,7 +193,7 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | Code | Where | Exact message | Test recipe |
 |---|---|---|---|
 | U01 | `openApsDb` (implemented) | `APS-U01: ledger schema v<N> is newer than this build (max v<M>)` | `smoke.test.ts` › openApsDb … (executed) |
-| H01 | `aps close-session` | `APS-H01: herdr pane <pane> is still listed by 'herdr agent list'` | fake `herdr` on PATH printing the pane id |
+| H01 | `aps close-session` via `confirmPaneEnded` | `APS-H01: herdr pane <pane> is still open` | fake `herdr pane get` on PATH: open pane (including a bare shell) refuses; exit 1 with `pane_not_found` passes |
 | H02 | `aps review --from-session` | `APS-H02: mmbridge session <uuid> head.sha <x> != reported sha <y>` | `SessionStore(tmp).save({head:{sha:x}})`, report sha y |
 | H03 | `aps merge` | `APS-H03: <merged_sha> does not contain <sha> (git merge-base --is-ancestor failed)` | temp git repo with two unrelated commits |
 | H04 | `aps review --from-session` | `APS-H04: mmbridge session <uuid> not found` | unknown uuid |
@@ -340,7 +340,7 @@ When the imported session has `handoffId`/`handoffPath`, insert `card_links(kind
 
 ### 9.4 herdr, scc
 
-- `agent new --herdr-pane` records the pane; `close-session` runs `herdr agent list` and refuses with H01 while the pane is listed.
+- `agent new --herdr-pane` records the pane; `close-session` uses the shared herdr adapter's `confirmPaneEnded(pane)` to probe `herdr pane get`. Any open pane, including a bare shell with no detected agent, refuses with H01. Only exit 1 with an explicit `pane_not_found` proves absence; other failures exit 1 with `cannot confirm pane ended: herdr pane get failed`. Manual close-session does not close panes itself.
 - scc PDCA: `pdca_runs.scc_run_id` = `pdca_start_run` id. Phase moves mirror `pdca_transition`; Check cannot be skipped (Q01–Q03). Stage D wires `pdca_check_gate` results into `result_json`.
 
 ## 10. Migrations, tests, extension points
@@ -372,7 +372,7 @@ Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message
 
 - TS guards H01–H05 are CLI-only; raw SQL bypasses them, including inserting an unrelated `merged_sha` (G5). `aps doctor` checks database integrity and trigger presence, not external git/herdr/session evidence.
 - `aps merge --applied-ref` accepts an unverified reference and skips H03/H05 (G2); callers must independently verify the applied work.
-- H01 checks `herdr agent list` only when the agent session recorded `--herdr-pane`; without it, session closure has no pane-liveness check.
+- H01 probes `herdr pane get` only when the agent session recorded `--herdr-pane`; without it, session closure has no pane-liveness check. Manual `close-session` records no terminal identity and therefore refuses any open pane at the recorded id, even if that id was reused. The shared adapter also supports a recorded `terminal_id` for run-aware callers: a changed terminal proves the original session ended.
 - `at` columns accept caller values, so backdating by raw SQL is possible; the CLI never passes them. [INFERENCE] Stage C may add a monotonic-time guard on `transitions`.
 - Independence compares `agents.name`; an agent registered under a different name for the same worker defeats it. Naming is an L2/L1 responsibility at `agent new`.
 - `node:sqlite` prints an ExperimentalWarning on Node 22; it is not an error.
