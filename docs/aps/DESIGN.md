@@ -128,12 +128,16 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | K02 | feedback update | `APS-K02: partial or reject responses need a reason` | `guards-ledger.test.ts` › feedback: K00–K04 |
 | K03 | feedback update | `APS-K03: feedback from/to/kind/card/body/created_at are immutable` | `guards-ledger.test.ts` › feedback: K00–K04 |
 | K04 | feedback update | `APS-K04: escalation cannot be cleared` | `guards-ledger.test.ts` › feedback: K00–K04 |
-| L01 | 25 triggers (update+delete) on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits | `APS-L01: ledger rows are append-only` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table |
-| L02 | insert on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits | `APS-L02: ledger rows cannot be replaced` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table |
+| L01 | 31 triggers (update+delete) on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits, worker_runs, run_events, run_usage | `APS-L01: ledger rows are append-only` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table; `guards-runs.test.ts` › run tables are append-only |
+| L02 | insert on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits, worker_runs, run_events, run_usage | `APS-L02: ledger rows cannot be replaced` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table; `guards-runs.test.ts` › run tables are append-only |
 | L03 | insert, update, delete on: defect_categories, state_edges, states | `APS-L03: reference tables change only via migrations` | `guards-ledger.test.ts` › reference tables: L03 on insert, update and delete |
 | M01 | merges insert | `APS-M01: merge confirmation needs state accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | M02 | merges insert | `APS-M02: merge sha must be the reported sha and carry an accept review` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | M03 | merges insert | `APS-M03: merge must be verified by a live agent other than the assignee` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
+| N01 | worker_runs insert | `APS-N01: card already has a live run` | `guards-runs.test.ts` › N01 refuses a second live run |
+| N02 | worker_runs insert | `APS-N02: run must match the card's working attempt and assignee` | `guards-runs.test.ts` › N02 refuses run for non-working card |
+| N03 | run_events insert | `APS-N03: run event is not a forward lifecycle step` | `guards-runs.test.ts` › N03 refuses backward event |
+| N04 | run_events insert | `APS-N04: closed run event needs close evidence` | `guards-runs.test.ts` › N04 closed needs evidence |
 | O01 | owner_oks insert | `APS-O01: owner OK needs state inspecting, accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | O02 | owner_oks insert | `APS-O02: owner OK sha must be the current attempt reported sha` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | O03 | owner_oks insert | `APS-O03: owner OK must be recorded by a live L0 or L1 agent` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
@@ -249,7 +253,7 @@ Other shapes:
 
 ## 7. Self-check (executed)
 
-`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 84 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 runs on all 15 protected tables (update+delete or delete), L02 on all 15 (`INSERT OR REPLACE … SELECT *`), L03 on insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
+`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 88 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 and L02 cover all 15 original protected tables plus the 3 run tables; L02 also refuses replacement by the usage natural key. L03 covers insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
 
 ```
 seed()                                                      -- project, agents, card SS-C-0001 (issued)
@@ -347,6 +351,9 @@ When the imported session has `handoffId`/`handoffPath`, insert `card_links(kind
 - Changing a guard: `DROP TRIGGER` + `CREATE TRIGGER` in a migration, plus the §5 row (coverage test enforces it). Changing the state machine: drop the L03 lock triggers on `state_edges`, edit rows, recreate the locks, in the same migration.
 - A newer `user_version` than the build knows → `APS-U01`, nothing is written.
 - Raw `DROP TRIGGER` or `writable_schema` can't be prevented, only detected (`aps doctor`).
+- Applied migration catalogue: `0001_aps.sql` (v1: cards and original guards); `0002_worker_runs.sql` (v2: worker_runs, run_events, run_usage, N01–N04, append-only/no-replace guards, v_run_current and v_run_cost).
+- Run writes (`createRun`, `addRunEvent`, `addUsage`) execute inside the caller's short transaction. `createRun` records identity plus the first intent event; `getLiveRun(db, card)` returns only intent/launched/reported runs. Launch metadata remains visible after later events. Cost totals include input+output tokens, separate cache-read tokens, and explicit unknown evidence counts.
+- Usage identity is `(run_id, source, source_ref, model)`, with NULL models deduplicated too. `addUsage` returns the existing id without rewriting evidence; raw replacement (including a conflict on that identity with a new row id) is refused by L02. Explicit event ids cannot move the latest-event cursor backwards (N03).
 
 ### 10.2 Test plan (for L3)
 

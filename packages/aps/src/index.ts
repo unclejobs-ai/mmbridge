@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 export * from './analytics.js';
 export * from './ledger.js';
 export * from './render.js';
+export * from './runs.js';
 export * from './usage.js';
 export const APS_DB_ENV = 'MMBRIDGE_APS_DB';
 export const APS_SQL_DIR = fileURLToPath(new URL('../sql/', import.meta.url));

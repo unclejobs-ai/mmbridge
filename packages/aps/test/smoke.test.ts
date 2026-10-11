@@ -114,23 +114,23 @@ test('a closed agent session cannot move cards', () => {
   );
 });
 
-test('openApsDb applies migration 0001 once and refuses a newer ledger (APS-U01)', () => {
+test('openApsDb applies migrations once and refuses a newer ledger (APS-U01)', () => {
   assert.deepEqual(
     listMigrations().map((m) => m.version),
-    [1],
+    [1, 2],
   );
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aps-'));
   const file = path.join(dir, 'nested', 'aps.db');
   openApsDb(file).close();
   const reopened = openApsDb(file);
-  assert.equal((reopened.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 1);
-  assert.equal((reopened.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys, 1);
+  assert.equal(reopened.prepare('PRAGMA user_version').get()?.user_version, 2);
+  assert.equal(reopened.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
   reopened.close();
 
   const raw = new DatabaseSync(file);
   raw.exec('PRAGMA user_version = 99');
   raw.close();
-  assert.throws(() => openApsDb(file), { message: 'APS-U01: ledger schema v99 is newer than this build (max v1)' });
+  assert.throws(() => openApsDb(file), { message: 'APS-U01: ledger schema v99 is newer than this build (max v2)' });
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
