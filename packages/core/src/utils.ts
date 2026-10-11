@@ -16,6 +16,7 @@ export async function runCommand(
     env = process.env,
     timeoutMs = 120000,
     killGraceMs = 5000,
+    detached = false,
     onStdout: onStdoutCb,
     onStderr: onStderrCb,
   } = options;
@@ -25,33 +26,80 @@ export async function runCommand(
     const child = spawn(command, args, {
       cwd,
       env,
+      detached,
       stdio: 'pipe',
     });
 
     let stdout = '';
     let stderr = '';
+
     let timedOut = false;
     let forcedKill = false;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
 
     const finish = (result: RunResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       clearTimeout(killTimer);
+      for (const [signal, handler] of signalHandlers) process.off(signal, handler);
+      signalHandlers.clear();
       resolve(result);
     };
 
+    const killGroup = (signal: NodeJS.Signals): void => {
+      if (!detached || !child.pid) return;
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        // ESRCH means the group is already gone. Any other code must not reject the command result.
+      }
+    };
+    const scheduleGroupSigkill = (): void => {
+      if (!detached || !child.pid) return;
+      try {
+        process.kill(-child.pid, 0);
+      } catch {
+        return;
+      }
+      const pid = child.pid;
+      const killer = spawn('/bin/sh', ['-c', `sleep 2; kill -KILL -${pid}`], { detached: true, stdio: 'ignore' });
+      killer.on('error', () => {});
+      killer.unref();
+    };
+
+    const killProc = (signal: NodeJS.Signals): void => {
+      if (detached && child.pid) {
+        killGroup(signal);
+        return;
+      }
+      child.kill(signal);
+    };
+
+    const signalHandlers = new Map<NodeJS.Signals, () => void>();
+    if (detached && child.pid) {
+      for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+        const handler = (): void => {
+          for (const [installed, installedHandler] of signalHandlers) process.off(installed, installedHandler);
+          signalHandlers.clear();
+          killGroup(signal);
+          scheduleGroupSigkill();
+          process.kill(process.pid, signal);
+        };
+        signalHandlers.set(signal, handler);
+        process.on(signal, handler);
+      }
+    }
+
     const timeout = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
+      killProc('SIGTERM');
       killTimer = setTimeout(() => {
         if (settled) return;
         forcedKill = true;
-        child.kill('SIGKILL');
+        killProc('SIGKILL');
       }, killGraceMs);
     }, timeoutMs);
-
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stdout += text;
@@ -75,6 +123,8 @@ export async function runCommand(
     });
 
     child.on('close', (code: number | null) => {
+      killGroup('SIGTERM');
+      scheduleGroupSigkill();
       if (timedOut) {
         const suffix = forcedKill ? ` (SIGKILL after ${killGraceMs}ms grace)` : '';
         const timeoutMsg = `Command timed out after ${timeoutMs}ms${suffix}`;

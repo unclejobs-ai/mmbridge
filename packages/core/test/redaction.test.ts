@@ -7,7 +7,8 @@ test('redactContent: redacts OpenAI API key (sk-...)', () => {
   const content = 'const key = "sk-abcdefghij1234567890abcd";';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('sk-abcdefghij'));
-  assert.ok(redacted.includes('[REDACTED_API_KEY]'));
+  assert.equal(redacted, 'const [REDACTED_SECRET];');
+  assert.equal(redactContent('"sk-abcdefghij1234567890abcd"').redacted, '"[REDACTED_API_KEY]"');
   assert.ok(stats.includes('OpenAI API key'));
 });
 
@@ -15,7 +16,8 @@ test('redactContent: redacts sk- key with underscores and dashes', () => {
   const content = 'API_KEY=sk-proj_abc-def_123456789012345';
   const { redacted } = redactContent(content);
   assert.ok(!redacted.includes('sk-proj_abc'));
-  assert.ok(redacted.includes('[REDACTED_API_KEY]'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('sk-proj_abc-def_123456789012345').redacted, '[REDACTED_API_KEY]');
 });
 
 // GCP API key
@@ -23,58 +25,59 @@ test('redactContent: redacts GCP API key (AIza...)', () => {
   const content = 'GOOGLE_KEY="AIzaSyAbcdefghijklmnopqrstuvwxyz1234567"';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('AIzaSy'));
-  assert.ok(redacted.includes('[REDACTED_GCP_KEY]'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('"AIzaSyAbcdefghijklmnopqrstuvwxyz1234567"').redacted, '"[REDACTED_GCP_KEY]"');
   assert.ok(stats.includes('GCP API key'));
 });
 
-// GitHub PAT
 test('redactContent: redacts GitHub PAT (ghp_...)', () => {
   const content = 'token: ghp_abcdefghijklmnopqrstuvwxyz12345678901';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('ghp_'));
-  assert.ok(redacted.includes('[REDACTED_GH_TOKEN]'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('ghp_abcdefghijklmnopqrstuvwxyz1234567890').redacted, '[REDACTED_GH_TOKEN]');
   assert.ok(stats.includes('GitHub PAT'));
 });
 
-// GitHub app token
 test('redactContent: redacts GitHub app token (ghs_...)', () => {
   const content = 'GH_APP_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz12345678901';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('ghs_'));
-  assert.ok(redacted.includes('[REDACTED_GH_TOKEN]'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('ghs_abcdefghijklmnopqrstuvwxyz1234567890').redacted, '[REDACTED_GH_TOKEN]');
   assert.ok(stats.includes('GitHub app token'));
 });
 
-// Polar access token
 test('redactContent: redacts Polar access token (polar_at_...)', () => {
   const content = 'POLAR_TOKEN=polar_at_abcdefghijklmnopqrstuv12345';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('polar_at_'));
-  assert.ok(redacted.includes('[REDACTED_POLAR_TOKEN]'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('polar_at_abcdefghijklmnopqrstuv12345').redacted, '[REDACTED_POLAR_TOKEN]');
   assert.ok(stats.includes('Polar access token'));
 });
 
-// Password
+// Secret values (unified fail-safe rule)
 test('redactContent: redacts password= assignment', () => {
   const content = 'password = supersecretpassword123';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('supersecretpassword123'));
-  assert.ok(redacted.includes('[REDACTED_PASSWORD]'));
-  assert.ok(stats.includes('Password value'));
+  assert.ok(redacted.includes('[REDACTED_SECRET]'));
+  assert.ok(stats.includes('secret assignment'));
 });
 
 test('redactContent: redacts passwd= assignment', () => {
   const content = 'passwd:myP@ssw0rd123';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('myP@ssw0rd123'));
-  assert.ok(stats.includes('Password value'));
+  assert.ok(stats.includes('secret assignment'));
 });
 
 test('redactContent: redacts pwd= with quoted value', () => {
   const content = 'pwd="longpassword123"';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('longpassword123'));
-  assert.ok(stats.includes('Password value'));
+  assert.ok(stats.includes('secret assignment'));
 });
 
 // Bearer token
@@ -86,20 +89,19 @@ test('redactContent: redacts Bearer token in Authorization header', () => {
   assert.ok(stats.includes('Bearer token'));
 });
 
-// Generic secret/token
 test('redactContent: redacts generic secret= with quoted value', () => {
   const content = 'secret="abcdefghijklmnopqrstuvwxyz123"';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('abcdefghijklmnopqrstuvwxyz123'));
   assert.ok(redacted.includes('[REDACTED_SECRET]'));
-  assert.ok(stats.includes('Generic secret/token'));
+  assert.ok(stats.includes('secret assignment'));
 });
 
 test('redactContent: redacts generic token= with quoted value', () => {
   const content = 'token="ABCDEFGHIJKLMNOP123456789"';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('ABCDEFGHIJKLMNOP123456789'));
-  assert.ok(stats.includes('Generic secret/token'));
+  assert.ok(stats.includes('secret assignment'));
 });
 
 // No secrets
@@ -123,7 +125,6 @@ test('redactContent: normal config without secrets is unchanged', () => {
   assert.deepEqual(stats, []);
 });
 
-// Multiple secrets in same content
 test('redactContent: redacts multiple different secrets in same content', () => {
   const content = [
     'const apiKey = "sk-abcdefghij1234567890abcdefgh";',
@@ -132,7 +133,7 @@ test('redactContent: redacts multiple different secrets in same content', () => 
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('sk-abcdefghij'));
   assert.ok(!redacted.includes('ghp_abcdef'));
-  assert.equal(stats.length, 2);
+  assert.equal(stats.length, 3);
 });
 
 test('redactContent: stats lists each triggered rule label once', () => {
