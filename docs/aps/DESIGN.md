@@ -376,3 +376,81 @@ Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message
 - `at` columns accept caller values, so backdating by raw SQL is possible; the CLI never passes them. [INFERENCE] Stage C may add a monotonic-time guard on `transitions`.
 - Independence compares `agents.name`; an agent registered under a different name for the same worker defeats it. Naming is an L2/L1 responsibility at `agent new`.
 - `node:sqlite` prints an ExperimentalWarning on Node 22; it is not an error.
+
+## 12. Worker dispatch and collection
+
+### 12.1 `aps dispatch` (FAC-M07)
+
+`mmbridge aps dispatch <card> --by <manager> --harness herdr|omp|devin|grok
+--lane <name> --layer L2|L3 --model <model> --worktree <absolute-path>`
+accepts optional `--vendor`, `--branch`, `--permission-mode`, `--dry-run`, and
+`--json`. Herdr requires `--kind omp|devin|grok` and resolves `--workspace` by
+ID or label (default: card project), without creating workspaces. Omp task
+dispatch requires `--omp-id`; it prints a pointer assignment rather than
+calling the parent's task tool. CLI handlers remain lazy-loaded, and `addAps`
+accepts an optional loader so dispatch does not enlarge `aps.ts`.
+
+Preflight opens the existing ledger read-only, runs doctor, requires issued or
+revise state and a live manager, checks an existing clean git worktree and the
+checked-out branch, records HEAD as `base_sha`, and checks the harness binary
+and herdr workspace. A live run is refused with N01 even if its card is already
+working. Detached HEAD and a `--branch` different from the checked-out branch
+are input errors. Review queue above twice the active L1/L2 agents prints
+`DISPATCH PAUSED` as a warning only. Dry-run prints the prompt, schema and argv
+(with the unresolved herdr pane explicitly marked) without migrations,
+feedback escalation, ledger writes, packet writes, or launch commands.
+
+Dispatch uses three short transactions, never a write lock across spawning:
+
+1. Intent: register a fresh agent session, call `startCard`, and `createRun`
+   (identity plus intent). Existing ledger guards apply unchanged.
+2. After launch: append launched metadata and, for herdr, update the agent's
+   `herdr_pane` so manual close-session enforcement is armed.
+3. On packet/spawn failure: append failed with step/error/cleanup evidence and
+   `closeSession(..., abandon=true)`, returning the card to issued. Created
+   panes belonging to the recorded run tab are closed best-effort.
+
+If dispatch crashes after intent commits but before launched is recorded, the
+intent remains live and blocks redispatch with N01. The board already marks
+intent runs older than two minutes as STUCK-INTENT. Reconcile the recorded
+packet/dispatch log against actual panes or processes before abandoning the
+run; a launch may have happened even though observation did not commit.
+Use `aps collect <card> --abandon` only after confirming the session ended,
+then redispatch the returned issued card. Never blindly spawn a second worker.
+
+Packets live in `<dirname(dbPath)>/dispatch/<run>/`: `card.md` retains the full
+card prompt and appends a Collect contract that supersedes manual reporting;
+`report.schema.json` binds run/card/attempt/branch, requires sha/status/pr/files/
+evidence, requires risks for DONE_WITH_CONCERNS and a `BLOCKED: ...` cause/tried
+command iff BLOCKED; `dispatch.json` records identity/worktree/base SHA;
+`dispatch.log` records launch output and steps. Workers write `report.md` in
+COMPLETION-REPORT form and atomically rename `report.json.tmp` to `report.json`,
+then exit (omp task: yield). Collect, not the worker, closes herdr panes.
+
+Herdr creates a no-focus tab labelled with the ledger run ID, resolves its unique
+pane by workspace/tab, starts and prompts the agent, and records workspace/tab/
+pane/terminal/session reference. Its independent `herdr_name` is a unique
+32-character lowercase `aps-<random>` identifier satisfying
+`[a-z][a-z0-9_-]{0,31}`; uppercase APS card/run IDs are never agent names.
+Launch commands use the adapter's shared envelope parser for stdout/stderr
+selection; failures retain herdr's `error.code` in both the CLI error and failed
+event instead of hiding it behind a JSON parse error.
+Devin/grok run shell-free, in the worktree, via a detached Node supervisor with
+an IPC spawn handshake. The recorded supervisor pid remains alive through the
+worker's lifetime and writes `<packet>/exit` on completion; output goes to
+`out.log` (Devin), or `out.json` plus `err.log` (Grok). Spawn errors are reported
+before launched is committed. Nonzero worker exits remain launch facts, not
+dispatch failures. The IPC launch acknowledgement is best-effort: channel loss
+before the handshake cannot terminate the detached supervisor or prevent exit
+evidence. Defaults are Devin `accept-edits`, Grok `acceptEdits` with
+`--no-subagents`. Omp task metadata records `omp_id` and the expected transcript
+glob `~/.omp/agent/sessions/*/*/<omp-id>.jsonl`: task sessions inherit the parent
+directory, not necessarily the worker worktree; collection must reject an
+ambiguous match or require `--omp-session-dir`.
+
+JSON output contains run/agent/card/attempt/packet/harness, launch fields,
+`pane`, `pid` or `ompPrompt` as applicable, and the next collect command.
+Post-intent dispatch failures exit 1; preflight input errors exit 2; ledger
+guard refusals exit 3. Tests use fake harness binaries and isolated ledgers,
+including checking that committed intent is visible and the write lock is
+released before launch.
