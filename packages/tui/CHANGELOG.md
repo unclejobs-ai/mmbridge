@@ -1,5 +1,11 @@
 # @mmbridge/tui
 
+## Unreleased
+
+- Add the read-only APS board renderer and external snapshot store, with lane,
+  review, cost, hygiene, and card-detail views. Keyboard actions only navigate or
+  request refresh/quit; all ledger and pane writes remain in the CLI.
+
 ## 0.7.3
 
 ### Patch Changes

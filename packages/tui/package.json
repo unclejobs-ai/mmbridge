@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@mmbridge/adapters": "workspace:*",
+    "@mmbridge/aps": "workspace:*",
     "@mmbridge/core": "workspace:*",
     "@mmbridge/session-store": "workspace:*",
     "ink": "^5",
