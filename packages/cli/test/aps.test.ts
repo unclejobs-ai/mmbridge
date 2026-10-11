@@ -131,6 +131,115 @@ function fixture(t: TestContext) {
   };
 }
 
+function paneFixture(t: TestContext, response: unknown, exit = 0) {
+  const f = fixture(t);
+  const binDir = join(f.home, 'bin');
+  mkdirSync(binDir);
+  writeFileSync(
+    join(binDir, 'herdr'),
+    `#!/bin/sh
+[ "$#" -eq 3 ] && [ "$1" = pane ] && [ "$2" = get ] && [ "$3" = w12:p3 ] || exit 99
+printf '%s\\n' '${JSON.stringify(response)}'${exit === 0 ? '' : ' >&2'}
+exit ${exit}
+`,
+    { mode: 0o755 },
+  );
+  f.env.PATH = `${binDir}:${f.env.PATH}`;
+  const worker = f.run([
+    'agent',
+    'new',
+    '--name',
+    'pane',
+    '--layer',
+    'L2',
+    '--model',
+    'test',
+    '--vendor',
+    'test',
+    '--herdr-pane',
+    'w12:p3',
+  ]).value.id;
+  const id = f.card(['--assignee', worker]);
+  f.run(['start', id, '--assignee', worker]);
+  f.report(id, ['--by', worker]);
+  function snapshot() {
+    const db = openApsDb(f.dbPath);
+    try {
+      return {
+        agent: db.prepare('SELECT * FROM agents WHERE id=?').get(worker),
+        card: db.prepare('SELECT * FROM cards WHERE id=?').get(id),
+        transitions: db.prepare('SELECT * FROM transitions WHERE card_id=? ORDER BY id').all(id),
+      };
+    } finally {
+      db.close();
+    }
+  }
+  return { ...f, worker, id, snapshot };
+}
+
+test('H01 refuses when pane has a detected agent', (t) => {
+  const f = paneFixture(t, {
+    result: {
+      type: 'pane_info',
+      pane: {
+        pane_id: 'w12:p3',
+        terminal_id: 'terminal-1',
+        tab_id: 'w12:t1',
+        workspace_id: 'w12',
+        agent: 'omp',
+        agent_status: 'done',
+      },
+    },
+  });
+  const before = f.snapshot();
+  assert.match(
+    f.run(['close-session', f.worker, '--note', 'ended'], 3).stderr,
+    /APS-H01: herdr pane w12:p3 is still open/,
+  );
+  assert.deepEqual(f.snapshot(), before);
+});
+
+test('H01 refuses when pane is a bare shell', (t) => {
+  const f = paneFixture(t, {
+    result: {
+      type: 'pane_info',
+      pane: { pane_id: 'w12:p3', terminal_id: 'terminal-1', tab_id: 'w12:t1', workspace_id: 'w12' },
+    },
+  });
+  const before = f.snapshot();
+  assert.match(
+    f.run(['close-session', f.worker, '--note', 'ended'], 3).stderr,
+    /APS-H01: herdr pane w12:p3 is still open/,
+  );
+  assert.deepEqual(f.snapshot(), before);
+  assert.match(
+    f.run(['close-session', f.worker, '--note', 'abandoned', '--abandon'], 3).stderr,
+    /APS-H01: herdr pane w12:p3 is still open/,
+  );
+  assert.deepEqual(f.snapshot(), before);
+});
+
+test('H01 passes when pane_not_found', (t) => {
+  const f = paneFixture(t, { error: { code: 'pane_not_found' } }, 1);
+  const closed = f.run(['close-session', f.worker, '--note', 'pane ended']).value;
+  assert.equal(closed[0].to, 'closed_session');
+  const after = f.snapshot();
+  assert.equal(after.agent?.status, 'closed');
+  assert.equal(after.agent?.closed_by, f.manager);
+  assert.equal(after.agent?.close_note, 'pane ended');
+  assert.equal(after.card?.state, 'closed_session');
+});
+
+test('H01 fails closed on herdr server_not_running on stderr', (t) => {
+  const f = paneFixture(t, { error: { code: 'server_not_running' } }, 1);
+  const before = f.snapshot();
+  assert.match(
+    f.run(['close-session', f.worker, '--note', 'ended'], 1).stderr,
+    /cannot confirm pane ended: herdr pane get failed/,
+  );
+  assert.deepEqual(f.snapshot(), before);
+});
+
 test('aps init/project add/agent new: persisted records, generated IDs, text output', (t) => {
   const f = fixture(t);
   assert.equal(f.run(['init']).value.user_version, 2);
@@ -429,36 +538,9 @@ test('doctor rejects missing trigger before writes', (t) => {
   assert.match(f.run(['doctor'], 3).stderr, /APS-DOCTOR:.*trg_states_ins/);
   f.run(['project', 'add', 'refused', '--prefix', 'RF', '--name', 'Refused'], 3);
 });
-test('TS guards H01/H02/H04 and newer schema refuse without mutation', async (t) => {
+test('TS guards H02/H04 and newer schema refuse without mutation', async (t) => {
   const f = fixture(t);
   const id = f.reported();
-  const db = openApsDb(f.dbPath);
-  db.close();
-  const binDir = join(f.home, 'bin');
-  mkdirSync(binDir);
-  writeFileSync(join(binDir, 'herdr'), '#!/bin/sh\nprintf "w12:p3\\n"\n', { mode: 0o755 });
-  f.env.PATH = `${binDir}:${f.env.PATH}`;
-  // Identity is immutable, so a pane-bearing session is registered through the CLI.
-  const paneWorker = f.run([
-    'agent',
-    'new',
-    '--name',
-    'pane',
-    '--layer',
-    'L2',
-    '--model',
-    'test',
-    '--vendor',
-    'test',
-    '--herdr-pane',
-    'w12:p3',
-  ]).value.id;
-  assert.match(
-    f.run(['close-session', paneWorker, '--note', 'ended'], 3).stderr,
-    /APS-H01: herdr pane w12:p3 is still listed by 'herdr agent list'/,
-  );
-  writeFileSync(join(binDir, 'herdr'), '#!/bin/sh\nprintf "other-pane\\n"\n', { mode: 0o755 });
-  f.run(['close-session', paneWorker, '--note', 'ended']);
   f.run(['close-session', f.worker, '--note', 'ended']);
   const uuid = '00000000-0000-4000-8000-000000000000';
   assert.match(

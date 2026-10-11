@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { ApsInputError as InputError, type LedgerLink, type Row } from '@mmbridge/aps';
 import { ContextTree, projectKeyFromDir } from '@mmbridge/context-broker';
 import type { Session } from '@mmbridge/session-store';
+import { confirmPaneEnded } from './aps-herdr.js';
 import { type ApsCommandOptions, choice, fileText, jsonFile, required, sha, withLedger } from './aps-shared.js';
 import { computeGate } from './gate.js';
 import { importAps, importCore, importSessionStore } from './helpers.js';
@@ -153,14 +154,7 @@ export async function runApsCommand(
       }
       case 'close-session': {
         const agent = aps.getAgent(db, cardId);
-        if (agent.herdr_pane) {
-          const core = await importCore();
-          const result = await core.runCommand('herdr', ['agent', 'list'], { cwd: projectDir });
-          if (!result.ok) throw new Error('cannot confirm pane ended: herdr agent list failed');
-          const pane = String(agent.herdr_pane);
-          if (result.stdout.split(/[^A-Za-z0-9_:.@-]+/).includes(pane))
-            throw new Error(`APS-H01: herdr pane ${pane} is still listed by 'herdr agent list'`);
-        }
+        if (agent.herdr_pane) await confirmPaneEnded(String(agent.herdr_pane));
         return aps.closeSession(db, cardId, by, required(options.note, 'note'), Boolean(options.abandon));
       }
       case 'review': {

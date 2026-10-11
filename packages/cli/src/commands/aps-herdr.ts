@@ -29,6 +29,7 @@ export interface PaneEndEvidence {
   argv: string[];
   exit: number;
   stdout_head: string;
+  stderr_head: string;
   at: string;
 }
 
@@ -57,8 +58,13 @@ async function run(args: string[], timeoutMs = TIMEOUT_MS): Promise<RunResult> {
   return core.runCommand('herdr', args, { timeoutMs });
 }
 
+export function parseHerdrEnvelope(raw: Pick<RunResult, 'code' | 'stdout' | 'stderr'>): JsonObject {
+  // herdr emits error envelopes on stderr; failed commands must never trust stdout.
+  return object(JSON.parse(raw.code !== 0 || !raw.stdout.trim() ? raw.stderr : raw.stdout));
+}
+
 function response(result: RunResult): JsonObject {
-  const envelope = object(JSON.parse(result.stdout));
+  const envelope = parseHerdrEnvelope(result);
   if (!result.ok || envelope.error !== undefined) throw new Error('herdr command failed');
   return object(envelope.result);
 }
@@ -87,12 +93,13 @@ export async function listPanes(): Promise<HerdrPane[]> {
 async function probePane(id: string): Promise<{ state: PaneState; raw: RunResult }> {
   const raw = await run(['pane', 'get', id]);
   try {
-    const envelope = object(JSON.parse(raw.stdout));
+    const envelope = parseHerdrEnvelope(raw);
     // Only herdr's explicit not-found response proves absence, never a timeout or transport error.
     if (raw.code === 1 && object(envelope.error ?? {}).code === 'pane_not_found') {
       return { state: { state: 'absent' }, raw };
     }
-    const pane = parsePane(response(raw).pane);
+    if (!raw.ok || envelope.error !== undefined) throw new Error('herdr command failed');
+    const pane = parsePane(object(envelope.result).pane);
     if (pane.pane_id !== id) throw new Error('pane get returned another pane');
     return { state: { state: 'present', pane }, raw };
   } catch (cause) {
@@ -114,6 +121,7 @@ export async function confirmPaneEnded(id: string, terminalId?: string | null): 
     argv: ['pane', 'get', id],
     exit: raw.code,
     stdout_head: raw.stdout.slice(0, 1024),
+    stderr_head: raw.stderr.slice(0, 1024),
     at: new Date().toISOString(),
   };
 }
