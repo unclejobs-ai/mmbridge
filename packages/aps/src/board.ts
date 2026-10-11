@@ -5,6 +5,8 @@ import { listMigrations } from './index.js';
 import { ApsInputError } from './ledger.js';
 import type { RunStatus } from './runs.js';
 
+const LIVE_RUN_STATUSES: readonly RunStatus[] = ['intent', 'launched', 'reported'];
+
 export type CardState =
   | 'issued'
   | 'working'
@@ -288,14 +290,22 @@ export function classifyHygiene(
   const paneMap = new Map(panes?.map((pane) => [pane.paneId, pane]));
   const matched = new Set<string>();
   const result: HygieneRow[] = [];
+  const liveAgents = new Set<string>();
   for (const row of ledgerRows) {
+    if (row.runStatus !== null && LIVE_RUN_STATUSES.includes(row.runStatus)) liveAgents.add(row.agentId);
+  }
+  for (const row of ledgerRows) {
+    const terminalRun = row.runStatus !== null && !LIVE_RUN_STATUSES.includes(row.runStatus);
+    if (terminalRun && liveAgents.has(row.agentId)) continue;
+    // Without a live replacement, terminal runs still identify lingering panes.
+    const runStatus = terminalRun ? null : row.runStatus;
     const paneId = row.paneId ?? row.herdrPane;
     const candidate = paneId ? paneMap.get(paneId) : undefined;
     const pane = candidate && (row.terminalId === null || row.terminalId === candidate.terminalId) ? candidate : null;
     if (pane) matched.add(pane.paneId);
     let classification: HygieneClass | null = null;
     let action: string | null = null;
-    if (row.runStatus === 'intent' && row.runSince && now.getTime() - Date.parse(row.runSince) > 120_000) {
+    if (runStatus === 'intent' && row.runSince && now.getTime() - Date.parse(row.runSince) > 120_000) {
       classification = 'STUCK-INTENT';
       action = `inspect ${row.packetDir}/dispatch.log; mmbridge aps collect ${row.cardId} --abandon --by <you>`;
     } else if (paneId && panes === null) {
@@ -323,6 +333,8 @@ export function classifyHygiene(
       ['working', 'idle'].includes(pane.agentStatus ?? '')
     ) {
       classification = 'OK';
+    } else if (row.agentStatus !== 'closed' && row.cardState === 'working' && pane) {
+      classification = '?';
     }
     if (!classification) continue;
     if (classification === 'CLOSE-NOW' || classification === 'GHOST') {
@@ -469,8 +481,10 @@ export function readBoardSnapshot(db: DatabaseSync, options: BoardReadOptions = 
     const reviewers = Number(
       db.prepare("SELECT count(*) n FROM agents WHERE status<>'closed' AND layer IN ('L1','L2')").get()?.n,
     );
-    const minutes = Number(db.prepare("SELECT value FROM settings WHERE key='feedback_escalate_minutes'").get()?.value);
-    const cutoff = new Date(now.getTime() - minutes * 60_000).toISOString();
+    const minutes = Number(
+      db.prepare("SELECT value FROM settings WHERE key='feedback_escalate_minutes'").get()?.value ?? 30,
+    );
+    const cutoff = new Date(now.getTime() - (Number.isFinite(minutes) ? minutes : 30) * 60_000).toISOString();
     const feedback = rows<{ feedbackOpen: number; feedbackEscalated: number; feedbackOverdue: number }>(
       db,
       `SELECT
