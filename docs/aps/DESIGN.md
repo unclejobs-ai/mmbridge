@@ -198,6 +198,11 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | H03 | `aps merge` | `APS-H03: <merged_sha> does not contain <sha> (git merge-base --is-ancestor failed)` | temp git repo with two unrelated commits |
 | H04 | `aps review --from-session` | `APS-H04: mmbridge session <uuid> not found` | unknown uuid |
 | H05 | `aps merge --merged-sha` after H03 | `APS-H05: target <target> does not contain <merged_sha> (unresolved or not an ancestor)` | `git init -q -b main`; reported commit passes H03, but target is missing or points behind it → exit 3; fast-forward and real `--no-ff` merges on main → exit 0 |
+| H06 | `aps collect` herdr close | `APS-H06: agent in pane <pane> is still working; not closing` | fake herdr pane with `agent_status:'working'` refuses; `done` proceeds |
+| H07 | `aps collect` pid close | `APS-H07: process <pid> for run <run> is still running` | launched `pid` of a live `sleep` process, no `<packet>/exit` → refuses; writing the exit file proceeds |
+| H08 | `aps collect` omp yield close | `APS-H08: omp task <id> has no yield output at <path>` | resolved transcript dir without `<id>.md` refuses; creating it proceeds; >1 candidate dirs refuses `(ambiguous; pass --omp-session-dir)` |
+| H09 | `aps collect` report validation | `APS-H09: reported sha <sha> is not a commit on <branch> in <worktree>` | sha absent from the worktree git history → exit 3, run stays `launched` |
+| H10 | `aps collect` report probe | `APS-H10: session ended without report.json (<evidence>)` | `pane_not_found` (or exit-file/dead pid/yield-missing end proof) with no `report.json` → exit 3; `--abandon` records `abandoned` and returns the card to issued |
 | K10 | every `aps` invocation, before the command, in its own committed transaction | `APS-K10: feedback <id> unanswered for > <N> min; escalated` (warning on stderr immediately, sets `escalated=1, escalated_at`; not a rejection) | feedback with `created_at` 31 min ago; successful command and failing commands (exit 2/3) preserve escalation and print the warning |
 
 TS may pre-check for friendlier wording, but whenever SQL rejects, the CLI must print the trigger text unchanged.
@@ -282,7 +287,7 @@ INSERT transitions inspecting→accepted (no review)          -- APS-V01
 | 0 | success | — |
 | 1 | unexpected runtime error (I/O, SQLite busy after timeout) | `[mmbridge] <message>` (no stack, no secrets) |
 | 2 | invalid input (bad flag value, unreadable/invalid JSON file, missing `--by`), including SQLite's own CHECK/NOT NULL/UNIQUE/FOREIGN KEY constraint failures | `[mmbridge] <what> <why>` |
-| 3 | **ledger refused**: any rejecting `APS-` code (SQL trigger, U01, H01–H05) | `[mmbridge] APS-XXX: <exact message>` via `exitWithError(message, 3)` |
+| 3 | **ledger refused**: any rejecting `APS-` code (SQL trigger, U01, H01–H10) | `[mmbridge] APS-XXX: <exact message>` via `exitWithError(message, 3)` |
 
 On success a state-changing command prints one line `<card> <from>→<to> by <agent> (attempt <n>)` per transition, or with `--json` an array of `{card,from,to,by,attempt}`. Insert-only commands print the new row id, or `{id}` with `--json`.
 
@@ -454,3 +459,43 @@ Post-intent dispatch failures exit 1; preflight input errors exit 2; ledger
 guard refusals exit 3. Tests use fake harness binaries and isolated ledgers,
 including checking that committed intent is visible and the write lock is
 released before launch.
+
+### 12.2 `aps collect` (FAC-M08)
+
+`mmbridge aps collect <card>|--all --by <manager> [--wait <dur>] [--abandon]
+[--omp-session-dir <dir>] [--json]` resolves one live run per card. The
+exported `collectRun(db, cardId, by, opts)` drives the same flow for managers
+and returns a `CollectOutcome` (`card`, `run`, `outcome`, `code`, `message`,
+`report?`, `evidence?`); it never calls `process.exit` — the CLI maps the
+outcome to emit/exit codes.
+
+While `report.json` is absent the recorded session is probed but never
+closed: a proven end without a report exits 3 as H10, or with `--abandon`
+appends an `abandoned` run event and `closeSession(..., abandon=true)`
+returns the card to issued; `--wait` polls every 5 s until the report or the
+end appears; otherwise the run stays `pending` at exit 0 (JSON adds
+`pending:true`). A present report must match the live run's id/card/attempt,
+and the reported sha must be a commit that is an ancestor of the reported
+branch in the run worktree, with the branch equal to `worker_runs.branch`
+(H09). `recordReport`, the `handoff`/`pr` card links and the
+`reported`/`blocked` run event commit in one transaction, so a guard refusal
+leaves the run `launched` for a fixed report.
+
+Probe and close keys come from the launched event fields, not the harness
+name: `pane_id` runs the herdr pane probe/close (`pane_not_found` or a
+changed `terminal_id` proves the end; H06 refuses while `agent_status =
+working`; a surviving pane refuses H01; evidence carries
+`closed_by_collect`), `pid` proves the end via `<packet>/exit` first and
+`kill -0` otherwise (H07 while alive; collect never kills), and `omp_id`
+requires `<transcript dir>/<id>.md` with mtime at or after launch (H08;
+multiple candidate dirs need `--omp-session-dir`). Session close then commits
+`closeSession`: DONE and DONE_WITH_CONCERNS move reported→closed_session and
+append a `closed` event carrying close evidence (N04); BLOCKED returns
+working→issued under `abandon` and the run ends at `blocked`, its terminal
+lifecycle event. Usage appends `omp-jsonl` `actual` rows per model from a
+readable omp transcript (`session_ref`, a single glob match, or
+`<packet>/session.jsonl` for headless pid runs) and one `none`/`unknown` row
+otherwise; an unreadable transcript warns and never blocks the close. A
+`reported` run resumes at session close without re-recording the report, and
+`--all` iterates every `launched` or `reported` run in `since` order —
+failures do not stop later runs — exiting with the worst per-run code.

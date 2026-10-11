@@ -580,6 +580,21 @@ export async function main(): Promise<void> {
       return { runApsCommand: runApsDispatchCommand };
     },
   );
+  addAps(
+    apsCmd,
+    'collect [card]',
+    'collect',
+    [
+      ['--all', 'Collect every launched or reported run'],
+      ['--wait <dur>', 'Poll for report.json (e.g. 90s, 30m, 2h)'],
+      ['--abandon', 'Abandon a run that ended without report.json'],
+      ['--omp-session-dir <dir>', 'Resolve an ambiguous omp transcript dir'],
+    ],
+    async () => {
+      const { runApsCollectCommand } = await import('./commands/aps-collect.js');
+      return { runApsCommand: runApsCollectCommand };
+    },
+  );
   addAps(apsCmd, 'return <card>', 'return', [['--note <text>', 'Return reason']]);
   addAps(apsCmd, 'reject <card>', 'reject', [['--note <text>', 'Rejection reason']]);
   addAps(apsCmd, 'done <card>', 'done', []);
