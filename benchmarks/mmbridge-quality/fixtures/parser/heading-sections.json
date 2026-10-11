@@ -1,0 +1,25 @@
+{
+  "id": "parser/heading-sections",
+  "kind": "parser",
+  "description": "Heading-based severity sections should produce semi-structured findings.",
+  "input": {
+    "rawText": "## Critical Issues\nsrc/db.ts:15 — Unbounded query may lock table\n\n## Info\nGeneral cleanup recommended for module naming consistency"
+  },
+  "expected": {
+    "parseState": "semi-structured",
+    "findings": [
+      {
+        "severity": "CRITICAL",
+        "file": "src/db.ts",
+        "line": 15,
+        "message": "— Unbounded query may lock table"
+      },
+      {
+        "severity": "INFO",
+        "file": "",
+        "line": null,
+        "message": "General cleanup recommended for module naming consistency"
+      }
+    ]
+  }
+}

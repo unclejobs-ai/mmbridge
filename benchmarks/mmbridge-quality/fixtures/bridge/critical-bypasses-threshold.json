@@ -1,0 +1,37 @@
+{
+  "id": "bridge/critical-bypasses-threshold",
+  "kind": "bridge",
+  "description": "CRITICAL findings should pass even under relaxed profile threshold.",
+  "input": {
+    "profile": "relaxed",
+    "results": [
+      {
+        "tool": "qwen",
+        "findings": [
+          {
+            "severity": "CRITICAL",
+            "file": "src/auth.ts",
+            "line": 17,
+            "message": "Authentication bypass due to missing token validation"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "profile": "relaxed",
+    "totalInputs": 1,
+    "consensusFindings": 1,
+    "counts": {
+      "CRITICAL": 1
+    },
+    "findings": [
+      {
+        "severity": "CRITICAL",
+        "file": "src/auth.ts",
+        "line": 17,
+        "message": "Authentication bypass due to missing token validation"
+      }
+    ]
+  }
+}

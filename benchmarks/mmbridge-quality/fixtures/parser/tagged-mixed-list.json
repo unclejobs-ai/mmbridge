@@ -1,0 +1,25 @@
+{
+  "id": "parser/tagged-mixed-list",
+  "kind": "parser",
+  "description": "Explicit severity tags in bullet list format should parse as structured findings.",
+  "input": {
+    "rawText": "- [WARNING] src/api.ts:42 — Missing input validation\n* [CRITICAL] src/auth.ts:10 — SQL injection risk"
+  },
+  "expected": {
+    "parseState": "structured",
+    "findings": [
+      {
+        "severity": "WARNING",
+        "file": "src/api.ts",
+        "line": 42,
+        "message": "src/api.ts:42 — Missing input validation"
+      },
+      {
+        "severity": "CRITICAL",
+        "file": "src/auth.ts",
+        "line": 10,
+        "message": "src/auth.ts:10 — SQL injection risk"
+      }
+    ]
+  }
+}

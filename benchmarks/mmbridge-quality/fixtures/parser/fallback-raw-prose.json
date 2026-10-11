@@ -1,0 +1,19 @@
+{
+  "id": "parser/fallback-raw-prose",
+  "kind": "parser",
+  "description": "Unstructured prose should fall back to INFO findings.",
+  "input": {
+    "rawText": "The review output is mostly narrative and asks for clearer naming around the authorization entry point."
+  },
+  "expected": {
+    "parseState": "raw",
+    "findings": [
+      {
+        "severity": "INFO",
+        "file": "",
+        "line": null,
+        "message": "The review output is mostly narrative and asks for clearer naming around the authorization entry point."
+      }
+    ]
+  }
+}

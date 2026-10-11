@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-03-17T00:01:12.861Z",
+  "metrics": {
+    "overall": {
+      "minMeanF1": 1,
+      "minExactRate": 1
+    },
+    "parser": {
+      "minMeanF1": 1,
+      "minExactRate": 1
+    },
+    "bridge": {
+      "minMeanF1": 1,
+      "minExactRate": 1
+    }
+  },
+  "fixtures": {
+    "bridge/critical-bypasses-threshold": {
+      "minF1": 1
+    },
+    "bridge/standard-consensus-warning": {
+      "minF1": 1
+    },
+    "bridge/strict-single-info": {
+      "minF1": 1
+    },
+    "parser/fallback-raw-prose": {
+      "minF1": 1
+    },
+    "parser/heading-sections": {
+      "minF1": 1
+    },
+    "parser/tagged-mixed-list": {
+      "minF1": 1
+    }
+  }
+}
