@@ -382,7 +382,8 @@ test('migrates a v1 ledger with rows to v2 without data loss', (t) => {
   const file = join(dir, 'ledger.db');
   v1.prepare('VACUUM INTO ?').run(file);
   v1.close();
-  const migrated = openApsDb(file);
+  copyFileSync(join(APS_SQL_DIR, '0002_worker_runs.sql'), join(dir, '0002_worker_runs.sql'));
+  const migrated = openApsDb(file, dir);
   assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 2);
   for (const table of rows) assert.deepEqual(migrated.prepare(`SELECT * FROM ${table.name}`).all(), table.rows);
   for (const object of schema)

@@ -670,6 +670,7 @@ export async function main(): Promise<void> {
     ['--from-session <uuid>', 'Local mmbridge session'],
     ['--owner', 'On behalf of owner'],
     ['--category <category>', 'Imported findings category'],
+    ['--recorded-by <agent>', 'Proxy recorder'],
   ]);
   addAps(apsCmd, 'vision <card>', 'vision', [
     ['--shots <file>', 'Screenshot JSON'],

@@ -1,8 +1,26 @@
 // One executed rejection per ledger-integrity guard; L01/L02 run against every table they protect.
 import assert from 'node:assert/strict';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { CARD, ITEM, SHA, SHOTS4, merge, move, rejects, review, seed, toInspecting } from './fixture.ts';
+import { APS_SQL_DIR, doctor, openApsDb, recordReview } from '../dist/index.js';
+import {
+  CARD,
+  ITEM,
+  SHA,
+  SHOTS4,
+  cardState,
+  closeAgent,
+  merge,
+  move,
+  rejects,
+  report,
+  review,
+  seed,
+  toInspecting,
+} from './fixture.ts';
 
 const LEDGER_TABLES = [
   'transitions',
@@ -147,4 +165,119 @@ test('auto defects from a revise review carry the card opportunity count', () =>
     rows.map((row) => ({ ...row })),
     [{ source: 'review', category: 'correctness', n: 2, review_id: 1 }],
   );
+});
+
+test('a closed reviewer without recorded_by still fails V10', () => {
+  const db = seed();
+  toInspecting(db);
+  closeAgent(db, 'rev');
+  rejects(
+    db,
+    'V10',
+    `INSERT INTO reviews(card_id,attempt,reviewer,layer,sha,verdict) VALUES('${CARD}',1,'rev','L1','${SHA}','accept')`,
+  );
+});
+
+test('reviews: V16 proxy recorder', () => {
+  const db = seed();
+  toInspecting(db);
+  const insert = (recordedBy: string) =>
+    `INSERT INTO reviews(card_id,attempt,reviewer,layer,sha,verdict,recorded_by) VALUES('${CARD}',1,'rev','L1','${SHA}','accept','${recordedBy}')`;
+  rejects(db, 'V16', insert('mgr'));
+  rejects(db, 'V16', insert('rev'));
+  rejects(db, 'V16', insert('w1'));
+  rejects(db, 'V16', insert('nobody'));
+  closeAgent(db, 'viz');
+  rejects(db, 'V16', insert('viz'));
+  db.exec(`INSERT INTO agents(id,name,layer,model,vendor) VALUES('rev2','opus-l1','L1','opus','anthropic')`);
+  rejects(db, 'V16', insert('rev2'));
+  db.exec(`INSERT INTO agents(id,name,layer,model,vendor) VALUES('l1proxy','proxy','L1','opus','anthropic')`);
+  db.exec(insert('l1proxy'));
+  db.exec(insert('l0'));
+  assert.deepEqual(
+    db
+      .prepare('SELECT recorded_by FROM reviews ORDER BY id')
+      .all()
+      .map((row) => row.recorded_by),
+    ['l1proxy', 'l0'],
+  );
+});
+
+test('closed reviewer + live L1 proxy accept moves closed_session through inspecting to merge_wait', () => {
+  const db = seed();
+  move(db, 'issued', 'working', 'w1');
+  report(db);
+  move(db, 'working', 'reported', 'w1');
+  closeAgent(db, 'w1');
+  move(db, 'reported', 'closed_session', 'mgr');
+  closeAgent(db, 'rev');
+  const transitions = recordReview(db, CARD, 'rev', { verdict: 'accept', items_json: '[]', recorded_by: 'viz' });
+  assert.deepEqual(
+    transitions.map((row) => ({ to: row.to, by: row.by })),
+    [
+      { to: 'inspecting', by: 'viz' },
+      { to: 'accepted', by: 'viz' },
+      { to: 'merge_wait', by: 'viz' },
+    ],
+  );
+  assert.equal(cardState(db).state, 'merge_wait');
+  assert.deepEqual(
+    { ...db.prepare('SELECT reviewer, layer, recorded_by, verdict FROM reviews').get() },
+    {
+      reviewer: 'rev',
+      layer: 'L1',
+      recorded_by: 'viz',
+      verdict: 'accept',
+    },
+  );
+});
+
+test('migrates a v2 ledger with rows to v3 without data loss', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aps-review-migrate-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  copyFileSync(join(APS_SQL_DIR, '0001_aps.sql'), join(dir, '0001_aps.sql'));
+  copyFileSync(join(APS_SQL_DIR, '0002_worker_runs.sql'), join(dir, '0002_worker_runs.sql'));
+  const v2 = seed({ sqlDir: dir });
+  toInspecting(v2);
+  review(v2, 'accept');
+  const tables = v2.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
+  const rows = tables.map((table) => ({
+    name: String(table.name),
+    rows: v2.prepare(`SELECT * FROM ${table.name}`).all(),
+  }));
+  const schema = v2
+    .prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all();
+  assert.equal(v2.prepare('PRAGMA user_version').get()?.user_version, 2);
+  const file = join(dir, 'ledger.db');
+  v2.prepare('VACUUM INTO ?').run(file);
+  v2.close();
+  const migrated = openApsDb(file);
+  t.after(() => migrated.close());
+  assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 3);
+  for (const table of rows) {
+    const after = migrated.prepare(`SELECT * FROM ${table.name}`).all();
+    if (table.name !== 'reviews') {
+      assert.deepEqual(after, table.rows);
+      continue;
+    }
+    assert.equal(after.length, table.rows.length);
+    for (let i = 0; i < after.length; i++) {
+      const current = after[i] as { recorded_by: string | null };
+      assert.equal(current.recorded_by, null);
+      const { recorded_by: _recordedBy, ...rest } = current;
+      assert.deepEqual(rest, { ...table.rows[i] });
+    }
+  }
+  for (const object of schema) {
+    const name = String(object.name);
+    if (name === 'reviews' || name === 'trg_reviews_ins') continue;
+    assert.deepEqual(migrated.prepare('SELECT type,name,sql FROM sqlite_master WHERE name=?').get(name), object);
+  }
+  assert.equal(
+    migrated.prepare("SELECT count(*) AS n FROM pragma_table_info('reviews') WHERE name='recorded_by'").get()?.n,
+    1,
+  );
+  assert.deepEqual(doctor(migrated), { integrity: ['ok'], foreignKeys: [], missingTriggers: [] });
+  assert.equal(migrated.prepare('SELECT state FROM cards WHERE id=?').get(CARD)?.state, 'inspecting');
 });

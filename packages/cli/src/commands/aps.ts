@@ -228,6 +228,7 @@ export async function runApsCommand(
             on_behalf_of: options.owner ? 'owner' : null,
             mmbridge_session_id: session?.id.toLowerCase() ?? null,
             gate_json: gate,
+            recorded_by: options.recordedBy ?? null,
           },
           links,
         );
