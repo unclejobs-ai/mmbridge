@@ -1,0 +1,21 @@
+{
+  "name": "@mmbridge/aps",
+  "version": "0.0.0",
+  "private": true,
+  "description": "APS work-card ledger (SQLite) for mmbridge",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "sql"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  }
+}

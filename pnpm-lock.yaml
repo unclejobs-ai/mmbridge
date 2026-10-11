@@ -48,6 +48,8 @@ importers:
         specifier: workspace:*
         version: link:../session-store
 
+  packages/aps: {}
+
   packages/auth: {}
 
   packages/cli:
