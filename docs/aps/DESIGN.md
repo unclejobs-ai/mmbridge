@@ -561,11 +561,20 @@ Output, one line per card: `card worker result sha ac n/n rework N — note`.
 
 ### 12.5 `mmbridge audit`
 
-Read-only (`openApsDbReadOnly`): herdr lanes (model from the pane's omp session; Devin
-panes assume `devin/swe-2-max`), live ledger runs (v2 only; a run in a listed pane
-enriches that lane), vision verdicts of the last 24 h, and quota. `buildAudit` reports
+Read-only (`openApsDbReadOnly`) unless `--close-idle` is set: herdr lanes (model from the
+pane's omp session; Devin panes assume `devin/swe-2-max`), live ledger runs (v2 only; a
+run in a listed pane enriches that lane), open agents (`agents.herdr_pane` = pane id,
+status not `closed`), vision verdicts of the last 24 h, and quota. `buildAudit` reports
 `L3_RATIO` (< 60 % of working lanes), `MECH_ON_PREMIUM`, `L3_VISION_VERDICT`,
-`EXHAUSTED_PROVIDER` (≤ 1 % left), `STALLED` (`--stall-min`, default 30) and
-`FINISHED_OPEN`. `--out` writes the markdown atomically; `--json` prints the report.
-Exit 4 when violations exist, 1 when the audit itself failed. MBP runs it every 30 min
-via launchd `com.ss.aps-audit` into `~/ss-work/squads/Reports/aps-audit-latest.md`.
+`EXHAUSTED_PROVIDER` (≤ 1 % left), `STALLED` (`--stall-min`, default 30),
+`FINISHED_OPEN`, and `IDLE_OPEN` (open agent, lane `idle` or `done`, no output for
+`--idle-min` minutes, default 10). `--out` writes the markdown atomically; `--json`
+prints the report. Exit 4 when violations exist, 1 when the audit itself failed.
+
+`--close-idle --by <agent>` is opt-in write mode. Each `IDLE_OPEN` lane is skipped when
+that agent still has a `working` card (the report says why); otherwise `herdr pane close
+<pane>`, the existing pane-ended probe, then `close-session` in its own ledger transaction
+(`audit: idle >= <n>m, auto-closed`, not abandon). One lane failing does not stop the
+others. Any close failure exits 1. The markdown gains `## Auto-closed`. After merge,
+launchd `com.ss.aps-audit` will pass `--close-idle --by <foreman agent>`. MBP already runs
+the audit every 30 min into `~/ss-work/squads/Reports/aps-audit-latest.md`.

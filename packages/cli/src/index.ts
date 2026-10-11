@@ -633,6 +633,8 @@ export async function main(): Promise<void> {
     ['--quota-json <file>', 'omp/codexbar usage JSON instead of a live probe'],
     ['--no-herdr', 'Skip herdr lanes'],
     ['--stall-min <minutes>', 'Working lane without output this long is stalled (default 30)'],
+    ['--idle-min <minutes>', 'Idle or done open session with no output this long is IDLE_OPEN (default 10)'],
+    ['--close-idle', 'Close IDLE_OPEN sessions (herdr pane close, then close-session). Requires --by'],
   ];
   const auditLoader = async () => {
     const { runApsAuditCommand } = await import('./commands/aps-audit.js');

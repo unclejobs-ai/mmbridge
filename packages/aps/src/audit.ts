@@ -30,6 +30,8 @@ export interface AuditLane {
   lastOutputAt: number | null;
   /** Work finished (report written / process exited / omp yielded) but the session is still open. */
   finished: boolean;
+  /** Open ledger agent mapped by `agents.herdr_pane` = this pane id; null when none. */
+  agentId: string | null;
 }
 
 export interface VisionVerdict {
@@ -45,6 +47,8 @@ export interface AuditInput {
   visionVerdicts?: VisionVerdict[];
   /** Default 30 min. */
   stallMs?: number;
+  /** Idle or done open session with no output this long is IDLE_OPEN. Default 10 min. */
+  idleMs?: number;
   /** Default 0.6 (APS §14 placement rule). */
   minL3Ratio?: number;
 }
@@ -55,7 +59,8 @@ export type ViolationCode =
   | 'L3_VISION_VERDICT'
   | 'EXHAUSTED_PROVIDER'
   | 'STALLED'
-  | 'FINISHED_OPEN';
+  | 'FINISHED_OPEN'
+  | 'IDLE_OPEN';
 
 export interface AuditViolation {
   code: ViolationCode;
@@ -75,10 +80,13 @@ export interface AuditReport {
   quota: ProviderQuota[];
   stalled: AuditLane[];
   finishedOpen: AuditLane[];
+  /** Idle or done lanes with an open agent and no output for `idleMs`. */
+  idleOpen: AuditLane[];
   violations: AuditViolation[];
 }
 
 const DEFAULT_STALL_MS = 30 * 60 * 1000;
+const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 const DEFAULT_MIN_L3_RATIO = 0.6;
 /** A provider with this fraction or less left is treated as exhausted. */
 const EXHAUSTED_REMAINING_FRACTION = 0.01;
@@ -116,12 +124,20 @@ export function mechanicalTitle(title: string | null): boolean {
 
 export function buildAudit(input: AuditInput): AuditReport {
   const stallMs = input.stallMs ?? DEFAULT_STALL_MS;
+  const idleMs = input.idleMs ?? DEFAULT_IDLE_MS;
   const minL3Ratio = input.minL3Ratio ?? DEFAULT_MIN_L3_RATIO;
   const working = input.lanes.filter((lane) => lane.status === 'working');
   const l3Working = working.filter((lane) => lane.tier === 'L3');
   const l3Ratio = working.length === 0 ? null : l3Working.length / working.length;
   const stalled = working.filter((lane) => lane.lastOutputAt !== null && input.now - lane.lastOutputAt > stallMs);
   const finishedOpen = input.lanes.filter((lane) => lane.finished);
+  const idleOpen = input.lanes.filter(
+    (lane) =>
+      lane.agentId !== null &&
+      (lane.status === 'idle' || lane.status === 'done') &&
+      lane.lastOutputAt !== null &&
+      input.now - lane.lastOutputAt >= idleMs,
+  );
   const violations: AuditViolation[] = [];
 
   if (l3Ratio !== null && l3Ratio < minL3Ratio) {
@@ -173,6 +189,15 @@ export function buildAudit(input: AuditInput): AuditReport {
   for (const lane of finishedOpen) {
     violations.push({ code: 'FINISHED_OPEN', lane: lane.id, card: null, detail: 'finished but session still open' });
   }
+  for (const lane of idleOpen) {
+    if (lane.agentId === null || lane.lastOutputAt === null) continue;
+    violations.push({
+      code: 'IDLE_OPEN',
+      lane: lane.id,
+      card: null,
+      detail: `agent ${lane.agentId} idle ${Math.floor((input.now - lane.lastOutputAt) / 60_000)} min`,
+    });
+  }
 
   return {
     generatedAt: new Date(input.now).toISOString(),
@@ -184,6 +209,7 @@ export function buildAudit(input: AuditInput): AuditReport {
     quota: input.quota,
     stalled,
     finishedOpen,
+    idleOpen,
     violations,
   };
 }
@@ -228,6 +254,7 @@ export function renderAuditMarkdown(report: AuditReport): string {
   }
   lines.push('', '## Stalled (>30 min)', '', ...renderLaneList(report.stalled));
   lines.push('', '## Finished but open', '', ...renderLaneList(report.finishedOpen));
+  lines.push('', '## Idle open sessions', '', ...renderIdleOpen(report));
   lines.push('', '## Violations', '');
   if (report.violations.length === 0) {
     lines.push('- none');
@@ -276,4 +303,15 @@ function tableRow(cells: Array<string | number>): string {
 function renderLaneList(lanes: AuditLane[]): string[] {
   if (lanes.length === 0) return ['- none'];
   return lanes.map((lane) => `- ${lane.id} ${lane.harness} ${lane.model ?? 'unknown'} ${lane.cwd ?? ''}`);
+}
+
+function renderIdleOpen(report: AuditReport): string[] {
+  if (report.idleOpen.length === 0) return ['- none'];
+  const now = Date.parse(report.generatedAt);
+  const lines = ['| pane | agent | status | idle min |', '| --- | --- | --- | --- |'];
+  for (const lane of report.idleOpen) {
+    const minutes = lane.lastOutputAt === null ? '-' : Math.floor((now - lane.lastOutputAt) / 60_000);
+    lines.push(tableRow([lane.id, lane.agentId ?? '', lane.status, minutes]));
+  }
+  return lines;
 }

@@ -137,6 +137,7 @@ export async function herdrLanes(): Promise<AuditLane[]> {
       cardKindSource: mech ? 'title' : null,
       lastOutputAt: session ? mtime(session) : null,
       finished: status === 'done',
+      agentId: null,
     } satisfies AuditLane;
   });
 }
@@ -182,9 +183,23 @@ export async function ledgerLanes(db: DatabaseSync, herdr: AuditLane[]): Promise
       cardKindSource: 'ledger',
       lastOutputAt: outputs.length ? Math.max(...outputs) : null,
       finished: reported || exited,
+      agentId: null,
     });
   }
   return lanes;
+}
+
+/** Open ledger agents (`status <> closed`) mapped by `agents.herdr_pane` = pane id. Newest session wins. */
+export function attachOpenAgents(db: DatabaseSync, lanes: AuditLane[]): void {
+  const rows = db
+    .prepare(
+      `SELECT id, herdr_pane FROM agents WHERE status <> 'closed' AND herdr_pane IS NOT NULL
+      ORDER BY started_at DESC, id`,
+    )
+    .all() as unknown as { id: string; herdr_pane: string }[];
+  const byPane = new Map<string, string>();
+  for (const row of rows) if (!byPane.has(row.herdr_pane)) byPane.set(row.herdr_pane, row.id);
+  for (const lane of lanes) lane.agentId = byPane.get(lane.id) ?? null;
 }
 
 /** Vision verdicts recorded in the last 24 h with the auditor's model and layer. */
