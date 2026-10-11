@@ -489,6 +489,24 @@ export async function main(): Promise<void> {
 
   // APS handlers are deliberately lazy so unrelated --help does not load node:sqlite.
   const apsCmd = program.command('aps').description('APS work-card ledger');
+  apsCmd
+    .command('gate')
+    .description('Run repository engineering gates and enforce baseline ratchets')
+    .option('--project-dir <dir>', 'Repository directory (default: cwd)')
+    .option('--update-baseline', 'Record passing metrics in the baseline')
+    .option('--base-ref <ref>', 'Trusted baseline/exemptions git ref and changed-path base')
+    .option('--format <format>', 'table|json (default: table)')
+    .option('--card <id>', 'Append gate evidence to an APS card')
+    .option('--db <path>', 'Ledger path (with --card)')
+    .option('--by <agent>', 'Acting agent (default: APS_AGENT, with --card)')
+    .option('--json', 'Output JSON instead of a human table')
+    .exitOverride((error) => {
+      process.exit(error.exitCode === 0 ? 0 : 2);
+    })
+    .action(async (options) => {
+      const { runApsGateCommand } = await import('./commands/aps-gate.js');
+      await runApsGateCommand(options);
+    });
   const addAps = (
     parent: Command,
     spec: string,

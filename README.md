@@ -178,9 +178,17 @@ Use `--db <path>` on any leaf command to isolate a ledger. Resolution is
 `~/ss-work/aps/aps.db`. Every command accepts `--by` (default `APS_AGENT`) and
 `--json`; `card show --as-prompt` is text-only. Exit codes are 0 for success,
 2 for invalid input, 3 for an `APS-*` guard rejection, and 1 for unexpected errors.
+The standalone `aps gate` instead exits 0 for passing gates, 1 for blocking gate
+failures, and 2 for config/usage/git/ledger errors; no ledger is required without `--card`.
 Writes are transactional; missing guard triggers fail closed. `--project-dir`
 selects the git/context working directory, independently of the ledger project ID.
 Required owner/vision approvals remain enforced before `done`.
+
+Repository quality gates use `mmbridge aps gate --base-ref origin/main --json`.
+The command reads `.aps/gates.json`, runs configured argv serially, checks thresholds
+and monotone baselines, and can append exact results to a card. Only
+`--update-baseline` writes baselines. See [repository gates](docs/aps/GATES.md) for
+configuration, CI trust anchors, exemptions, and the M02 evidence integration.
 
 See [the APS contract](docs/aps/DESIGN.md) for JSON evidence shapes, all commands,
 state transitions, and exact guard messages. `return`, `reject`, `feedback`,
