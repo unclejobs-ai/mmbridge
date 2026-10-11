@@ -167,6 +167,18 @@ See [the APS contract](docs/aps/DESIGN.md) for JSON evidence shapes, all command
 state transitions, and exact guard messages. `return`, `reject`, `feedback`,
 `defect`, `vision`, and `owner-ok` are also available via `mmbridge aps --help`.
 
+The `@mmbridge/aps` library also exposes `openApsDbReadOnly`, `dataVersion`,
+`readBoardSnapshot`, and the pure `classifyHygiene` function for board consumers.
+The reader never creates or migrates a ledger, refuses newer schemas, and reads
+each snapshot in a single deferred transaction. Snapshots include lane cells,
+card evidence and blockers, review queues, run-only list-equivalent costs, quota
+samples, and session hygiene. Version-1 ledgers retain lanes and reviews with
+`runsAvailable: false` and `cost: null`. Pass fresh normalized pane observations
+through `BoardReadOptions.panes`; omit them after a herdr failure to show `?`
+rather than infer leaks or ghosts from stale data. Headless PID/yield observations
+are supplied separately through `observations`, keyed by run ID (or agent ID).
+Consumers keep the last good snapshot on read errors and own polling/DB cleanup.
+
 ## Configuration
 
 Create `.mmbridge.config.json` in your project root:

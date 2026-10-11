@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
 export * from './analytics.js';
+export * from './board.js';
 export * from './ledger.js';
 export * from './render.js';
 export * from './runs.js';
