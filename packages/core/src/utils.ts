@@ -103,11 +103,13 @@ export async function runCommand(
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stdout += text;
+      onStdoutCb?.(text);
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stderr += text;
+      onStderrCb?.(text);
     });
 
     child.on('error', (error: Error) => {

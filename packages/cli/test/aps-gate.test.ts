@@ -1061,6 +1061,38 @@ test('R4: each gate token rule redacts a sample the built-ins miss', () => {
       /ghp_probe_not_real|ghs_probe_not_real|YWRtaW4|pa55w0rd|AKIAIOSFODNN7EXAMPLE|xoxb-1234-abcdef/,
     );
   }
+  assert.equal(redactBoundedText(redactContent, 'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI', 2048), '[REDACTED_SECRET]');
+  assert.equal(redactBoundedText(redactContent, 'Secret: hunter2', 2048), '[REDACTED_SECRET]');
+  const quoted = [
+    { sample: '{"password":"hunter2-secret-value"}', leak: /hunter2-secret-value/ },
+    { sample: '"api_key": "abcd1234efgh5678zz"', leak: /abcd1234efgh5678zz/ },
+    { sample: 'password: "correct horse battery staple"', leak: /correct|horse|battery|staple/ },
+  ];
+  for (const item of quoted) {
+    const redacted = redactBoundedText(redactContent, item.sample, 2048);
+    assert.doesNotMatch(redacted, item.leak, item.sample);
+    assert.match(redacted, /\[REDACTED_/);
+  }
+  assert.equal(redactBoundedText(redactContent, 'author: Jane Doe', 2048), 'author: Jane Doe');
+  assert.equal(redactBoundedText(redactContent, 'auth_failures: fail', 2048), 'auth_failures: fail');
+  const urls = [
+    { sample: 'https://tokensecretvalue@host.example/x', leak: /tokensecretvalue/ },
+    { sample: 'https://user:pa/ssword@host.example/app', leak: /pa\/ssword/ },
+    { sample: 'https://user:p@zzsecret@host.example/app', leak: /zzsecret/ },
+  ];
+  for (const item of urls) {
+    const redacted = redactBoundedText(redactContent, item.sample, 2048);
+    assert.doesNotMatch(redacted, item.leak, item.sample);
+    assert.match(redacted, /\[REDACTED_URL_USERINFO\]/);
+  }
+  assert.equal(
+    redactBoundedText(redactContent, 'GET https://registry.npmjs.org/@mmbridge%2Fcore', 2048),
+    'GET https://registry.npmjs.org/@mmbridge%2Fcore',
+  );
+  assert.equal(
+    redactBoundedText(redactContent, '{"url":"https://a.example/x","email":"me@x.example"}', 2048),
+    '{"url":"https://a.example/x","email":"me@x.example"}',
+  );
 });
 
 test('REG-1: closed suffixes and long prefixes redact; safe names do not', () => {
@@ -1353,7 +1385,7 @@ if (result.code !== 0) process.exit(result.code || 1);
   assert.fail(`trapped grandchild ${pid} still alive after close-path SIGKILL`);
 });
 
-test('CAP-1: changed-path list over 1 MiB still matches when filter so required gate runs and fails', (t) => {
+test('CAP-1: src/a.ts followed by over 1 MiB of non-matching changed paths still runs the required gate', (t) => {
   const f = fixture(t);
   const g: Gate = {
     id: 'change.cap-changed',
@@ -1367,10 +1399,10 @@ test('CAP-1: changed-path list over 1 MiB still matches when filter so required 
   const base = f.commit();
   mkdirSync(join(f.root, 'src'), { recursive: true });
   writeFileSync(join(f.root, 'src/a.ts'), 'mod');
-  const NUM = 5300;
+  mkdirSync(join(f.root, 'zpad'), { recursive: true });
+  const NUM = 6000;
   for (let i = 0; i < NUM; i++) {
-    const long = 'x'.repeat(170) + i.toString().padStart(4, '0');
-    writeFileSync(join(f.root, `src/f${long}.ts`), '1');
+    writeFileSync(join(f.root, `zpad/${'z'.repeat(200)}${i.toString().padStart(4, '0')}.txt`), '1');
   }
   f.git(['add', '.']);
   f.git(['commit', '--quiet', '-m', 'large cp']);
@@ -1398,7 +1430,7 @@ test('CAP-1: count-lines metric over 1 MiB of output counts true value so ratche
     metrics: [{ id: 'lines', direction: 'lower', source: { kind: 'count-lines' } }],
   };
   f.config([g]);
-  f.baseline(40000, 'change.cap-lines', 'lines');
+  f.baseline(45000, 'change.cap-lines', 'lines');
   const base = f.commit();
   const res = f.run(['--base-ref', base], 1);
   assert.equal(res.value.verdict, 'fail');
@@ -1437,20 +1469,29 @@ test('REG-2: fail-safe secret rule redacts every listed leak shape (PASSWORD2= .
     'secretKeyBase64=skb64',
     `${'x'.repeat(70)}_PASSWORD=longp`,
     '{"password":"ab\\"cd-tail-secret"}',
+    `${'X'.repeat(126)}key_token=edge-val`,
   ];
+  const leakNames =
+    /PASSWORD2|DB_PASSWORD_1|API_KEY_PROD|STRIPE_SECRET_KEY_LIVE|JWT_SECRET_V2|GH_TOKEN_FOR_CI|TOKEN_SECRET_OLD|SIGNING_KEYS_JSON|privateKeyBytes|apiKeyLive|password_hash|secret_value|TOKEN_VALUE|api_key_id|API_KEY_VALUE|AWS_SECRET_ACCESS_KEY_ID|SECRET_KEY_BASE|PRIVATE_KEY_PEM|AUTH_TOKEN_RAW|DB_PASSWORD_PLAIN|tokens|secretKeyBase64|longp|cd-tail-secret|edge-val/;
+  const gateRule = GATE_TOKEN_RULES.find((rule) => rule.label === 'secret assignment');
+  assert.ok(gateRule);
+  const gateRe = new RegExp(gateRule.pattern, gateRule.flags);
   for (const sample of leakShapes) {
-    const r = redactBoundedText(redactContent, sample, 2048);
-    assert.doesNotMatch(
-      r,
-      /PASSWORD2|DB_PASSWORD_1|API_KEY_PROD|STRIPE_SECRET_KEY_LIVE|JWT_SECRET_V2|GH_TOKEN_FOR_CI|TOKEN_SECRET_OLD|SIGNING_KEYS_JSON|privateKeyBytes|apiKeyLive|password_hash|secret_value|TOKEN_VALUE|api_key_id|API_KEY_VALUE|AWS_SECRET_ACCESS_KEY_ID|SECRET_KEY_BASE|PRIVATE_KEY_PEM|AUTH_TOKEN_RAW|DB_PASSWORD_PLAIN|tokens|secretKeyBase64|longp|cd-tail-secret/,
-      sample,
-    );
-    assert.match(r, /\[REDACTED_SECRET\]/);
+    const views = {
+      bounded: redactBoundedText(redactContent, sample, 2048),
+      core: redactContent(sample).redacted,
+      gate: sample.replace(gateRe, gateRule.replacement),
+    };
+    for (const [view, r] of Object.entries(views)) {
+      assert.doesNotMatch(r, leakNames, `${view}: ${sample}`);
+      assert.match(r, /\[REDACTED_SECRET\]/, `${view}: ${sample}`);
+    }
   }
   const safes = ['author: Jane Doe', 'auth_failures: fail', 'tokenizer: t', 'keyboard: k', 'key_count=4'];
   for (const s of safes) {
     assert.equal(redactBoundedText(redactContent, s, 2048), s);
     assert.equal(redactContent(s).redacted, s);
+    assert.equal(s.replace(gateRe, gateRule.replacement), s);
   }
 });
 
@@ -1463,5 +1504,13 @@ test('N21: URL quote exclusions pinned so npm scope URL and email in next JSON f
     '{"auth":"user:pass@ex.com","url":"https://registry.npmjs.org/@scope/pkg","email":"me@x.example","loc":"http://localhost:4873/@s/p"}';
   const rm = redactBoundedText(redactContent, mixed, 2048);
   assert.doesNotMatch(rm, /user:pass/);
-  assert.match(rm, /@mmbridge%2Fcore|@scope\/pkg|me@x.example|localhost:4873/);
+  assert.match(rm, /@scope\/pkg/);
+  assert.match(rm, /me@x\.example/);
+  assert.match(rm, /localhost:4873\/@s\/p/);
+  for (const sample of [
+    '{"url":"https://a.example","email":"me@x.example"}',
+    '{"url":"https://a.example:8443","email":"me@x.example"}',
+  ]) {
+    assert.equal(redactBoundedText(redactContent, sample, 2048), sample);
+  }
 });

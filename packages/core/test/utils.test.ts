@@ -8,6 +8,7 @@ import {
   limitBytes,
   nowIso,
   projectSlug,
+  runCommand,
 } from '../dist/utils.js';
 
 // projectSlug
@@ -231,4 +232,22 @@ test('nowIso: returns current time approximately', () => {
   const ts = new Date(iso).getTime();
   assert.ok(ts >= before);
   assert.ok(ts <= after);
+});
+
+test('runCommand: streams stdout and stderr chunks to onStdout/onStderr', async () => {
+  const outChunks: string[] = [];
+  const errChunks: string[] = [];
+  const result = await runCommand(
+    process.execPath,
+    ['-e', "process.stdout.write('hello\\n'); process.stderr.write('oops\\n');"],
+    {
+      onStdout: (chunk) => outChunks.push(chunk),
+      onStderr: (chunk) => errChunks.push(chunk),
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.stdout, 'hello\n');
+  assert.equal(result.stderr, 'oops\n');
+  assert.equal(outChunks.join(''), 'hello\n');
+  assert.equal(errChunks.join(''), 'oops\n');
 });

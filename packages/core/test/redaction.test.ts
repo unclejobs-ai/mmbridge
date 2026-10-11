@@ -7,6 +7,8 @@ test('redactContent: redacts OpenAI API key (sk-...)', () => {
   const content = 'const key = "sk-abcdefghij1234567890abcd";';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('sk-abcdefghij'));
+  assert.equal(redacted, 'const [REDACTED_SECRET];');
+  assert.equal(redactContent('"sk-abcdefghij1234567890abcd"').redacted, '"[REDACTED_API_KEY]"');
   assert.ok(stats.includes('OpenAI API key'));
 });
 
@@ -14,6 +16,8 @@ test('redactContent: redacts sk- key with underscores and dashes', () => {
   const content = 'API_KEY=sk-proj_abc-def_123456789012345';
   const { redacted } = redactContent(content);
   assert.ok(!redacted.includes('sk-proj_abc'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('sk-proj_abc-def_123456789012345').redacted, '[REDACTED_API_KEY]');
 });
 
 // GCP API key
@@ -21,6 +25,8 @@ test('redactContent: redacts GCP API key (AIza...)', () => {
   const content = 'GOOGLE_KEY="AIzaSyAbcdefghijklmnopqrstuvwxyz1234567"';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('AIzaSy'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('"AIzaSyAbcdefghijklmnopqrstuvwxyz1234567"').redacted, '"[REDACTED_GCP_KEY]"');
   assert.ok(stats.includes('GCP API key'));
 });
 
@@ -28,6 +34,8 @@ test('redactContent: redacts GitHub PAT (ghp_...)', () => {
   const content = 'token: ghp_abcdefghijklmnopqrstuvwxyz12345678901';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('ghp_'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('ghp_abcdefghijklmnopqrstuvwxyz1234567890').redacted, '[REDACTED_GH_TOKEN]');
   assert.ok(stats.includes('GitHub PAT'));
 });
 
@@ -35,6 +43,8 @@ test('redactContent: redacts GitHub app token (ghs_...)', () => {
   const content = 'GH_APP_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz12345678901';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('ghs_'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('ghs_abcdefghijklmnopqrstuvwxyz1234567890').redacted, '[REDACTED_GH_TOKEN]');
   assert.ok(stats.includes('GitHub app token'));
 });
 
@@ -42,6 +52,8 @@ test('redactContent: redacts Polar access token (polar_at_...)', () => {
   const content = 'POLAR_TOKEN=polar_at_abcdefghijklmnopqrstuv12345';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('polar_at_'));
+  assert.equal(redacted, '[REDACTED_SECRET]');
+  assert.equal(redactContent('polar_at_abcdefghijklmnopqrstuv12345').redacted, '[REDACTED_POLAR_TOKEN]');
   assert.ok(stats.includes('Polar access token'));
 });
 
