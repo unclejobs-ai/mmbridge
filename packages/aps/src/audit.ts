@@ -84,7 +84,8 @@ const DEFAULT_MIN_L3_RATIO = 0.6;
 const EXHAUSTED_REMAINING_FRACTION = 0.01;
 
 const PREMIUM_MODEL = /opus|fable|astra|gpt-[0-9.]+-sol|(^|[^a-z])sol([^a-z]|$)/;
-const L3_MODEL = /swe-|gemini|deepseek|grok|glm|kimi|qwen|luna|haiku|sonnet/;
+// MODEL-ROUTING §0/§3.1: Sonnet is mid-tier and Gemini Pro is the Sol/Opus fallback; neither counts as L3.
+const L3_MODEL = /swe-|gemini-[0-9.]+-flash|deepseek|grok|glm|kimi|qwen|luna|haiku/;
 const MECHANICAL_TITLE =
   /i18n|국제화|번역|rename|리네임|typo|lint|format|문서|docs?\b|changelog|test gap|커버리지|coverage|mechanical|기계/;
 

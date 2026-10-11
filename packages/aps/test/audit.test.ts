@@ -59,7 +59,11 @@ test('classifyModel maps provider/model selectors to tiers', () => {
 
 test('classifyModel is case-insensitive, strips effort, and prefers premium', () => {
   assert.deepEqual(classifyModel('Anthropic/Claude-Opus-5-5:High'), { tier: 'premium', provider: 'anthropic' });
-  assert.deepEqual(classifyModel('anthropic/claude-sonnet-5'), { tier: 'L3', provider: 'anthropic' });
+  assert.deepEqual(classifyModel('anthropic/claude-sonnet-5-5'), { tier: 'unknown', provider: 'anthropic' });
+  assert.deepEqual(classifyModel('google-antigravity/gemini-3.1-pro'), {
+    tier: 'unknown',
+    provider: 'google-antigravity',
+  });
   assert.deepEqual(classifyModel('anthropic/claude-haiku-4:low'), { tier: 'L3', provider: 'anthropic' });
   assert.deepEqual(classifyModel('xai-oauth/grok-4.7:high'), { tier: 'L3', provider: 'xai-oauth' });
   assert.deepEqual(classifyModel('zai/glm-5'), { tier: 'L3', provider: 'zai' });
