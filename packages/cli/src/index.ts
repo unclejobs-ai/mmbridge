@@ -489,7 +489,15 @@ export async function main(): Promise<void> {
 
   // APS handlers are deliberately lazy so unrelated --help does not load node:sqlite.
   const apsCmd = program.command('aps').description('APS work-card ledger');
-  const addAps = (parent: Command, spec: string, action: string, flags: [string, string][]) => {
+  const addAps = (
+    parent: Command,
+    spec: string,
+    action: string,
+    flags: [string, string][],
+    loader: () => Promise<{
+      runApsCommand: (action: string, id: string | undefined, options: ApsCommandOptions) => Promise<void>;
+    }> = () => import('./commands/aps.js'),
+  ) => {
     const cmd = parent
       .command(spec)
       .description(`APS ${action.replaceAll('-', ' ')}`)
@@ -504,7 +512,7 @@ export async function main(): Promise<void> {
     cmd.action(async (...args: unknown[]) => {
       const command = args.at(-1) as Command;
       const id = typeof args[0] === 'string' ? args[0] : undefined;
-      const { runApsCommand } = await import('./commands/aps.js');
+      const { runApsCommand } = await loader();
       await runApsCommand(action, id, command.optsWithGlobals() as ApsCommandOptions);
     });
     return cmd;
@@ -549,6 +557,29 @@ export async function main(): Promise<void> {
     ['--assignee <agent>', 'Filter worker'],
   ]);
   addAps(apsCmd, 'start <card>', 'start', [['--assignee <agent>', 'Worker session']]);
+  addAps(
+    apsCmd,
+    'dispatch <card>',
+    'dispatch',
+    [
+      ['--harness <harness>', 'herdr|omp|devin|grok'],
+      ['--kind <kind>', 'herdr worker kind: omp|devin|grok'],
+      ['--lane <name>', 'Stable worker identity'],
+      ['--layer <layer>', 'L2|L3'],
+      ['--model <model>', 'Worker model'],
+      ['--vendor <vendor>', 'Worker vendor'],
+      ['--worktree <path>', 'Existing clean absolute git worktree'],
+      ['--branch <branch>', 'Checked-out worktree branch'],
+      ['--workspace <workspace>', 'herdr workspace ID or label (default: card project)'],
+      ['--permission-mode <mode>', 'Harness-specific permission mode'],
+      ['--omp-id <id>', 'Required task agent ID for omp'],
+      ['--dry-run', 'Print packet and spawn argv without writes'],
+    ],
+    async () => {
+      const { runApsDispatchCommand } = await import('./commands/aps-dispatch.js');
+      return { runApsCommand: runApsDispatchCommand };
+    },
+  );
   addAps(apsCmd, 'return <card>', 'return', [['--note <text>', 'Return reason']]);
   addAps(apsCmd, 'reject <card>', 'reject', [['--note <text>', 'Rejection reason']]);
   addAps(apsCmd, 'done <card>', 'done', []);

@@ -127,8 +127,9 @@ mmbridge security --tool all --bridge standard
 
 `mmbridge aps` records work cards, worker sessions, evidence, independent reviews,
 vision audits, owner approvals, and merge confirmations in a guarded SQLite ledger.
-It is local-only: importing a review uses an existing mmbridge session and never
-starts a model call.
+The ledger is local-only: importing a review uses an existing mmbridge session and
+never starts a model call. Explicit `aps dispatch` launches the selected installed
+harness (or prints an omp task assignment) and records its run for collection.
 
 ```bash
 export APS_AGENT=<manager-session-id>
@@ -153,6 +154,11 @@ mmbridge aps brief --level L1 --save
 mmbridge aps chart --metric rework --days 14 --json
 mmbridge aps doctor
 ```
+
+For managed dispatch instead of the manual start/report sequence:
+`mmbridge aps dispatch SS-C-0001 --harness herdr --kind omp --lane worker --layer L2 --model <model> --worktree /absolute/clean/worktree`.
+Use `--dry-run` to preview without ledger or packet writes. Workers hand off via
+the packet's atomic `report.json` and `report.md`; see the collect contract in `card.md`.
 
 Use `--db <path>` on any leaf command to isolate a ledger. Resolution is
 `--db` → `MMBRIDGE_APS_DB` → `APS_DB` (demo alias) → config `aps.dbPath` →
