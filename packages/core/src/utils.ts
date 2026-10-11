@@ -32,22 +32,10 @@ export async function runCommand(
 
     let stdout = '';
     let stderr = '';
-    const maxCaptureBytes = 1024 * 1024;
-    const appendCapture = (current: string, chunk: string): string => {
-      if (Buffer.byteLength(chunk) >= maxCaptureBytes) {
-        return Buffer.from(chunk)
-          .subarray(Buffer.byteLength(chunk) - maxCaptureBytes)
-          .toString('utf8');
-      }
-      const next = current + chunk;
-      if (Buffer.byteLength(next) <= maxCaptureBytes) return next;
-      return Buffer.from(next)
-        .subarray(Buffer.byteLength(next) - maxCaptureBytes)
-        .toString('utf8');
-    };
+
     let timedOut = false;
     let forcedKill = false;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
 
     const finish = (result: RunResult): void => {
       if (settled) return;
@@ -114,14 +102,12 @@ export async function runCommand(
     }, timeoutMs);
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
-      stdout = appendCapture(stdout, text);
-      onStdoutCb?.(text);
+      stdout += text;
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
-      stderr = appendCapture(stderr, text);
-      onStderrCb?.(text);
+      stderr += text;
     });
 
     child.on('error', (error: Error) => {

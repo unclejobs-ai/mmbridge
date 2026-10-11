@@ -18,15 +18,9 @@ const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: stri
   { pattern: /whsk_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_WEBHOOK_SECRET]', label: 'Webhook secret' },
   {
     pattern:
-      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:password|passwd|pwd)s?(?:[_-]?(?:hash|value|base|raw|plain|pem|id|b64|base64|data|str|string))?(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S{8,})/gi,
-    replacement: '[REDACTED_PASSWORD]',
-    label: 'Password value',
-  },
-  {
-    pattern:
-      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:secret|token|key)s?(?:[_-]?(?:hash|value|base|raw|plain|pem|id|b64|base64|data|str|string))?(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"(?:[^"\\\s\[]|\\.){16,}"|'(?:[^'\\\s\[]|\\.){16,}'|[^\s"'[\]]{16,})/gi,
+      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?!(?:or|ors|ority|ored|oring|ori[sz]ation|ori[sz]e[ds]?|enticat[a-z]*|izer|izers|ization|board|boards|_?count|_?failures?|_?errors?|_?total|_?type|_?url|_?file|_?path|_?name|_?tokens?)(?![A-Za-z0-9]))[A-Za-z0-9_]{0,32}(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"(?!\[REDACTED_)(?:[^"\\]|\\.)*"|'(?!\[REDACTED_)[^']*'|(?! \[REDACTED_)\S+)/gi,
     replacement: '[REDACTED_SECRET]',
-    label: 'Generic secret/token',
+    label: 'secret assignment',
   },
   { pattern: /Bearer\s+[A-Za-z0-9_\-.~+/]{20,}/g, replacement: 'Bearer [REDACTED_TOKEN]', label: 'Bearer token' },
 ];

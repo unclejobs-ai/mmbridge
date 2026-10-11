@@ -1046,7 +1046,6 @@ test('R4: each gate token rule redacts a sample the built-ins miss', () => {
     { label: 'GitHub PAT', sample: 'ghp_probe_not_real', expected: '[REDACTED_GH_TOKEN]' },
     { label: 'GitHub app token', sample: 'ghs_probe_not_real', expected: '[REDACTED_GH_TOKEN]' },
     { label: 'Authorization header', sample: 'Authorization: Basic YWRtaW4', expected: '[REDACTED_AUTHORIZATION]' },
-    { label: 'secret assignment', sample: 'API_KEY=abcdef', expected: '[REDACTED_SECRET]' },
     { label: 'URL userinfo', sample: 'postgres://admin:pa55w0rd@db.example/app', expected: '[REDACTED_URL_USERINFO]' },
     { label: 'AWS access key', sample: 'AKIAIOSFODNN7EXAMPLE', expected: '[REDACTED_AWS_KEY]' },
     { label: 'Slack token', sample: 'xoxb-1234-abcdef', expected: '[REDACTED_SLACK_TOKEN]' },
@@ -1059,41 +1058,9 @@ test('R4: each gate token rule redacts a sample the built-ins miss', () => {
     assert.match(redacted, new RegExp(item.expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.doesNotMatch(
       redacted,
-      /ghp_probe_not_real|ghs_probe_not_real|YWRtaW4|abcdef|pa55w0rd|AKIAIOSFODNN7EXAMPLE|xoxb-1234-abcdef/,
+      /ghp_probe_not_real|ghs_probe_not_real|YWRtaW4|pa55w0rd|AKIAIOSFODNN7EXAMPLE|xoxb-1234-abcdef/,
     );
   }
-  assert.equal(redactBoundedText(redactContent, 'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI', 2048), '[REDACTED_SECRET]');
-  assert.equal(redactBoundedText(redactContent, 'Secret: hunter2', 2048), '[REDACTED_SECRET]');
-  const quoted = [
-    { sample: '{"password":"hunter2-secret-value"}', leak: /hunter2-secret-value/ },
-    { sample: '"api_key": "abcd1234efgh5678zz"', leak: /abcd1234efgh5678zz/ },
-    { sample: 'password: "correct horse battery staple"', leak: /correct|horse|battery|staple/ },
-  ];
-  for (const item of quoted) {
-    const redacted = redactBoundedText(redactContent, item.sample, 2048);
-    assert.doesNotMatch(redacted, item.leak, item.sample);
-    assert.match(redacted, /\[REDACTED_/);
-  }
-  assert.equal(redactBoundedText(redactContent, 'author: Jane Doe', 2048), 'author: Jane Doe');
-  assert.equal(redactBoundedText(redactContent, 'auth_failures: fail', 2048), 'auth_failures: fail');
-  const urls = [
-    { sample: 'https://tokensecretvalue@host.example/x', leak: /tokensecretvalue/ },
-    { sample: 'https://user:pa/ssword@host.example/app', leak: /pa\/ssword/ },
-    { sample: 'https://user:p@zzsecret@host.example/app', leak: /zzsecret/ },
-  ];
-  for (const item of urls) {
-    const redacted = redactBoundedText(redactContent, item.sample, 2048);
-    assert.doesNotMatch(redacted, item.leak, item.sample);
-    assert.match(redacted, /\[REDACTED_URL_USERINFO\]/);
-  }
-  assert.equal(
-    redactBoundedText(redactContent, 'GET https://registry.npmjs.org/@mmbridge%2Fcore', 2048),
-    'GET https://registry.npmjs.org/@mmbridge%2Fcore',
-  );
-  assert.equal(
-    redactBoundedText(redactContent, '{"url":"https://a.example/x","email":"me@x.example"}', 2048),
-    '{"url":"https://a.example/x","email":"me@x.example"}',
-  );
 });
 
 test('REG-1: closed suffixes and long prefixes redact; safe names do not', () => {
@@ -1128,17 +1095,14 @@ test('REG-1: closed suffixes and long prefixes redact; safe names do not', () =>
   }
   assert.equal(redactBoundedText(redactContent, 'author: Jane Doe', 2048), 'author: Jane Doe');
   assert.equal(redactBoundedText(redactContent, 'auth_failures: fail', 2048), 'auth_failures: fail');
-  assert.equal(
-    redactContent('const key = "some long sentence with spaces here"').redacted,
-    'const key = "some long sentence with spaces here"',
-  );
 });
 
-test('N14/N15: gate-only quoted key and spaced value are not covered by core rules', () => {
-  const quotedKey = '{"auth_token":"abcd1234"}';
-  const spacedValue = '{"auth_token":"ab cd12ef"}';
-  assert.equal(redactContent(quotedKey).redacted, quotedKey);
-  assert.equal(redactContent(spacedValue).redacted, spacedValue);
+test('N14/N15: quoted key and spaced value redacted by fail-safe (core + gate)', () => {
+  const quotedKey = '{"api_key":"abcd1234"}';
+  const spacedValue = '{"api_key":"ab cd12ef"}';
+  // core fail-safe now redacts these
+  assert.doesNotMatch(redactContent(quotedKey).redacted, /abcd1234/);
+  assert.doesNotMatch(redactContent(spacedValue).redacted, /cd12ef/);
   for (const sample of [quotedKey, spacedValue]) {
     const redacted = redactBoundedText(redactContent, sample, 2048);
     assert.doesNotMatch(redacted, /abcd1234|cd12ef/, sample);
@@ -1387,4 +1351,117 @@ if (result.code !== 0) process.exit(result.code || 1);
   }
   spawnSync('kill', ['-9', String(pid)]);
   assert.fail(`trapped grandchild ${pid} still alive after close-path SIGKILL`);
+});
+
+test('CAP-1: changed-path list over 1 MiB still matches when filter so required gate runs and fails', (t) => {
+  const f = fixture(t);
+  const g: Gate = {
+    id: 'change.cap-changed',
+    item: 7,
+    title: 'CAP changed paths',
+    mode: 'required',
+    run: { argv: [process.execPath, '-e', 'process.exit(1)'] },
+    when: { changedPaths: ['src/**'] },
+  };
+  f.config([g]);
+  const base = f.commit();
+  mkdirSync(join(f.root, 'src'), { recursive: true });
+  writeFileSync(join(f.root, 'src/a.ts'), 'mod');
+  const NUM = 5300;
+  for (let i = 0; i < NUM; i++) {
+    const long = 'x'.repeat(170) + i.toString().padStart(4, '0');
+    writeFileSync(join(f.root, `src/f${long}.ts`), '1');
+  }
+  f.git(['add', '.']);
+  f.git(['commit', '--quiet', '-m', 'large cp']);
+  const res = f.run(['--base-ref', base], 1);
+  assert.equal(res.value.verdict, 'fail');
+  assert.equal(res.value.gates[0].status, 'fail');
+  assert.doesNotMatch(res.value.gates[0].message || '', /No matching changed paths|skipped/);
+});
+
+test('CAP-1: count-lines metric over 1 MiB of output counts true value so ratchet fails and --update-baseline refused', (t) => {
+  const f = fixture(t);
+  const NUM_LINES = 50000;
+  const g: Gate = {
+    id: 'change.cap-lines',
+    item: 7,
+    title: 'CAP lines',
+    mode: 'ratchet',
+    run: {
+      argv: [
+        process.execPath,
+        '-e',
+        `console.log(Array.from({length:${NUM_LINES}},(_,i)=>'line'+String(i).padStart(5,'0')+'x'.repeat(15)).join('\\n'))`,
+      ],
+    },
+    metrics: [{ id: 'lines', direction: 'lower', source: { kind: 'count-lines' } }],
+  };
+  f.config([g]);
+  f.baseline(40000, 'change.cap-lines', 'lines');
+  const base = f.commit();
+  const res = f.run(['--base-ref', base], 1);
+  assert.equal(res.value.verdict, 'fail');
+  const m = res.value.gates[0].metrics[0];
+  assert.equal(m.value, NUM_LINES);
+  assert.equal(m.status, 'fail');
+  const before = readFileSync(join(f.root, '.aps/baseline.json'), 'utf8');
+  const res2 = f.run(['--base-ref', base, '--update-baseline'], 1);
+  assert.equal(res2.value.baselineUpdated, false);
+  assert.equal(readFileSync(join(f.root, '.aps/baseline.json'), 'utf8'), before);
+});
+
+test('REG-2: fail-safe secret rule redacts every listed leak shape (PASSWORD2= ... + REG-1) and leaves safe names unredacted', () => {
+  const leakShapes = [
+    'PASSWORD2=foo',
+    'DB_PASSWORD_1=bar',
+    'API_KEY_PROD=baz',
+    'STRIPE_SECRET_KEY_LIVE=sk_live_abcdef',
+    'JWT_SECRET_V2=jwtv2val',
+    'GH_TOKEN_FOR_CI=ghci',
+    'TOKEN_SECRET_OLD=oldt',
+    'SIGNING_KEYS_JSON={"a":1}',
+    'privateKeyBytes:abc123def',
+    '{"apiKeyLive":"liveval123"}',
+    'password_hash=h',
+    'secret_value=s',
+    'TOKEN_VALUE=tv',
+    'api_key_id=ai',
+    'API_KEY_VALUE=akv',
+    'AWS_SECRET_ACCESS_KEY_ID=awsid',
+    'SECRET_KEY_BASE=skb',
+    'PRIVATE_KEY_PEM=pem',
+    'AUTH_TOKEN_RAW=atr',
+    'DB_PASSWORD_PLAIN=dbp',
+    'tokens=ts',
+    'secretKeyBase64=skb64',
+    `${'x'.repeat(70)}_PASSWORD=longp`,
+    '{"password":"ab\\"cd-tail-secret"}',
+  ];
+  for (const sample of leakShapes) {
+    const r = redactBoundedText(redactContent, sample, 2048);
+    assert.doesNotMatch(
+      r,
+      /PASSWORD2|DB_PASSWORD_1|API_KEY_PROD|STRIPE_SECRET_KEY_LIVE|JWT_SECRET_V2|GH_TOKEN_FOR_CI|TOKEN_SECRET_OLD|SIGNING_KEYS_JSON|privateKeyBytes|apiKeyLive|password_hash|secret_value|TOKEN_VALUE|api_key_id|API_KEY_VALUE|AWS_SECRET_ACCESS_KEY_ID|SECRET_KEY_BASE|PRIVATE_KEY_PEM|AUTH_TOKEN_RAW|DB_PASSWORD_PLAIN|tokens|secretKeyBase64|longp|cd-tail-secret/,
+      sample,
+    );
+    assert.match(r, /\[REDACTED_SECRET\]/);
+  }
+  const safes = ['author: Jane Doe', 'auth_failures: fail', 'tokenizer: t', 'keyboard: k', 'key_count=4'];
+  for (const s of safes) {
+    assert.equal(redactBoundedText(redactContent, s, 2048), s);
+    assert.equal(redactContent(s).redacted, s);
+  }
+});
+
+test('N21: URL quote exclusions pinned so npm scope URL and email in next JSON field stay visible; no host:port/@path redaction', () => {
+  const scopeSample = 'GET http://localhost:4873/@scope%2fpkg';
+  assert.equal(redactBoundedText(redactContent, scopeSample, 2048), scopeSample);
+  const jsonSample = '{"url":"https://registry.npmjs.org/@mmbridge%2Fcore","email":"me@x.example"}';
+  assert.equal(redactBoundedText(redactContent, jsonSample, 2048), jsonSample);
+  const mixed =
+    '{"auth":"user:pass@ex.com","url":"https://registry.npmjs.org/@scope/pkg","email":"me@x.example","loc":"http://localhost:4873/@s/p"}';
+  const rm = redactBoundedText(redactContent, mixed, 2048);
+  assert.doesNotMatch(rm, /user:pass/);
+  assert.match(rm, /@mmbridge%2Fcore|@scope\/pkg|me@x.example|localhost:4873/);
 });

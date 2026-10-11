@@ -13,17 +13,17 @@ export const GATE_TOKEN_RULES = [
     flags: 'i',
   },
   {
-    // Closed suffix so password_hash / SECRET_KEY_BASE redact, while author and auth_failures do not.
-    // Prefix is bounded, including a 70-character name before the keyword.
+    // Fail-safe: bounded {0,32} trailing segment after keyword + negative-lookahead list of safe continuations (gi).
+    // Replaces closed suffix list; redacts PASSWORD2= etc while leaving author, auth_failures, tokenizer, keyboard, key_count=4 unredacted.
     pattern:
-      '(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)s?(?:[_-]?(?:hash|value|base|raw|plain|pem|id|b64|base64|data|str|string))?(?![A-Za-z0-9_])["\']?\\s*[:=]\\s*(?:"(?:[^"\\\\]|\\\\.)*"|\'[^\']*\'|\\S+)',
+      '(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?!(?:or|ors|ority|ored|oring|ori[sz]ation|ori[sz]e[ds]?|enticat[a-z]*|izer|izers|ization|board|boards|_?count|_?failures?|_?errors?|_?total|_?type|_?url|_?file|_?path|_?name|_?tokens?)(?![A-Za-z0-9]))[A-Za-z0-9_]{0,32}(?![A-Za-z0-9_])["\']?\\s*[:=]\\s*(?!\\[REDACTED_)(?:"(?:[^"\\\\]|\\\\.)*"|\'[^\']*\'|\\S+)',
     replacement: '[REDACTED_SECRET]',
     label: 'secret assignment',
-    flags: 'i',
+    flags: 'gi',
   },
   {
-    // Userinfo only: stop at quotes and at a path @ (scoped packages). Password may contain / or @.
-    pattern: '[a-z][a-z0-9+.-]{0,32}://[^\\s/:"@]{1,256}(?::[^\\s"]{0,512})?@(?=[^\\s/"@])',
+    // Userinfo only: stop at quotes and at a path @ (scoped packages). Password may contain / or @. Use lookbehind to not match /@ in paths.
+    pattern: '[a-z][a-z0-9+.-]{0,32}://[^\\s/:"@]{1,256}(?::[^\\s"]{0,512})?(?<!/)@(?=[^\\s/"@])',
     replacement: '[REDACTED_URL_USERINFO]',
     label: 'URL userinfo',
     flags: 'i',
