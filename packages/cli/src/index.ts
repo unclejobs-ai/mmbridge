@@ -572,14 +572,80 @@ export async function main(): Promise<void> {
       ['--branch <branch>', 'Checked-out worktree branch'],
       ['--workspace <workspace>', 'herdr workspace ID or label (default: card project)'],
       ['--permission-mode <mode>', 'Harness-specific permission mode'],
-      ['--omp-id <id>', 'Required task agent ID for omp'],
+      ['--omp-id <id>', 'omp task agent ID (pointer mode); omit for a headless `omp -p` run'],
+      ['--omp-agent <name>', 'omp agent definition appended to a headless omp run (e.g. w-gemini)'],
       ['--dry-run', 'Print packet and spawn argv without writes'],
+      ['--auto', 'Pick the worker from the registry by quota, vendor load and tier (APS §14)'],
+      ['--tier <tier>', '--auto: L3 (default) or L2'],
+      ['--role <role>', '--auto: mech (default) | review | design | vision'],
+      ['--workers <ids>', '--auto: explicit comma fallback chain of registry ids'],
+      ['--exclude <ids>', '--auto: registry ids to skip'],
+      ['--ignore-quota', '--auto: do not skip quota-blocked providers'],
+      ['--quota-json <file>', '--auto: omp/codexbar usage JSON instead of a live probe'],
+      ['--workers-file <file>', '--auto: worker registry JSON (default: built-in)'],
+      ['--probe <seconds>', '--auto: watch each launch for an early usage/auth/outage exit (default 60)'],
     ],
     async () => {
       const { runApsDispatchCommand } = await import('./commands/aps-dispatch.js');
-      return { runApsCommand: runApsDispatchCommand };
+      const { runAutoDispatchCommand } = await import('./commands/aps-dispatch-auto.js');
+      return {
+        runApsCommand: (action, id, options) =>
+          options.auto ? runAutoDispatchCommand(id, options) : runApsDispatchCommand(action, id, options),
+      };
     },
   );
+  addAps(
+    apsCmd,
+    'collect [card]',
+    'collect',
+    [
+      ['--all', 'Collect every launched or reported run'],
+      ['--wait <dur>', 'Poll for report.json (e.g. 90s, 30m, 2h)'],
+      ['--abandon', 'Abandon a run that ended without report.json'],
+      ['--omp-session-dir <dir>', 'Resolve an ambiguous omp transcript dir'],
+    ],
+    async () => {
+      const { runApsCollectCommand } = await import('./commands/aps-collect.js');
+      return { runApsCommand: runApsCollectCommand };
+    },
+  );
+  const foremanFlags: [string, string][] = [
+    ['--repo <path>', 'Absolute git repo; per-card worktrees go to <repo>.foreman/<card>'],
+    ['--max <n>', 'Max live lanes for this parent (default 6)'],
+    ['--wait <dur>', 'Keep passing every 30s while lanes run, up to this long (90s, 30m, 2h)'],
+    ['--workers <ids>', 'Explicit comma fallback chain of registry ids'],
+    ['--exclude <ids>', 'Registry ids to skip'],
+    ['--ignore-quota', 'Do not skip quota-blocked providers'],
+    ['--quota-json <file>', 'omp/codexbar usage JSON instead of a live probe'],
+    ['--workers-file <file>', 'Worker registry JSON (default: built-in)'],
+    ['--probe <seconds>', 'Watch each launch for an early usage/auth/outage exit (default 60)'],
+    ['--ac-timeout <seconds>', 'Timeout per acceptance command (default 600)'],
+  ];
+  const foremanLoader = async () => {
+    const { runForemanCommand } = await import('./commands/aps-foreman.js');
+    return {
+      runApsCommand: (_action: string, id: string | undefined, options: ApsCommandOptions) =>
+        runForemanCommand(id, options),
+    };
+  };
+  const auditFlags: [string, string][] = [
+    ['--out <file>', 'Also write the markdown report here (atomic)'],
+    ['--quota-json <file>', 'omp/codexbar usage JSON instead of a live probe'],
+    ['--no-herdr', 'Skip herdr lanes'],
+    ['--stall-min <minutes>', 'Working lane without output this long is stalled (default 30)'],
+  ];
+  const auditLoader = async () => {
+    const { runApsAuditCommand } = await import('./commands/aps-audit.js');
+    return {
+      runApsCommand: (_action: string, _id: string | undefined, options: ApsCommandOptions) =>
+        runApsAuditCommand(options),
+    };
+  };
+  // 반장 (APS §14): top-level for operators, also under `aps` next to dispatch/collect.
+  for (const parent of [program, apsCmd]) {
+    addAps(parent, 'foreman <parent-card>', 'foreman', foremanFlags, foremanLoader);
+    addAps(parent, 'audit', 'audit', auditFlags, auditLoader);
+  }
   addAps(apsCmd, 'return <card>', 'return', [['--note <text>', 'Return reason']]);
   addAps(apsCmd, 'reject <card>', 'reject', [['--note <text>', 'Rejection reason']]);
   addAps(apsCmd, 'done <card>', 'done', []);

@@ -31,6 +31,7 @@ export async function commandTransaction<T>(db: DatabaseSync, action: () => Prom
 export function transaction<T>(db: DatabaseSync, action: () => T): T {
   if (activeTransactions.has(db)) return action();
   db.exec('BEGIN IMMEDIATE');
+  activeTransactions.add(db);
   try {
     const result = action();
     db.exec('COMMIT');
@@ -38,6 +39,8 @@ export function transaction<T>(db: DatabaseSync, action: () => T): T {
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;
+  } finally {
+    activeTransactions.delete(db);
   }
 }
 export function insertRow(db: DatabaseSync, table: string, values: Row): number {

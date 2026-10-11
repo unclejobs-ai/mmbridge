@@ -198,6 +198,11 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | H03 | `aps merge` | `APS-H03: <merged_sha> does not contain <sha> (git merge-base --is-ancestor failed)` | temp git repo with two unrelated commits |
 | H04 | `aps review --from-session` | `APS-H04: mmbridge session <uuid> not found` | unknown uuid |
 | H05 | `aps merge --merged-sha` after H03 | `APS-H05: target <target> does not contain <merged_sha> (unresolved or not an ancestor)` | `git init -q -b main`; reported commit passes H03, but target is missing or points behind it → exit 3; fast-forward and real `--no-ff` merges on main → exit 0 |
+| H06 | `aps collect` herdr close | `APS-H06: agent in pane <pane> is still working; not closing` | fake herdr pane with `agent_status:'working'` refuses; `done` proceeds |
+| H07 | `aps collect` pid close | `APS-H07: process <pid> for run <run> is still running` | launched `pid` of a live `sleep` process, no `<packet>/exit` → refuses; writing the exit file proceeds |
+| H08 | `aps collect` omp yield close | `APS-H08: omp task <id> has no yield output at <path>` | resolved transcript dir without `<id>.md` refuses; creating it proceeds; >1 candidate dirs refuses `(ambiguous; pass --omp-session-dir)` |
+| H09 | `aps collect` report validation | `APS-H09: reported sha <sha> is not a commit on <branch> in <worktree>` | sha absent from the worktree git history → exit 3, run stays `launched` |
+| H10 | `aps collect` report probe | `APS-H10: session ended without report.json (<evidence>)` | `pane_not_found` (or exit-file/dead pid/yield-missing end proof) with no `report.json` → exit 3; `--abandon` records `abandoned` and returns the card to issued |
 | K10 | every `aps` invocation, before the command, in its own committed transaction | `APS-K10: feedback <id> unanswered for > <N> min; escalated` (warning on stderr immediately, sets `escalated=1, escalated_at`; not a rejection) | feedback with `created_at` 31 min ago; successful command and failing commands (exit 2/3) preserve escalation and print the warning |
 
 TS may pre-check for friendlier wording, but whenever SQL rejects, the CLI must print the trigger text unchanged.
@@ -282,7 +287,7 @@ INSERT transitions inspecting→accepted (no review)          -- APS-V01
 | 0 | success | — |
 | 1 | unexpected runtime error (I/O, SQLite busy after timeout) | `[mmbridge] <message>` (no stack, no secrets) |
 | 2 | invalid input (bad flag value, unreadable/invalid JSON file, missing `--by`), including SQLite's own CHECK/NOT NULL/UNIQUE/FOREIGN KEY constraint failures | `[mmbridge] <what> <why>` |
-| 3 | **ledger refused**: any rejecting `APS-` code (SQL trigger, U01, H01–H05) | `[mmbridge] APS-XXX: <exact message>` via `exitWithError(message, 3)` |
+| 3 | **ledger refused**: any rejecting `APS-` code (SQL trigger, U01, H01–H10) | `[mmbridge] APS-XXX: <exact message>` via `exitWithError(message, 3)` |
 
 On success a state-changing command prints one line `<card> <from>→<to> by <agent> (attempt <n>)` per transition, or with `--json` an array of `{card,from,to,by,attempt}`. Insert-only commands print the new row id, or `{id}` with `--json`.
 
@@ -385,10 +390,12 @@ Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message
 --lane <name> --layer L2|L3 --model <model> --worktree <absolute-path>`
 accepts optional `--vendor`, `--branch`, `--permission-mode`, `--dry-run`, and
 `--json`. Herdr requires `--kind omp|devin|grok` and resolves `--workspace` by
-ID or label (default: card project), without creating workspaces. Omp task
-dispatch requires `--omp-id`; it prints a pointer assignment rather than
-calling the parent's task tool. CLI handlers remain lazy-loaded, and `addAps`
-accepts an optional loader so dispatch does not enlarge `aps.ts`.
+ID or label (default: card project), without creating workspaces. Omp with
+`--omp-id` prints a pointer assignment for the parent's task tool; without it,
+omp runs headless (below), optionally with `--omp-agent <name>` appending
+`~/.omp/agent/agents/<name>.md` as system prompt. CLI handlers remain
+lazy-loaded, and `addAps` accepts an optional loader so dispatch does not
+enlarge `aps.ts`.
 
 Preflight opens the existing ledger read-only, runs doctor, requires issued or
 revise state and a live manager, checks an existing clean git worktree and the
@@ -435,16 +442,28 @@ pane/terminal/session reference. Its independent `herdr_name` is a unique
 Launch commands use the adapter's shared envelope parser for stdout/stderr
 selection; failures retain herdr's `error.code` in both the CLI error and failed
 event instead of hiding it behind a JSON parse error.
-Devin/grok run shell-free, in the worktree, via a detached Node supervisor with
-an IPC spawn handshake. The recorded supervisor pid remains alive through the
-worker's lifetime and writes `<packet>/exit` on completion; output goes to
-`out.log` (Devin), or `out.json` plus `err.log` (Grok). Spawn errors are reported
-before launched is committed. Nonzero worker exits remain launch facts, not
-dispatch failures. The IPC launch acknowledgement is best-effort: channel loss
-before the handshake cannot terminate the detached supervisor or prevent exit
-evidence. Defaults are Devin `accept-edits`, Grok `acceptEdits` with
-`--no-subagents`. Omp task metadata records `omp_id` and the expected transcript
-glob `~/.omp/agent/sessions/*/*/<omp-id>.jsonl`: task sessions inherit the parent
+Devin/grok/headless omp run shell-free, in the worktree, via a detached Node
+supervisor with an IPC spawn handshake. The recorded supervisor pid remains
+alive through the worker's lifetime and writes `<packet>/exit` on completion;
+output goes to `out.log` (Devin, omp), or `out.json` plus `err.log` (Grok).
+Spawn errors are reported before launched is committed. Nonzero worker exits
+remain launch facts, not dispatch failures. The IPC launch acknowledgement is
+best-effort: channel loss before the handshake cannot terminate the detached
+supervisor or prevent exit evidence. Devin (headless and herdr) always runs
+`--respect-workspace-trust false --permission-mode dangerous`, the only accepted
+`--permission-mode` (in `-p` mode `smart`/`auto`/`accept-edits` reject edits and
+shell, a TUI in accept mode stalls on prompts, and an untrusted worktree fails at
+once), so it must only ever get an isolated card worktree. Workers are spawned
+by bare name after a PATH presence check, never by resolved path, so host
+wrappers (MBP's `devin`) apply. Grok defaults to `acceptEdits` with `--no-subagents`.
+Headless omp runs `omp -p --no-title --auto-approve --mode json --model <m>
+--cwd <worktree> --session-dir <packet>/session --config <packet>/omp-config.yml`;
+the overlay sets `retry.usageAwareFallback: false` and empty `fallbackChains`
+for the model, so a usage-limited lane exits instead of silently switching
+models, and the ledger model stays the model that worked. `session_ref` is the
+session directory (omp nests one level per cwd). Omp task (`--omp-id`) metadata
+records `omp_id` and the expected transcript glob
+`~/.omp/agent/sessions/*/*/<omp-id>.jsonl`: task sessions inherit the parent
 directory, not necessarily the worker worktree; collection must reject an
 ambiguous match or require `--omp-session-dir`.
 
@@ -454,3 +473,99 @@ Post-intent dispatch failures exit 1; preflight input errors exit 2; ledger
 guard refusals exit 3. Tests use fake harness binaries and isolated ledgers,
 including checking that committed intent is visible and the write lock is
 released before launch.
+
+### 12.2 `aps collect` (FAC-M08)
+
+`mmbridge aps collect <card>|--all --by <manager> [--wait <dur>] [--abandon]
+[--omp-session-dir <dir>] [--json]` resolves one live run per card. The
+exported `collectRun(db, cardId, by, opts)` drives the same flow for managers
+and returns a `CollectOutcome` (`card`, `run`, `outcome`, `code`, `message`,
+`report?`, `evidence?`); it never calls `process.exit` — the CLI maps the
+outcome to emit/exit codes.
+
+While `report.json` is absent the recorded session is probed but never
+closed: a proven end without a report exits 3 as H10, or with `--abandon`
+appends an `abandoned` run event and `closeSession(..., abandon=true)`
+returns the card to issued; `--wait` polls every 5 s until the report or the
+end appears; otherwise the run stays `pending` at exit 0 (JSON adds
+`pending:true`). A present report must match the live run's id/card/attempt,
+and the reported sha must be a commit that is an ancestor of the reported
+branch in the run worktree, with the branch equal to `worker_runs.branch`
+(H09). `recordReport`, the `handoff`/`pr` card links and the
+`reported`/`blocked` run event commit in one transaction, so a guard refusal
+leaves the run `launched` for a fixed report.
+
+Probe and close keys come from the launched event fields, not the harness
+name: `pane_id` runs the herdr pane probe/close (`pane_not_found` or a
+changed `terminal_id` proves the end; H06 refuses while `agent_status =
+working`; a surviving pane refuses H01; evidence carries
+`closed_by_collect`), `pid` proves the end via `<packet>/exit` first and
+`kill -0` otherwise (H07 while alive; collect never kills), and `omp_id`
+requires `<transcript dir>/<id>.md` with mtime at or after launch (H08;
+multiple candidate dirs need `--omp-session-dir`). Session close then commits
+`closeSession`: DONE and DONE_WITH_CONCERNS move reported→closed_session and
+append a `closed` event carrying close evidence (N04); BLOCKED returns
+working→issued under `abandon` and the run ends at `blocked`, its terminal
+lifecycle event. Usage appends `omp-jsonl` `actual` rows per model from a
+readable omp transcript (`session_ref`, a single glob match, or for headless pid
+runs the newest `*.jsonl` under the `session_ref` session directory) and one `none`/`unknown` row
+otherwise; an unreadable transcript warns and never blocks the close. A
+`reported` run resumes at session close without re-recording the report, and
+`--all` iterates every `launched` or `reported` run in `since` order —
+failures do not stop later runs — exiting with the worst per-run code.
+
+### 12.3 `aps dispatch --auto` (APS §14 placement)
+
+`mmbridge aps dispatch <card> --auto [--tier L3|L2] [--role mech|review|design|vision]
+[--workers a,b] [--exclude c] [--ignore-quota] [--quota-json file] [--workers-file file]
+[--probe seconds]` picks the worker from the registry (`DEFAULT_WORKERS` in
+`@mmbridge/aps`, or `--workers-file`) instead of `--harness/--lane/--layer/--model/--vendor`,
+which are refused together with `--auto`.
+
+1. Quota: `omp usage --json` (60 s), else `codexbar usage --json`, or the file given.
+   `assessQuota` blocks a provider below 15 % left or whose pace runs out before reset
+   (pace is projected only after 2 % of the window and 10 % used). Real runs append the
+   windows to `quota_samples(vendor=provider, account='pool', metric=label, value=used)`.
+2. Load: working lanes from `herdr agent list` plus live ledger runs (schema v2), mapped
+   to registry vendors; `rankWorkers` prefers the least-loaded vendor within the tier
+   and role, or follows `--workers` order.
+3. Launch: each candidate goes through `dispatchCard` (§12.1). A missing binary or omp
+   agent skips the worker; other refusals (state, worktree, guards) abort.
+4. Fallback: the launch is watched for `--probe` seconds (default 60). An exit whose
+   output `classifyFailure` maps to usage-limit/auth/outage appends
+   `failed {fallback, worker, exit, excerpt}` and `closeSession(abandon)` in one
+   transaction (card back to issued) and tries the next worker. Each fallback is a card
+   attempt, so W03 bounds it. An unclassified early exit stops the loop and is left for
+   collect. Exit 1 when nothing is running.
+
+`--dry-run` reads quota/lanes and prints the first candidate's dispatch preview without
+writes.
+
+### 12.4 `mmbridge foreman <parent-card>` (반장)
+
+One pass over the parent's child cards (`--wait 2h` repeats every 30 s while lanes run):
+
+1. Collect every live run without waiting (§12.2).
+2. First inspection of `closed_session` children: worktree HEAD must equal the reported
+   sha; each acceptance `command` runs in the worktree (exit 0, plus `expect` text unless
+   expect is `exit 0`); files changed since `base_sha` must sit under path tokens of the
+   card scope. Any failure records a `revise` review (`major`, `test`/`correctness`);
+   a pass moves the card to `inspecting` for an independent L2 exact-SHA review. The
+   foreman never accepts.
+3. Dispatch `issued`/`revise` children up to `--max` (default 6) live lanes with
+   `--auto` and one shared quota probe: mech/research → L3 mech, review/design/vision →
+   L2 of that role. Rework 2 prints `NEEDS_CARD_FIX`, 3+ `ESCALATE_L1`, and neither is
+   dispatched. Each card gets `<repo>.foreman/<card>` on `foreman/<card>` (`--repo` is required).
+
+Output, one line per card: `card worker result sha ac n/n rework N — note`.
+
+### 12.5 `mmbridge audit`
+
+Read-only (`openApsDbReadOnly`): herdr lanes (model from the pane's omp session; Devin
+panes assume `devin/swe-2-max`), live ledger runs (v2 only; a run in a listed pane
+enriches that lane), vision verdicts of the last 24 h, and quota. `buildAudit` reports
+`L3_RATIO` (< 60 % of working lanes), `MECH_ON_PREMIUM`, `L3_VISION_VERDICT`,
+`EXHAUSTED_PROVIDER` (≤ 1 % left), `STALLED` (`--stall-min`, default 30) and
+`FINISHED_OPEN`. `--out` writes the markdown atomically; `--json` prints the report.
+Exit 4 when violations exist, 1 when the audit itself failed. MBP runs it every 30 min
+via launchd `com.ss.aps-audit` into `~/ss-work/squads/Reports/aps-audit-latest.md`.
