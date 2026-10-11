@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,7 +61,16 @@ db.exec('PRAGMA busy_timeout=100; BEGIN IMMEDIATE');
 const run = db.prepare('SELECT * FROM v_run_current').get();
 if (!run || run.status !== 'intent') throw Error('missing committed intent');
 db.exec('ROLLBACK'); db.close();
-if (step === process.env.FAIL_STEP) { console.log(JSON.stringify({error:{code:'fake_failure'}})); process.exit(1); }
+if (step === process.env.FAIL_STEP) {
+  const error = JSON.stringify({error:{code:'fake_failure'}});
+  console.error(error);
+  process.exit(1);
+}
+if (step === 'agent start' || step === 'agent prompt') {
+  if (!/^[a-z][a-z0-9_-]{0,31}$/.test(args[2])) {
+    console.error(JSON.stringify({error:{code:'invalid_agent_name'}})); process.exit(1);
+  }
+}
 const pane = {pane_id:'w1:p1',terminal_id:'terminal-1',tab_id:'tab-1',workspace_id:'w1',agent_status:'working',agent_session:{value:'/synthetic/task.jsonl'}};
 if (step === 'tab create') { state.label = args[args.indexOf('--label')+1]; fs.writeFileSync(stateFile, JSON.stringify(state)); reply({type:'unverified_create_shape'}); }
 else if (step === 'tab list') reply({tabs:[{tab_id:'tab-1',workspace_id:'w1',label:state.label}]});
@@ -146,6 +155,9 @@ test('dispatch herdr records intent then launched with pane+terminal and collect
   const metadata = JSON.parse(readFileSync(join(value.packet, 'dispatch.json'), 'utf8'));
   assert.equal(metadata.base_sha, f.git(['rev-parse', 'HEAD']));
   assert.equal(metadata.branch, 'worker');
+  assert.match(value.herdr_name, /^[a-z][a-z0-9_-]{0,31}$/);
+  assert.notEqual(value.herdr_name, value.run);
+  assert.equal(metadata.herdr_name, value.herdr_name);
   assert.match(readFileSync(join(value.packet, 'dispatch.log'), 'utf8'), /agent.*prompt/);
   const calls = readFileSync(join(f.home, 'calls.jsonl'), 'utf8')
     .trim()
@@ -155,6 +167,8 @@ test('dispatch herdr records intent then launched with pane+terminal and collect
     calls.map((args) => args.slice(0, 2).join(' ')),
     ['workspace list', 'tab create', 'tab list', 'pane list', 'agent start', 'agent prompt', 'pane get'],
   );
+  assert.equal(calls.find((args) => args[0] === 'agent' && args[1] === 'start')[2], value.herdr_name);
+  assert.equal(calls.find((args) => args[0] === 'agent' && args[1] === 'prompt')[2], value.herdr_name);
 });
 
 test('dispatch failure returns card to issued and records failed with pane cleanup', (t) => {
@@ -169,6 +183,18 @@ test('dispatch failure returns card to issued and records failed with pane clean
   );
   assert.equal(JSON.parse(String(events[1].detail_json)).cleanup[0].pane, 'w1:p1');
   assert.equal(f.db.prepare("SELECT status FROM agents WHERE name='worker'").get()?.status, 'closed');
+  assert.equal(JSON.parse(readFileSync(join(f.home, 'herdr.json'), 'utf8')).closed, true);
+});
+
+test('dispatch preserves herdr stderr error code and compensates the failed launch', (t) => {
+  const f = fixture(t);
+  f.env.FAIL_STEP = 'agent start';
+  const result = f.run([], 1);
+  assert.match(result.stderr, /herdr agent start failed: fake_failure/);
+  assert.doesNotMatch(result.stderr, /Unexpected end of JSON/);
+  assert.equal(f.db.prepare('SELECT state FROM cards').get()?.state, 'issued');
+  const failed = f.db.prepare("SELECT detail_json FROM run_events WHERE status='failed'").get();
+  assert.match(JSON.parse(String(failed?.detail_json)).error, /fake_failure/);
   assert.equal(JSON.parse(readFileSync(join(f.home, 'herdr.json'), 'utf8')).closed, true);
 });
 
@@ -234,6 +260,38 @@ test('headless executable spawn failure records failed and returns card to issue
   assert.equal(f.db.prepare('SELECT state FROM cards').get()?.state, 'issued');
   assert.equal(f.db.prepare('SELECT status FROM v_run_current').get()?.status, 'failed');
   assert.equal(f.db.prepare("SELECT count(*) AS n FROM run_events WHERE status='launched'").get()?.n, 0);
+});
+
+test('detached supervisor keeps exit evidence when dispatch IPC disconnects before handshake', async (t) => {
+  const f = fixture(t);
+  const preview = f.run(['--dry-run'], 0, 'devin').value;
+  const packet = join(f.home, 'ipc-lost');
+  mkdirSync(packet);
+  const supervisor = spawn(
+    process.execPath,
+    [
+      '-e',
+      preview.spawnArgv[0][2],
+      process.execPath,
+      JSON.stringify(['-e', 'process.stdout.write("harmless worker finished\\n")']),
+      packet,
+      'out.log',
+    ],
+    { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] },
+  );
+  t.after(() => {
+    if (supervisor.exitCode === null) supervisor.kill();
+  });
+  let stderr = '';
+  supervisor.stderr?.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+  supervisor.once('spawn', () => supervisor.disconnect());
+  const [code, signal] = await once(supervisor, 'exit');
+  assert.equal(code, 0, stderr);
+  assert.equal(signal, null);
+  assert.equal(readFileSync(join(packet, 'exit'), 'utf8').trim(), '0');
+  assert.match(readFileSync(join(packet, 'out.log'), 'utf8'), /harmless worker finished/);
 });
 
 test('omp harness prints task prompt and requires --omp-id', (t) => {

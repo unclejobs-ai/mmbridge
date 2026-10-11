@@ -410,6 +410,14 @@ Dispatch uses three short transactions, never a write lock across spawning:
    `closeSession(..., abandon=true)`, returning the card to issued. Created
    panes belonging to the recorded run tab are closed best-effort.
 
+If dispatch crashes after intent commits but before launched is recorded, the
+intent remains live and blocks redispatch with N01. The board already marks
+intent runs older than two minutes as STUCK-INTENT. Reconcile the recorded
+packet/dispatch log against actual panes or processes before abandoning the
+run; a launch may have happened even though observation did not commit.
+Use `aps collect <card> --abandon` only after confirming the session ended,
+then redispatch the returned issued card. Never blindly spawn a second worker.
+
 Packets live in `<dirname(dbPath)>/dispatch/<run>/`: `card.md` retains the full
 card prompt and appends a Collect contract that supersedes manual reporting;
 `report.schema.json` binds run/card/attempt/branch, requires sha/status/pr/files/
@@ -419,14 +427,22 @@ command iff BLOCKED; `dispatch.json` records identity/worktree/base SHA;
 COMPLETION-REPORT form and atomically rename `report.json.tmp` to `report.json`,
 then exit (omp task: yield). Collect, not the worker, closes herdr panes.
 
-Herdr creates a no-focus tab, resolves its unique pane by workspace/tab, starts
-and prompts the agent, and records workspace/tab/pane/terminal/session reference.
+Herdr creates a no-focus tab labelled with the ledger run ID, resolves its unique
+pane by workspace/tab, starts and prompts the agent, and records workspace/tab/
+pane/terminal/session reference. Its independent `herdr_name` is a unique
+32-character lowercase `aps-<random>` identifier satisfying
+`[a-z][a-z0-9_-]{0,31}`; uppercase APS card/run IDs are never agent names.
+Launch commands use the adapter's shared envelope parser for stdout/stderr
+selection; failures retain herdr's `error.code` in both the CLI error and failed
+event instead of hiding it behind a JSON parse error.
 Devin/grok run shell-free, in the worktree, via a detached Node supervisor with
 an IPC spawn handshake. The recorded supervisor pid remains alive through the
 worker's lifetime and writes `<packet>/exit` on completion; output goes to
 `out.log` (Devin), or `out.json` plus `err.log` (Grok). Spawn errors are reported
 before launched is committed. Nonzero worker exits remain launch facts, not
-dispatch failures. Defaults are Devin `accept-edits`, Grok `acceptEdits` with
+dispatch failures. The IPC launch acknowledgement is best-effort: channel loss
+before the handshake cannot terminate the detached supervisor or prevent exit
+evidence. Defaults are Devin `accept-edits`, Grok `acceptEdits` with
 `--no-subagents`. Omp task metadata records `omp_id` and the expected transcript
 glob `~/.omp/agent/sessions/*/*/<omp-id>.jsonl`: task sessions inherit the parent
 directory, not necessarily the worker worktree; collection must reject an

@@ -16,7 +16,7 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { ApsInputError, type WorkerKind } from '@mmbridge/aps';
-import { getPane, listPanes, listWorkspaces } from './aps-herdr.js';
+import { getPane, listPanes, listWorkspaces, parseHerdrEnvelope } from './aps-herdr.js';
 import { type ApsCommandOptions, choice, emit, required } from './aps-shared.js';
 import { exitWithError, importAps, importCore } from './helpers.js';
 
@@ -36,9 +36,13 @@ const {spawn} = require('node:child_process');
 const [binary, args, packet, output] = process.argv.slice(1);
 const out = fs.openSync(packet + '/' + output, 'a');
 const err = output === 'out.json' ? fs.openSync(packet + '/err.log', 'a') : out;
+// IPC is only a launch acknowledgement: losing dispatch must not stop supervision.
+const notify = message => {
+  try { if (process.connected) process.send?.(message, () => {}); } catch {}
+};
 const child = spawn(binary, JSON.parse(args), {stdio: ['ignore', out, err]});
-child.on('spawn', () => process.send?.({ready: true}));
-child.on('error', error => { fs.appendFileSync(packet + '/dispatch.log', error.message + '\\n'); fs.writeFileSync(packet + '/exit', '127\\n'); process.send?.({error: error.message}); process.exitCode = 127; });
+child.on('spawn', () => notify({ready: true}));
+child.on('error', error => { fs.appendFileSync(packet + '/dispatch.log', error.message + '\\n'); fs.writeFileSync(packet + '/exit', '127\\n'); notify({error: error.message}); process.exitCode = 127; });
 child.on('exit', code => { fs.writeFileSync(packet + '/exit', String(code ?? 128) + '\\n'); process.exitCode = code ?? 128; });
 `;
 
@@ -208,6 +212,7 @@ export async function runApsDispatchCommand(
     const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
     let run = `${cardId}-a${attempt}-${stamp}`;
     if (db.prepare('SELECT 1 FROM worker_runs WHERE id=?').get(run)) run += `-${randomUUID().slice(0, 8)}`;
+    const herdrName = harness === 'herdr' ? `aps-${randomUUID().replaceAll('-', '').slice(0, 28)}` : undefined;
     const packet = join(dirname(dbPath), 'dispatch', run);
     const pointer = `Read ${join(packet, 'card.md')} and follow it exactly. Hand off by writing ${join(packet, 'report.json')} and ${join(packet, 'report.md')}.`;
     const ompPrompt = `${pointer} Yield when report.json is written.`;
@@ -228,7 +233,7 @@ export async function runApsDispatchCommand(
               'herdr',
               'agent',
               'start',
-              run,
+              herdrName,
               '--kind',
               kind,
               '--pane',
@@ -238,7 +243,7 @@ export async function runApsDispatchCommand(
               '--',
               ...args,
             ],
-            ['herdr', 'agent', 'prompt', run, pointer, '--wait', '--until', 'working', '--timeout', '15000'],
+            ['herdr', 'agent', 'prompt', herdrName, pointer, '--wait', '--until', 'working', '--timeout', '15000'],
             ['herdr', 'pane', 'get', '<resolved-pane>'],
           ]
         : harness === 'omp'
@@ -263,6 +268,7 @@ export async function runApsDispatchCommand(
       base_sha: baseSha,
       harness,
       kind: harness === 'herdr' ? kind : null,
+      herdr_name: herdrName,
       model,
     };
     const schema = reportSchema(run, cardId, attempt, branch);
@@ -321,13 +327,13 @@ export async function runApsDispatchCommand(
       step = argv.slice(0, 2).join(' ');
       const result = await core.runCommand('herdr', argv, { timeoutMs });
       log({ argv, ...result });
-      const envelope = JSON.parse(result.stdout) as {
-        error?: unknown;
-        result?: { tabs?: { tab_id: string; label: string; workspace_id: string }[] };
-      };
-      if (!result.ok || envelope.error || !envelope.result)
-        throw new Error(`herdr ${step} failed: ${result.stderr || result.stdout}`);
-      return envelope.result;
+      const envelope = parseHerdrEnvelope(result);
+      const error = envelope.error;
+      const errorCode = error && typeof error === 'object' && 'code' in error ? String(error.code) : undefined;
+      const payload = envelope.result;
+      if (!result.ok || error || !payload || typeof payload !== 'object' || Array.isArray(payload))
+        throw new Error(`herdr ${step} failed${errorCode ? `: ${errorCode}` : ''}`);
+      return payload as { tabs?: { tab_id: string; label: string; workspace_id: string }[] };
     };
     try {
       mkdirSync(packet, { recursive: true });
@@ -365,10 +371,25 @@ export async function runApsDispatchCommand(
         paneId = panes[0].pane_id;
         terminalId = panes[0].terminal_id;
         await herdr(
-          ['agent', 'start', run, '--kind', kind, '--pane', paneId, '--timeout', '60000', '--', ...args],
+          [
+            'agent',
+            'start',
+            herdrName as string,
+            '--kind',
+            kind,
+            '--pane',
+            paneId,
+            '--timeout',
+            '60000',
+            '--',
+            ...args,
+          ],
           70_000,
         );
-        await herdr(['agent', 'prompt', run, pointer, '--wait', '--until', 'working', '--timeout', '15000'], 20_000);
+        await herdr(
+          ['agent', 'prompt', herdrName as string, pointer, '--wait', '--until', 'working', '--timeout', '15000'],
+          20_000,
+        );
         step = 'pane get';
         const pane = await getPane(paneId);
         log({ step, pane });
@@ -376,6 +397,7 @@ export async function runApsDispatchCommand(
           throw new Error('launched pane is absent or terminal changed');
         launch = {
           workspace_id: workspace,
+          herdr_name: herdrName,
           tab_id: tabId,
           pane_id: paneId,
           terminal_id: terminalId,
