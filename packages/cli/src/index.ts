@@ -594,6 +594,21 @@ export async function main(): Promise<void> {
       };
     },
   );
+  addAps(
+    apsCmd,
+    'collect [card]',
+    'collect',
+    [
+      ['--all', 'Collect every launched or reported run'],
+      ['--wait <dur>', 'Poll for report.json (e.g. 90s, 30m, 2h)'],
+      ['--abandon', 'Abandon a run that ended without report.json'],
+      ['--omp-session-dir <dir>', 'Resolve an ambiguous omp transcript dir'],
+    ],
+    async () => {
+      const { runApsCollectCommand } = await import('./commands/aps-collect.js');
+      return { runApsCommand: runApsCollectCommand };
+    },
+  );
   const foremanFlags: [string, string][] = [
     ['--repo <path>', 'Absolute git repo; per-card worktrees go to <repo>.foreman/<card>'],
     ['--max <n>', 'Max live lanes for this parent (default 6)'],

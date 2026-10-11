@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { checkAcceptance, outOfScope, parseDuration, reworkGate } from '../dist/commands/aps-foreman.js';
+import { checkAcceptance, outOfScope, reworkGate } from '../dist/commands/aps-foreman.js';
+import { parseDuration } from '../dist/commands/aps-shared.js';
 
 test('rework gate: reissue up to 1 rework, card fix at 2, L1 redesign from 3', () => {
   assert.deepEqual([0, 1, 2, 3, 4].map(reworkGate), [

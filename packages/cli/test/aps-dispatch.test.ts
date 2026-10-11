@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { openApsDb } from '@mmbridge/aps';
@@ -22,7 +22,8 @@ function fixture(t: TestContext) {
     HOME: home,
     APS_AGENT: 'mgr',
     NODE_NO_WARNINGS: '1',
-    PATH: `${fakebin}:${process.env.PATH}`,
+    // Hermetic: workers spawn by bare name, so a broken fake must not fall through to a real CLI.
+    PATH: `${fakebin}:${dirname(process.execPath)}:/usr/bin:/bin`,
     APS_DB: join(home, 'aps.db'),
     MMBRIDGE_APS_DB: '',
     DISPATCH_TEST_HOME: home,

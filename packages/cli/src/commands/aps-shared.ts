@@ -70,6 +70,16 @@ export interface ApsCommandOptions {
   ref?: string;
   auto?: boolean;
 }
+
+const DURATION_UNIT_MS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
+
+/** `90`, `90s`, `30m`, `2h`, `500ms` → ms (bare numbers are seconds); undefined → 0. */
+export function parseDuration(value: string | undefined, flag: string): number {
+  if (value === undefined) return 0;
+  const match = /^(\d+)(ms|s|m|h)?$/.exec(value.trim());
+  if (!match) throw new InputError(`--${flag} must look like 90s, 30m or 2h`);
+  return Number(match[1]) * DURATION_UNIT_MS[match[2] ?? 's'];
+}
 export function required(value: unknown, flag: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new InputError(`--${flag} is required`);
   return value;

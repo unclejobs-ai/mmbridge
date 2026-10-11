@@ -8,7 +8,7 @@ import { collectRun } from './aps-collect.js';
 import { type AutoDispatchOptions, autoDispatch } from './aps-dispatch-auto.js';
 import { dispatchExitCode } from './aps-dispatch.js';
 import { probeQuota } from './aps-quota.js';
-import { emit, required } from './aps-shared.js';
+import { emit, parseDuration, required } from './aps-shared.js';
 import { exitWithError, importAps, importCore } from './helpers.js';
 
 export interface ForemanOptions extends Omit<AutoDispatchOptions, 'workers'> {
@@ -73,15 +73,6 @@ const PLACEMENT: Record<string, { tier: WorkerTier; role: WorkerRole }> = {
 /** §14 rework rule: 1 failure → reissue, 2 → the L2 fixes the card, 3+ → L1 redesign (W03 blocks a 4th). */
 export function reworkGate(rework: number): 'dispatch' | 'NEEDS_CARD_FIX' | 'ESCALATE_L1' {
   return rework >= 3 ? 'ESCALATE_L1' : rework === 2 ? 'NEEDS_CARD_FIX' : 'dispatch';
-}
-
-const DURATION_UNIT_MS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
-
-export function parseDuration(value: string | undefined, flag: string): number {
-  if (value === undefined) return 0;
-  const match = /^(\d+)(ms|s|m|h)?$/.exec(value.trim());
-  if (!match) throw new ApsInputError(`--${flag} must look like 90s, 30m or 2h`);
-  return Number(match[1]) * DURATION_UNIT_MS[match[2] ?? 's'];
 }
 
 /** Path-like tokens of a card scope (`packages/aps/src/`, `README.md`); empty when the scope is prose only. */
