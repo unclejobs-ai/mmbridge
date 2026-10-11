@@ -10,6 +10,7 @@ import { addRunEvent, createRun, newAgent, openApsDb, startCard } from '@mmbridg
 const bin = resolve(import.meta.dirname, '../dist/bin/mmbridge.js');
 const card = 'TS-C-0001';
 const card2 = 'TS-C-0002';
+const acceptance = '[{"id":"AC1","text":"Works","command":"echo yes","expect":"yes"}]';
 let runCounter = 0;
 
 const FAKE_HERDR = `#!${process.execPath}
@@ -68,7 +69,6 @@ function fixture(t: TestContext) {
   git(['init', '-b', 'worker']);
   git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-m', 'initial']);
   const db = openApsDb(env.APS_DB);
-  const acceptance = '[{"id":"AC1","text":"Works","command":"echo yes","expect":"yes"}]';
   db.exec(`INSERT INTO projects(id,prefix,name) VALUES('test','TS','Test');
     INSERT INTO agents(id,name,layer,model,vendor) VALUES('mgr','manager','L1','test','test');
     INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner)
@@ -424,4 +424,24 @@ test('pid probe for an omp headless run', (t) => {
   assert.equal(usage?.source, 'omp-jsonl');
   assert.equal(usage?.basis, 'actual');
   assert.equal(usage?.model, 'omp/headless');
+});
+
+test('foreman collects a finished child, passes its acceptance and hands it to inspecting', (t) => {
+  const f = fixture(t);
+  f.db.exec(`INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner)
+    VALUES('TS-C-0003','test','Parent','design','M','CLI','${acceptance}','paid calls',0,0,'mgr');
+    UPDATE cards SET parent_card='TS-C-0003' WHERE id='${card}';`);
+  const pid = liveSleep(t);
+  const { run, packet } = f.seedRun(card, { pid }, 'devin');
+  writeFileSync(join(packet, 'exit'), '0\n');
+  f.writeReport(packet, f.reportValues(run, card));
+  const result = spawnSync(
+    process.execPath,
+    [bin, 'foreman', 'TS-C-0003', '--repo', f.worktree, '--db', f.env.APS_DB, '--by', 'mgr'],
+    { env: f.env, cwd: f.home, encoding: 'utf8', timeout: 30_000 },
+  );
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, new RegExp(`${card} worker inspecting \\S+ ac 1/1 rework 0`));
+  assert.equal(f.runStatus(run), 'closed');
+  assert.equal(f.cardState(card), 'inspecting');
 });

@@ -128,7 +128,7 @@ async function inspect(db: DatabaseSync, child: ChildRow, by: string, acTimeoutM
   const run = db
     .prepare(
       `SELECT r.worktree, r.base_sha, a.name AS worker FROM worker_runs r JOIN agents a ON a.id=r.agent_id
-       WHERE r.card_id=? AND r.attempt=(SELECT attempt FROM cards WHERE id=?) ORDER BY r.rowid DESC LIMIT 1`,
+       WHERE r.card_id=? AND r.attempt=(SELECT attempt FROM cards WHERE id=?) ORDER BY r.at DESC, r.id DESC LIMIT 1`,
     )
     .get(child.id, child.id) as { worktree: string; base_sha: string; worker: string } | undefined;
   const items = JSON.parse(child.acceptance_json) as AcceptanceItem[];
