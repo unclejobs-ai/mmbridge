@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { openApsDb } from '@mmbridge/aps';
+import { redactContent } from '@mmbridge/core';
 import addFormats from 'ajv-formats';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import fc from 'fast-check';
+import { GATE_TOKEN_RULES, redactBoundedText } from '../dist/commands/aps-gate-ledger.js';
 import { compareMetric } from '../dist/commands/aps-gate-metrics.js';
 import schema from '../dist/commands/aps-gate-schema.js';
 import type { Gate, Metric } from '../src/commands/aps-gate-config.ts';
@@ -589,7 +592,7 @@ test('H1: base-ref mode binds gate config to base and rejects relaxed or missing
   relaxedMode.mode = 'report';
   f.config([relaxedMode]);
   f.commit();
-  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /mode relaxed/);
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /mode changed/);
 
   const relaxedMin = structuredClone(baseGate);
   if (relaxedMin.metrics?.[0]) relaxedMin.metrics[0].min = -1;
@@ -765,19 +768,21 @@ test('L2: ledger validation happens before gate execution', (t) => {
 test('L3: baselineSha256 binds to base baseline in base-ref mode', (t) => {
   const f = fixture(t);
   f.config();
-  f.baseline(5);
+  f.baseline(4);
   const base = f.commit();
-
-  // Head baseline updated
-  f.baseline(5);
-  const res = f.run(['--base-ref', base], 0).value;
-  assert.ok(res.baselineSha256);
+  const baseBytes = readFileSync(join(f.root, '.aps/baseline.json'));
+  f.baseline(9);
+  f.commit();
+  const headBytes = readFileSync(join(f.root, '.aps/baseline.json'));
+  const res = f.run(['--base-ref', base], 1).value;
+  assert.equal(res.baselineSha256, createHash('sha256').update(baseBytes).digest('hex'));
+  assert.notEqual(res.baselineSha256, createHash('sha256').update(headBytes).digest('hex'));
 });
 
 test('L4: not-yet-active exemptions emit warning and are ignored', (t) => {
   const f = fixture(t);
   f.config();
-  f.baseline(5);
+  f.baseline(4);
   const base = f.commit();
   const future = '2099-01-01';
   f.file('exemptions.json', {
@@ -785,7 +790,8 @@ test('L4: not-yet-active exemptions emit warning and are ignored', (t) => {
     exemptions: [exemption({ createdAt: future, expiresAt: future })],
   });
   const approvedBase = f.commit();
-  const res = f.run(['--base-ref', approvedBase], 0).value;
+  const res = f.run(['--base-ref', approvedBase], 1).value;
+  assert.equal(res.gates[0].status, 'fail');
   assert.match(res.warnings.join(' '), /not-yet-active-exemption/);
 });
 
@@ -846,6 +852,8 @@ test('H1: adding when to a base gate is drift and does not skip the gate', (t) =
   f.commit();
   const res = f.run(['--base-ref', base], 1).value;
   assert.notEqual(res.gates[0].status, 'skipped');
+  assert.notEqual(res.gates[0].exitCode, null);
+  assert.doesNotMatch(res.gates[0].message, /No matching changed paths/);
   assert.equal(res.verdict, 'fail');
   assert.match(res.gates[0].message, /when changed/);
 });
@@ -914,4 +922,279 @@ test('update-baseline still rejects a loosened baseline on a skipped gate', (t) 
   assert.equal(res.baselineUpdated, false);
   assert.match(res.warnings.join(' '), /head-baseline-loosened/);
   assert.equal(readFileSync(join(f.root, '.aps/baseline.json'), 'utf8'), before);
+});
+
+function seedCard(root: string): string {
+  const dbPath = join(root, 'ledger.db');
+  const db = openApsDb(dbPath);
+  db.exec(`INSERT INTO projects(id,prefix,name) VALUES('test','TEST','test');
+    INSERT INTO agents(id,name,layer,model,vendor) VALUES('manager','manager','L2','local','local'),('worker','worker','L3','local','local');
+    INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner,assignee)
+    VALUES('TEST-C-0001','test','gate','mech','S','scope','[{"id":"AC1","text":"gates","command":"mmbridge aps gate","expect":"exit 0"}]','none',0,0,'manager','worker');`);
+  db.close();
+  return dbPath;
+}
+
+test('R1: argv drift fails even when the command still prints the baseline', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+  const baseConfigBytes = readFileSync(join(f.root, '.aps/gates.json'));
+  const drifted = structuredClone(gate);
+  drifted.run.argv = [process.execPath, '-e', 'console.log(JSON.stringify({count:5}));'];
+  f.config([drifted]);
+  f.commit();
+  const res = f.run(['--base-ref', base], 1).value;
+  assert.match(res.gates[0].message, /run\.argv changed/);
+  assert.equal(res.baseConfigSha256, createHash('sha256').update(baseConfigBytes).digest('hex'));
+});
+
+test('R1: cwd drift includes an explicit dot', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+  const drifted = structuredClone(gate);
+  drifted.run.cwd = '.';
+  f.config([drifted]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /run\.cwd changed/);
+});
+
+test('R1: env drift fails a no-op SKIP_CHECK assignment', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+  const drifted = structuredClone(gate);
+  drifted.run.env = { SKIP_CHECK: '1' };
+  f.config([drifted]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /run\.env changed/);
+});
+
+test('R1: metric source pointer drift fails closed', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+  const drifted = structuredClone(gate);
+  if (drifted.metrics?.[0]) drifted.metrics[0].source = { kind: 'json', pointer: '/zero' };
+  f.config([drifted]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /source changed/);
+});
+
+test('R1: ratchet to threshold is mode drift', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+  const drifted = structuredClone(gate);
+  drifted.mode = 'threshold';
+  f.config([drifted]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /mode changed from ratchet to threshold/);
+});
+
+test('R2: allow does not skip a raised tolerance', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  f.file('exemptions.json', {
+    version: 1,
+    exemptions: [exemption({ effect: 'allow', metric: 'count', allow: 6 })],
+  });
+  const base = f.commit();
+  const drifted = structuredClone(gate);
+  if (drifted.metrics?.[0]) drifted.metrics[0].tolerance = 100000;
+  drifted.run.argv = [process.execPath, '-e', 'console.log(JSON.stringify({count:1000}))'];
+  f.config([drifted]);
+  f.commit();
+  const res = f.run(['--base-ref', base], 1).value;
+  assert.match(res.gates[0].message, /tolerance raised/);
+});
+
+test('R3: drift refuses update-baseline and keeps the card verdict failed', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+  const drifted = structuredClone(gate);
+  drifted.run.argv = [process.execPath, '-e', 'console.log(JSON.stringify({count:5}));'];
+  f.config([drifted]);
+  f.commit();
+  const before = readFileSync(join(f.root, '.aps/baseline.json'));
+  const dbPath = seedCard(f.root);
+  const res = f.run(
+    ['--base-ref', base, '--update-baseline', '--card', 'TEST-C-0001', '--db', dbPath, '--by', 'worker'],
+    1,
+  ).value;
+  assert.equal(res.gates[0].status, 'fail');
+  assert.equal(res.baselineUpdated, false);
+  assert.doesNotMatch(res.gates[0].message, /Baseline seeded or tightened/);
+  assert.equal(readFileSync(join(f.root, '.aps/baseline.json')).equals(before), true);
+  const db = openApsDb(dbPath);
+  const link = db.prepare('SELECT detail_json FROM card_links').get() as { detail_json: string };
+  assert.equal(JSON.parse(link.detail_json).verdict, 'fail');
+  db.close();
+});
+
+test('R4: each gate token rule redacts a sample the built-ins miss', () => {
+  const cases = [
+    { label: 'GitHub PAT', sample: 'ghp_probe_not_real', expected: '[REDACTED_GH_TOKEN]' },
+    { label: 'GitHub app token', sample: 'ghs_probe_not_real', expected: '[REDACTED_GH_TOKEN]' },
+    { label: 'Authorization header', sample: 'Authorization: Basic YWRtaW4', expected: '[REDACTED_AUTHORIZATION]' },
+    { label: 'secret assignment', sample: 'API_KEY=abcdef', expected: '[REDACTED_SECRET]' },
+    { label: 'URL userinfo', sample: 'postgres://admin:pa55w0rd@db.example/app', expected: '[REDACTED_URL_USERINFO]' },
+    { label: 'AWS access key', sample: 'AKIAIOSFODNN7EXAMPLE', expected: '[REDACTED_AWS_KEY]' },
+    { label: 'Slack token', sample: 'xoxb-1234-abcdef', expected: '[REDACTED_SLACK_TOKEN]' },
+  ];
+  for (const item of cases) {
+    const rule = GATE_TOKEN_RULES.find((candidate) => candidate.label === item.label);
+    assert.ok(rule, item.label);
+    assert.equal(redactContent(item.sample).redacted, item.sample, item.label);
+    const redacted = redactBoundedText(redactContent, item.sample, 2048);
+    assert.match(redacted, new RegExp(item.expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(
+      redacted,
+      /ghp_probe_not_real|ghs_probe_not_real|YWRtaW4|abcdef|pa55w0rd|AKIAIOSFODNN7EXAMPLE|xoxb-1234-abcdef/,
+    );
+  }
+  assert.equal(redactBoundedText(redactContent, 'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI', 2048), '[REDACTED_SECRET]');
+  assert.equal(redactBoundedText(redactContent, 'Secret: hunter2', 2048), '[REDACTED_SECRET]');
+});
+
+test('R4: card metric messages redact extraction tokens', (t) => {
+  const f = fixture(t);
+  const leaked = structuredClone(gate);
+  leaked.run.argv = [process.execPath, '-e', 'console.log("TOKEN=ghp_probe_not_real")'];
+  f.config([leaked]);
+  f.baseline(5);
+  const base = f.commit();
+  const dbPath = seedCard(f.root);
+  const res = f.run(['--base-ref', base, '--card', 'TEST-C-0001', '--db', dbPath, '--by', 'worker'], 1).value;
+  assert.doesNotMatch(res.gates[0].metrics[0].message, /ghp_probe_not_real/);
+  const db = openApsDb(dbPath);
+  const link = db.prepare('SELECT detail_json FROM card_links').get() as { detail_json: string };
+  assert.doesNotMatch(link.detail_json, /ghp_probe_not_real/);
+  db.close();
+});
+
+test('R5: removing when is not drift and the gate still runs', (t) => {
+  const f = fixture(t);
+  const baseGate = structuredClone(gate);
+  baseGate.when = { changedPaths: ['src/**'] };
+  f.config([baseGate]);
+  f.baseline(5);
+  const base = f.commit();
+  f.config([structuredClone(gate)]);
+  writeFileSync(join(f.root, 'README.md'), 'unrelated\n');
+  f.commit();
+  const res = f.run(['--base-ref', base], 0).value;
+  assert.equal(res.gates[0].status, 'pass');
+  assert.notEqual(res.gates[0].exitCode, null);
+  assert.doesNotMatch(res.gates[0].message, /when changed|changedPaths narrowed|No matching changed paths/);
+});
+
+test('R5: a broader when is not drift and still runs base paths', (t) => {
+  const f = fixture(t);
+  const baseGate = structuredClone(gate);
+  baseGate.when = { changedPaths: ['src/**'] };
+  f.config([baseGate]);
+  f.baseline(5);
+  const base = f.commit();
+  const head = structuredClone(baseGate);
+  head.when = { changedPaths: ['src/**', 'docs/**'] };
+  f.config([head]);
+  mkdirSync(join(f.root, 'src'));
+  writeFileSync(join(f.root, 'src/a.ts'), 'export const value = 1;\n');
+  f.commit();
+  const res = f.run(['--base-ref', base], 0).value;
+  assert.equal(res.gates[0].status, 'pass');
+  assert.equal(res.gates[0].exitCode, 0);
+  assert.doesNotMatch(res.gates[0].message, /changedPaths narrowed|when changed/);
+});
+
+async function waitForText(path: string): Promise<string> {
+  const started = Date.now();
+  while (Date.now() - started < 4000) {
+    try {
+      const text = readFileSync(path, 'utf8').trim();
+      if (text) return text;
+    } catch {
+      // The other process has not created the file yet.
+    }
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 20);
+    await promise;
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
+async function waitUntilDead(pid: number): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < 4000) {
+    if (spawnSync('kill', ['-0', String(pid)]).status !== 0) return;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 20);
+    await promise;
+  }
+  throw new Error(`pid ${pid} still alive`);
+}
+
+test('R6: detached close kills an unrefd grandchild', (t) => {
+  const f = fixture(t);
+  const pidFile = join(f.root, 'grandchild.pid');
+  const utilsPath = resolve(import.meta.dirname, '../../core/dist/utils.js');
+  const script = join(f.root, 'close.mjs');
+  const child = [
+    "const {spawn}=require('node:child_process');const fs=require('node:fs');",
+    "const child=spawn('sleep',['30'],{stdio:'ignore'});child.unref();",
+    `fs.writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
+  ].join('');
+  writeFileSync(
+    script,
+    `import { runCommand } from ${JSON.stringify(utilsPath)};
+const result = await runCommand(process.execPath, ['-e', ${JSON.stringify(child)}], { detached: true, timeoutMs: 10000 });
+if (result.code !== 0) process.exit(result.code || 1);
+`,
+  );
+  const helper = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 8000 });
+  assert.equal(helper.status, 0, `${helper.stdout}\n${helper.stderr}`);
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  try {
+    // Real process: the grandchild is started by the detached command, so this process cannot fake its lifetime.
+    assert.notEqual(spawnSync('kill', ['-0', String(pid)]).status, 0, `grandchild ${pid} still alive`);
+  } finally {
+    spawnSync('kill', ['-9', String(pid)]);
+  }
+});
+
+test('R6: SIGTERM kills the helper and its detached command', async (t) => {
+  const f = fixture(t);
+  const helperPidFile = join(f.root, 'helper.pid');
+  const childPidFile = join(f.root, 'child.pid');
+  const utilsPath = resolve(import.meta.dirname, '../../core/dist/utils.js');
+  const script = join(f.root, 'signal.mjs');
+  const child = `require('node:fs').writeFileSync(${JSON.stringify(childPidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
+  writeFileSync(
+    script,
+    `import { writeFileSync } from 'node:fs';
+import { runCommand } from ${JSON.stringify(utilsPath)};
+writeFileSync(${JSON.stringify(helperPidFile)}, String(process.pid));
+await runCommand(process.execPath, ['-e', ${JSON.stringify(child)}], { detached: true, timeoutMs: 60000 });
+`,
+  );
+  const helper = spawn(process.execPath, [script], { stdio: 'ignore' });
+  t.after(() => {
+    if (helper.pid) spawnSync('kill', ['-9', String(helper.pid)]);
+  });
+  // Real wait: both pid files are written by other processes after spawn.
+  const helperPid = Number(await waitForText(helperPidFile));
+  const childPid = Number(await waitForText(childPidFile));
+  process.kill(helperPid, 'SIGTERM');
+  await waitUntilDead(helperPid);
+  await waitUntilDead(childPid);
 });

@@ -3,14 +3,29 @@ import type { ApsCommandOptions } from './aps-shared.js';
 import { required } from './aps-shared.js';
 import { importAps, importCore } from './helpers.js';
 
-const GATE_TOKEN_RULES = [
+export const GATE_TOKEN_RULES = [
   { pattern: 'ghp_[A-Za-z0-9_]+', replacement: '[REDACTED_GH_TOKEN]', label: 'GitHub PAT' },
   { pattern: 'ghs_[A-Za-z0-9_]+', replacement: '[REDACTED_GH_TOKEN]', label: 'GitHub app token' },
   {
-    pattern: '(?:TOKEN|token|secret|password)\\s*[:=]\\s*\\S+',
-    replacement: '[REDACTED_SECRET]',
-    label: 'token assignment',
+    pattern: 'Authorization:\\s*\\S+(?:\\s+\\S+)?',
+    replacement: '[REDACTED_AUTHORIZATION]',
+    label: 'Authorization header',
+    flags: 'i',
   },
+  {
+    pattern: '[A-Za-z0-9_]*(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)[A-Za-z0-9_]*\\s*[:=]\\s*\\S+',
+    replacement: '[REDACTED_SECRET]',
+    label: 'secret assignment',
+    flags: 'i',
+  },
+  {
+    pattern: '[a-z][a-z0-9+.-]*://[^/\\s:@]+:[^@\\s/]+@',
+    replacement: '[REDACTED_URL_USERINFO]',
+    label: 'URL userinfo',
+    flags: 'i',
+  },
+  { pattern: 'AKIA[0-9A-Z]{16}', replacement: '[REDACTED_AWS_KEY]', label: 'AWS access key' },
+  { pattern: 'xox[abprs]-[0-9A-Za-z-]+', replacement: '[REDACTED_SLACK_TOKEN]', label: 'Slack token' },
 ];
 
 export function redactBoundedText(
@@ -41,7 +56,7 @@ export async function validateLedgerOptions(options: ApsCommandOptions): Promise
 /** M02 run events are lifecycle-only; attach repeatable gate evidence without advancing the run. */
 export async function appendGateEvidence(
   options: ApsCommandOptions,
-  result: { runId: string; gates?: unknown[] },
+  result: { runId: string; gates?: unknown[]; warnings?: unknown[] },
 ): Promise<string> {
   const aps = await importAps();
   const by = required(options.by ?? process.env.APS_AGENT, 'by');
@@ -52,14 +67,32 @@ export async function appendGateEvidence(
   try {
     aps.doctor(db);
     const ref = `aps-gate:${result.runId}`;
-    // Never persist raw stdout/stderr. Message is a short redacted tail.
+    const redactText = (value: string): string => redactBoundedText(core.redactContent, value, 2048);
+    // Never persist raw stdout/stderr. Messages, metric messages, and warnings are short redacted tails.
     const ledgerDetail = {
       ...result,
+      warnings: Array.isArray(result.warnings)
+        ? result.warnings.map((warning) => (typeof warning === 'string' ? redactText(warning) : warning))
+        : result.warnings,
       gates: Array.isArray(result.gates)
-        ? (result.gates as Array<Record<string, unknown>>).map(({ stdout: _out, stderr: _err, message, ...rest }) => ({
-            ...rest,
-            message: redactBoundedText(core.redactContent, typeof message === 'string' ? message : '', 2048),
-          }))
+        ? result.gates.map((gate) => {
+            if (gate === null || typeof gate !== 'object') return gate;
+            const { stdout: _out, stderr: _err, message, metrics, ...rest } = gate as Record<string, unknown>;
+            return {
+              ...rest,
+              message: redactText(typeof message === 'string' ? message : ''),
+              metrics: Array.isArray(metrics)
+                ? metrics.map((metric) => {
+                    if (metric === null || typeof metric !== 'object') return metric;
+                    const row = metric as Record<string, unknown>;
+                    return {
+                      ...row,
+                      message: typeof row.message === 'string' ? redactText(row.message) : row.message,
+                    };
+                  })
+                : metrics,
+            };
+          })
         : result.gates,
     };
     aps.transaction(db, () => aps.addLink(db, cardId, by, 'other', ref, ledgerDetail));

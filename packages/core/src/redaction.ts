@@ -6,6 +6,7 @@ export interface RedactionRuleSpec {
   pattern: string;
   replacement: string;
   label: string;
+  flags?: string;
 }
 
 const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: string }> = [
@@ -28,6 +29,10 @@ const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: stri
   { pattern: /Bearer\s+[A-Za-z0-9_\-.~+/]{20,}/g, replacement: 'Bearer [REDACTED_TOKEN]', label: 'Bearer token' },
 ];
 
+function compileFlags(flags?: string): string {
+  const raw = flags ?? '';
+  return raw.includes('g') ? raw : `${raw}g`;
+}
 function buildRules(
   extraRules: RedactionRuleSpec[] = [],
 ): Array<{ pattern: RegExp; replacement: string; label: string }> {
@@ -35,7 +40,7 @@ function buildRules(
   for (const rule of extraRules) {
     try {
       compiled.push({
-        pattern: new RegExp(rule.pattern, 'g'),
+        pattern: new RegExp(rule.pattern, compileFlags(rule.flags)),
         replacement: rule.replacement,
         label: rule.label,
       });

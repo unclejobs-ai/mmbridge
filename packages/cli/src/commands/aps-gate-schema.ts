@@ -182,7 +182,7 @@ const schema: Record<string, unknown> & { $id: string } = JSON.parse(String.raw`
       ]
     },
     "gateResult": {
-      "description": "\u0060mmbridge aps gate --format json\u0060 stdout and the --card ledger detail. schema = aps-gate-result/1.",
+      "description": "\u0060mmbridge aps gate --format json\u0060 stdout. The --card ledger detail is this object with stdout/stderr omitted and messages re-redacted. schema = aps-gate-result/1.",
       "type": "object",
       "required": ["schema", "repo", "headSha", "configSha256", "verdict", "gates"],
       "properties": {
@@ -193,6 +193,7 @@ const schema: Record<string, unknown> & { $id: string } = JSON.parse(String.raw`
         "baseRef": { "type": ["string", "null"], "description": "null = local advisory mode: HEAD baseline and HEAD exemptions are trusted and a warning is emitted. Card acceptance evidence requires a non-null baseRef." },
         "baseSha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" },
         "configSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "baseConfigSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the base-ref .aps/gates.json bytes. null when --base-ref is absent or the base has no config." },
         "baselineSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
         "startedAt": { "type": "string", "format": "date-time" },
         "finishedAt": { "type": "string", "format": "date-time" },

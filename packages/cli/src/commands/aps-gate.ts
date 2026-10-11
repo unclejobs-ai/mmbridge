@@ -42,6 +42,7 @@ interface GateRunResult {
   baseRef: string | null;
   baseSha: string | null;
   configSha256: string;
+  baseConfigSha256: string | null;
   baselineSha256: string | null;
   startedAt: string;
   finishedAt: string;
@@ -58,7 +59,19 @@ function optionalFile(path: string): string | null {
     throw new GateConfigError(`cannot read ${path}: ${String(error)}`);
   }
 }
-
+function canonical(value: unknown): string {
+  if (value === undefined || value === null) return 'null';
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonical(item)).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`)
+    .join(',')}}`;
+}
+function sameCanonical(left: unknown, right: unknown): boolean {
+  return canonical(left) === canonical(right);
+}
 export async function executeApsGates(options: ApsGateOptions): Promise<GateRunResult> {
   if (options.format !== undefined && !['json', 'table'].includes(options.format))
     throw new GateConfigError('--format must be table|json');
@@ -86,6 +99,7 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
   let effectiveBaselineFile = headBaselineFile;
   let effectiveExemptionsFile = headExemptionsFile;
   let baseConfig: typeof config | null = null;
+  let baseConfigRawText: string | null = null;
   let baseBaselineRawText: string | null = null;
   if (options.baseRef) {
     baseSha = await git(['rev-parse', '--verify', `${options.baseRef}^{commit}`]);
@@ -96,9 +110,9 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
       const exists = await git(['ls-tree', '--name-only', baseSha as string, '--', path]);
       return exists ? git(['show', `${baseSha}:${path}`], true) : null;
     }
-    const baseConfigText = await baseFile('.aps/gates.json');
-    if (baseConfigText !== null) {
-      baseConfig = parseDocument(baseConfigText, 'config', 'base:.aps/gates.json');
+    baseConfigRawText = await baseFile('.aps/gates.json');
+    if (baseConfigRawText !== null) {
+      baseConfig = parseDocument(baseConfigRawText, 'config', 'base:.aps/gates.json');
       effectiveBaselineFile = baseConfig.baselineFile ?? '.aps/baseline.json';
       effectiveExemptionsFile = baseConfig.exemptionsFile ?? '.aps/exemptions.json';
     }
@@ -172,11 +186,18 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
     };
     gates.push(row);
     const baseGate = options.baseRef ? baseConfig?.gates.find((candidate) => candidate.id === gate.id) : undefined;
-    const skipWhen = baseGate ? baseGate.when : gate.when;
+    const headGlobs = gate.when?.changedPaths;
+    const baseGlobs = baseGate?.when?.changedPaths;
+    const skipGlobs =
+      options.baseRef && baseGate
+        ? baseGlobs && headGlobs
+          ? [...new Set([...baseGlobs, ...headGlobs])]
+          : null
+        : headGlobs;
     if (
       options.baseRef &&
-      skipWhen &&
-      !changedPaths.some((path) => skipWhen.changedPaths.some((glob) => minimatch(path, glob, { dot: true })))
+      skipGlobs &&
+      !changedPaths.some((path) => skipGlobs.some((glob) => minimatch(path, glob, { dot: true })))
     ) {
       row.status = 'skipped';
       row.message = 'No matching changed paths';
@@ -233,7 +254,7 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
           delta: null,
           improved: false,
           status: 'error',
-          message: String(error),
+          message: redactBoundedText(core.redactContent, String(error), 2048),
         });
       }
     }
@@ -248,11 +269,16 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
       row.stdout = redactBoundedText(core.redactContent, command.stdout, 8192);
       row.stderr = redactBoundedText(core.redactContent, command.stderr, 8192);
     }
-    row.message = row.metrics
-      .filter((metric) => !['pass', 'exempt'].includes(metric.status))
-      .map((metric) => `${metric.id}: ${metric.message ?? metric.status}`)
-      .join('; ');
+    row.message = redactBoundedText(
+      core.redactContent,
+      row.metrics
+        .filter((metric) => !['pass', 'exempt'].includes(metric.status))
+        .map((metric) => `${metric.id}: ${metric.message ?? metric.status}`)
+        .join('; '),
+      2048,
+    );
   }
+  const driftFailedIds = new Set<string>();
   if (options.baseRef && baseConfig) {
     for (const bGate of baseConfig.gates) {
       const hGate = config.gates.find((g) => g.id === bGate.id);
@@ -261,6 +287,7 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
       );
       if (!hGate) {
         if (!gateExemption) {
+          driftFailedIds.add(bGate.id);
           gates.push({
             id: bGate.id,
             item: bGate.item,
@@ -281,34 +308,34 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
       const hEnforcement = hGate.mode === 'report' ? 'warn' : (hGate.enforcement ?? 'block');
       if (bEnforcement === 'block' && hEnforcement === 'warn')
         relaxationReasons.push('enforcement relaxed from block to warn');
-      if (['ratchet', 'threshold'].includes(bGate.mode) && !['ratchet', 'threshold'].includes(hGate.mode))
-        relaxationReasons.push(`mode relaxed from ${bGate.mode} to ${hGate.mode}`);
+      if (hGate.mode !== bGate.mode) relaxationReasons.push(`mode changed from ${bGate.mode} to ${hGate.mode}`);
       const bTimeout = bGate.run.timeoutSec ?? 900;
       const hTimeout = hGate.run.timeoutSec ?? 900;
       if (hTimeout > bTimeout) relaxationReasons.push(`timeoutSec raised from ${bTimeout} to ${hTimeout}`);
       const bCodes = bGate.run.okExitCodes ?? [0];
       const hCodes = hGate.run.okExitCodes ?? [0];
       if (hCodes.some((code) => !bCodes.includes(code))) relaxationReasons.push('okExitCodes widened');
-      const bPaths = bGate.when?.changedPaths ?? [];
-      const hPaths = hGate.when?.changedPaths ?? [];
-      const whenChanged =
-        Boolean(bGate.when) !== Boolean(hGate.when) ||
-        bPaths.length !== hPaths.length ||
-        bPaths.some((path, index) => path !== hPaths[index]);
-      if (whenChanged) {
-        if (bGate.when && (!hGate.when || bGate.when.changedPaths.some((p) => !hGate.when?.changedPaths.includes(p))))
-          relaxationReasons.push('changedPaths narrowed');
-        else relaxationReasons.push('when changed');
+      if (!sameCanonical(bGate.run.argv, hGate.run.argv)) relaxationReasons.push('run.argv changed');
+      if (!sameCanonical(bGate.run.cwd ?? null, hGate.run.cwd ?? null)) relaxationReasons.push('run.cwd changed');
+      if (!sameCanonical(bGate.run.env ?? {}, hGate.run.env ?? {})) relaxationReasons.push('run.env changed');
+      if (!bGate.when && hGate.when) relaxationReasons.push('when changed');
+      else if (bGate.when && hGate.when) {
+        const missing = bGate.when.changedPaths.filter((path) => !hGate.when?.changedPaths.includes(path));
+        if (missing.length > 0) relaxationReasons.push('changedPaths narrowed');
       }
       for (const bMetric of bGate.metrics ?? []) {
         const hMetric = hGate.metrics?.find((m) => m.id === bMetric.id);
-        const metricExemption =
-          exemptions.find((entry) => entry.gate === bGate.id && entry.metric === bMetric.id) ?? gateExemption;
+        const metricWaive =
+          exemptions.find(
+            (entry) => entry.gate === bGate.id && entry.metric === bMetric.id && entry.effect === 'waive',
+          ) ?? gateExemption;
         if (!hMetric) {
-          if (!metricExemption) relaxationReasons.push(`metric ${bMetric.id} missing in head`);
+          if (!metricWaive) relaxationReasons.push(`metric ${bMetric.id} missing in head`);
           continue;
         }
-        if (metricExemption) continue;
+        if (!sameCanonical(bMetric.source, hMetric.source))
+          relaxationReasons.push(`metric ${bMetric.id} source changed`);
+        if (metricWaive) continue;
         if (hMetric.direction !== bMetric.direction)
           relaxationReasons.push(
             `metric ${bMetric.id} direction changed from ${bMetric.direction} to ${hMetric.direction}`,
@@ -322,6 +349,7 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
           relaxationReasons.push(`metric ${bMetric.id} max bound loosened`);
       }
       if (relaxationReasons.length > 0 && !gateExemption) {
+        driftFailedIds.add(bGate.id);
         const existing = gates.find((g) => g.id === bGate.id);
         if (existing) {
           existing.enforcement = 'block';
@@ -381,7 +409,7 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
   }
   let baselineUpdated = false;
   if (options.updateBaseline) {
-    let refused = skippedBaselineLoosened;
+    let refused = skippedBaselineLoosened || driftFailedIds.size > 0;
 
     for (const [index, gate] of config.gates.entries()) {
       const row = gates[index];
@@ -409,7 +437,7 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
       }
     }
     if (refused)
-      warnings.push('baseline-update-refused: regression, threshold failure or tool error; baseline unchanged');
+      warnings.push('baseline-update-refused: regression, threshold failure, drift or tool error; baseline unchanged');
     else {
       const next: Baseline = structuredClone(headBaseline);
       for (const [index, gate] of config.gates.entries()) {
@@ -427,6 +455,7 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
         }
         if (
           gates[index].status === 'fail' &&
+          !driftFailedIds.has(gate.id) &&
           gates[index].metrics.every((metric) => ['pass', 'exempt'].includes(metric.status))
         ) {
           gates[index].status = 'pass';
@@ -472,13 +501,14 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
     baseRef: options.baseRef ?? null,
     baseSha,
     configSha256: createHash('sha256').update(configText).digest('hex'),
+    baseConfigSha256: baseConfigRawText === null ? null : createHash('sha256').update(baseConfigRawText).digest('hex'),
     baselineSha256:
       effectiveBaselineShaText === null ? null : createHash('sha256').update(effectiveBaselineShaText).digest('hex'),
     startedAt,
     finishedAt: new Date().toISOString(),
     verdict,
     gates,
-    warnings,
+    warnings: warnings.map((warning) => redactBoundedText(core.redactContent, warning, 2048)),
     baselineUpdated,
   };
 }

@@ -41,20 +41,41 @@ export async function runCommand(
       settled = true;
       clearTimeout(timeout);
       clearTimeout(killTimer);
+      for (const [signal, handler] of signalHandlers) process.off(signal, handler);
+      signalHandlers.clear();
       resolve(result);
+    };
+
+    const killGroup = (signal: NodeJS.Signals): void => {
+      if (!detached || !child.pid) return;
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        // ESRCH means the group is already gone. Any other code must not reject the command result.
+      }
     };
 
     const killProc = (signal: NodeJS.Signals): void => {
       if (detached && child.pid) {
-        try {
-          process.kill(-child.pid, signal);
-          return;
-        } catch {
-          // process group may already be gone, fall back to child.kill
-        }
+        killGroup(signal);
+        return;
       }
       child.kill(signal);
     };
+
+    const signalHandlers = new Map<NodeJS.Signals, () => void>();
+    if (detached && child.pid) {
+      for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+        const handler = (): void => {
+          for (const [installed, installedHandler] of signalHandlers) process.off(installed, installedHandler);
+          signalHandlers.clear();
+          killGroup(signal);
+          process.kill(process.pid, signal);
+        };
+        signalHandlers.set(signal, handler);
+        process.on(signal, handler);
+      }
+    }
 
     const timeout = setTimeout(() => {
       timedOut = true;
@@ -65,7 +86,6 @@ export async function runCommand(
         killProc('SIGKILL');
       }, killGraceMs);
     }, timeoutMs);
-
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stdout += text;
@@ -89,6 +109,7 @@ export async function runCommand(
     });
 
     child.on('close', (code: number | null) => {
+      killGroup('SIGTERM');
       if (timedOut) {
         const suffix = forcedKill ? ` (SIGKILL after ${killGraceMs}ms grace)` : '';
         const timeoutMsg = `Command timed out after ${timeoutMs}ms${suffix}`;

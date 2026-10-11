@@ -81,6 +81,27 @@ are killed on timeout. With `--base-ref`, changed-path globs match the committed
 `merge-base(baseRef, HEAD)..HEAD` diff; no matches means `skipped`. Without a
 base ref, conditions always run (uncommitted files do not affect CI filtering).
 
+## Base-ref drift
+
+With `--base-ref`, the base `.aps/gates.json` is the authority. The head tree is
+what runs, but a head config that weakens a base gate fails unless that base file
+has a gate-level `waive` exemption. A metric-level `allow` does not skip these
+checks. Drift is any change to `run.argv`, `run.cwd`, `run.env`, `mode`, or a
+metric `source`, plus a missing gate or metric, a direction flip, a raised
+tolerance, a loosened min/max, `enforcement` from block to warn, widened
+`okExitCodes`, or a raised `timeoutSec`. A lower timeout, a narrower exit-code
+set, a tighter bound, or a lower tolerance is not drift.
+
+`when` may be removed or broadened: a missing head filter, or a superset of the
+base globs, still runs on every base path and is not drift. Adding `when` to a
+gate that had none, or dropping a base glob, is drift. Path filtering never
+skips more than the base gate.
+
+`--update-baseline` refuses the whole write when any gate failed drift. It does
+not rewrite the baseline or turn that row back to pass. Results include
+`baseConfigSha256`, the SHA-256 of the base config bytes (`null` without a base
+config).
+
 ## Baselines and monotone updates
 
 ```json
@@ -104,8 +125,8 @@ as a normal comparator and emits a `local-mode` warning.
 Only `--update-baseline` writes. It takes the best directional value across the
 current measurement, head baseline and base baseline, seeds missing keys, and
 records `HEAD` SHA/time. It never relaxes a bound, including within tolerance.
-Any regression against either baseline, hard-bound failure, or tool error refuses
-the entire update; the file remains byte-for-byte unchanged. Successful writes are
+Any regression against either baseline, hard-bound failure, tool error, or
+base-ref drift refuses the entire update; the file remains byte-for-byte unchanged. Successful writes are
 atomic. Skipped gates and unrelated keys are preserved.
 
 ## Owner-approved exemptions
@@ -132,11 +153,14 @@ delta, improvement, effective limit and status. The JSON verdict is `pass`,
 `fail`, or `error`; blocking runtime errors exit 1, not config exit 2.
 Invalid configuration JSON output is `{ "verdict": "error", "message": "..." }`.
 
-`--card` uses the existing APS `card_links` append API: kind `other`, reference
-`aps-gate:<run UUID>`, detail **the exact result JSON**, at the card's current
-attempt. Ledger location and agent resolution are the same as other APS commands
-(`--db`, `--by`, environment/config defaults). It never creates worker runs,
-changes lifecycle state, or advances card acceptance. M02's worker run-event
-state machine has no generic evidence event, so no new event/kind migration is
-introduced here. Acceptance-grade evidence must have a non-null `baseRef`; local
-advisory results are recorded as such, not promoted into trusted CI evidence.
+`--card` requires `--base-ref` (otherwise exit 2) and uses the existing APS
+`card_links` append API: kind `other`, reference `aps-gate:<run UUID>`, at the
+card's current attempt. The detail is the result JSON with stdout and stderr
+removed and with messages, metric messages, and warnings re-redacted and
+truncated. It is not a byte copy of the process JSON. Ledger location and agent
+resolution are the same as other APS commands (`--db`, `--by`, environment/config
+defaults). It never creates worker runs, changes lifecycle state, or advances
+card acceptance. M02's worker run-event state machine has no generic evidence
+event, so no new event/kind migration is introduced here. Acceptance-grade
+evidence must have a non-null `baseRef`. `--card` cannot record local advisory
+results.
