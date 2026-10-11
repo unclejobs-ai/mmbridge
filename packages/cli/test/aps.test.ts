@@ -382,6 +382,44 @@ test('feedback new/respond applies response guard and warns on overdue feedback'
   assert.match(output.stderr, /APS-K10: feedback 2 unanswered for > 30 min; escalated/);
   assert.doesNotMatch(f.run(['metrics']).stderr, /APS-K10/);
 });
+test('K10 escalation commits and warns even when the command fails', (t) => {
+  const f = fixture(t);
+  for (const failure of [
+    { args: ['done', 'TS-C-9999'], status: 2, message: /card TS-C-9999 not found/ },
+    { args: ['done', f.card()], status: 3, message: /APS-T02:/ },
+  ]) {
+    const db = openApsDb(f.dbPath);
+    const id = db
+      .prepare(
+        "INSERT INTO feedback(from_agent,to_agent,kind,body,created_at) VALUES(?,?,'andon','late',strftime('%Y-%m-%dT%H:%M:%fZ','now','-31 minutes'))",
+      )
+      .run(f.manager, f.worker).lastInsertRowid;
+    db.close();
+    const output = f.run(failure.args, failure.status);
+    assert.ok(output.stderr.includes(`APS-K10: feedback ${id} unanswered for > 30 min; escalated`));
+    assert.match(output.stderr, failure.message);
+    const persisted = openApsDb(f.dbPath);
+    const row = persisted.prepare('SELECT escalated, escalated_at FROM feedback WHERE id=?').get(id);
+    assert.equal(row?.escalated, 1);
+    assert.ok(row?.escalated_at);
+    persisted.close();
+    assert.doesNotMatch(f.run(['metrics']).stderr, /APS-K10/);
+  }
+});
+test('owner OK refuses a new L1 session with the assignee name', (t) => {
+  const f = fixture(t);
+  const id = f.accepted(['--needs-owner', '1']);
+  const self = f.run(['agent', 'new', '--name', 'worker', '--layer', 'L1', '--model', 'local', '--vendor', 'local'])
+    .value.id;
+  assert.match(
+    f.run(['owner-ok', id, '--quote', 'self-recorded', '--by', self], 3).stderr,
+    /APS-O04: owner OK must be recorded by an agent independent of the card assignee and reporters/,
+  );
+  const db = openApsDb(f.dbPath);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM owner_oks').get()?.n, 0);
+  db.close();
+  f.run(['owner-ok', id, '--quote', 'independently recorded']);
+});
 test('doctor rejects missing trigger before writes', (t) => {
   const f = fixture(t);
   assert.deepEqual(f.run(['doctor']).value.integrity, ['ok']);
@@ -476,16 +514,17 @@ test('missing actor and unreadable JSON are input errors', (t) => {
   );
   f.run(['start'], 2);
 });
-test('git merge H03 rejection, successful ancestry and pre-merge gate', (t) => {
+test('git merge H03/H05 rejections, fast-forward target and pre-merge gate', (t) => {
   const f = fixture(t);
   const git = (args: string[]) => {
     const result = spawnSync('git', args, { cwd: f.home, env: f.env, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
   };
-  git(['init', '-q']);
+  git(['init', '-q', '-b', 'main']);
   git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'base']);
   const base = git(['rev-parse', 'HEAD']);
+  git(['branch', 'behind']);
   git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'change']);
   const commit = git(['rev-parse', 'HEAD']);
   const id = f.working();
@@ -496,12 +535,52 @@ test('git merge H03 rejection, successful ancestry and pre-merge gate', (t) => {
     f.run(['merge', id, '--merged-sha', base, '--target', 'main'], 3).stderr,
     /APS-H03: .* does not contain .* \(git merge-base --is-ancestor failed\)/,
   );
+  for (const target of ['no-such-branch', 'behind']) {
+    assert.equal(
+      f.run(['merge', id, '--merged-sha', commit, '--target', target], 3).stderr.trim(),
+      `[mmbridge] APS-H05: target ${target} does not contain ${commit} (unresolved or not an ancestor)`,
+    );
+  }
+  const rejected = openApsDb(f.dbPath);
+  assert.equal(rejected.prepare('SELECT count(*) AS n FROM merges').get()?.n, 0);
+  rejected.close();
   f.run(['merge', id, '--merged-sha', commit, '--target', 'main', '--gate']);
   const db = openApsDb(f.dbPath);
   const merge = db.prepare('SELECT * FROM merges').get();
   assert.ok(merge);
   assert.equal(merge.merged_sha, commit);
+  assert.equal(
+    merge.verify_command,
+    `git merge-base --is-ancestor ${commit} ${commit} && git rev-parse --verify main^{commit} && git merge-base --is-ancestor ${commit} ${commit}`,
+  );
   assert.ok(['pass', 'warn'].includes(JSON.parse(String(merge.gate_json)).status));
+  db.close();
+  f.run(['done', id]);
+});
+test('git merge H05 accepts a real no-ff merge on main', (t) => {
+  const f = fixture(t);
+  const git = (args: string[]) => {
+    const result = spawnSync('git', args, { cwd: f.home, env: f.env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const identity = ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid'];
+  git(['init', '-q', '-b', 'main']);
+  git([...identity, 'commit', '--allow-empty', '-qm', 'base']);
+  git(['switch', '-qc', 'feature']);
+  git([...identity, 'commit', '--allow-empty', '-qm', 'feature']);
+  const reported = git(['rev-parse', 'HEAD']);
+  const id = f.working();
+  f.report(id, ['--sha', reported]);
+  f.run(['close-session', f.worker, '--note', 'ended']);
+  f.run(['review', id, '--verdict', 'accept']);
+  git(['switch', '-q', 'main']);
+  git([...identity, 'merge', '-q', '--no-ff', 'feature', '-m', 'merge feature']);
+  const merged = git(['rev-parse', 'HEAD']);
+  assert.notEqual(merged, reported);
+  f.run(['merge', id, '--merged-sha', merged, '--target', 'main']);
+  const db = openApsDb(f.dbPath);
+  assert.equal(db.prepare('SELECT merged_sha FROM merges').get()?.merged_sha, merged);
   db.close();
   f.run(['done', id]);
 });

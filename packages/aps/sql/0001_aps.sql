@@ -716,6 +716,11 @@ CREATE TRIGGER trg_owner_oks_ins BEFORE INSERT ON owner_oks BEGIN
    WHERE NOT EXISTS (SELECT 1 FROM v_card_current WHERE card_id = NEW.card_id AND sha = NEW.sha);
   SELECT RAISE(ABORT, 'APS-O03: owner OK must be recorded by a live L0 or L1 agent')
    WHERE NOT EXISTS (SELECT 1 FROM agents WHERE id = NEW.recorded_by AND layer IN ('L0','L1') AND status <> 'closed');
+  SELECT RAISE(ABORT, 'APS-O04: owner OK must be recorded by an agent independent of the card assignee and reporters')
+   WHERE EXISTS (SELECT 1 FROM agents me JOIN agents w ON w.name = me.name
+                 WHERE me.id = NEW.recorded_by
+                   AND (w.id = (SELECT assignee FROM cards WHERE id = NEW.card_id)
+                        OR w.id IN (SELECT by_agent FROM reports WHERE card_id = NEW.card_id)));
 END;
 
 -- ───────────── guards: defects ─────────────

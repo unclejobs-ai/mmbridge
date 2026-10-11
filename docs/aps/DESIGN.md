@@ -8,11 +8,11 @@ The CLI is **not** implemented here; that is A-02 (L2). Everything an implemente
 
 | # | Decision | Reason |
 |---|---|---|
-| D1 | **New package `packages/aps` (`@mmbridge/aps`)**, not an extension of session-store. | APS is its own bounded context: its own DB file and path setting, its own migration lifecycle, append-only ledger semantics and 83 guard triggers. session-store is per-tool persistence (`~/.mmbridge/state.db`, per-project `memory.sqlite`). Reuse is by import, not by merging: `SessionStore.get(uuid)` reads the review session (H02), `ProjectMemoryStore` finds handoff paths, and `ApsDb` mirrors `SqliteStore`'s open pattern (mkdir parent, `node:sqlite`, WAL). `@mmbridge/session-store` becomes a dependency of `@mmbridge/aps` in A-02, when the first import lands (no unused dependency now). |
+| D1 | **New package `packages/aps` (`@mmbridge/aps`)**, not an extension of session-store. | APS is its own bounded context: its own DB file and path setting, its own migration lifecycle, append-only ledger semantics and 84 guard codes. session-store is per-tool persistence (`~/.mmbridge/state.db`, per-project `memory.sqlite`). Reuse is by import, not by merging: `SessionStore.get(uuid)` reads the review session (H02), `ProjectMemoryStore` finds handoff paths, and `ApsDb` mirrors `SqliteStore`'s open pattern (mkdir parent, `node:sqlite`, WAL). `@mmbridge/session-store` becomes a dependency of `@mmbridge/aps` in A-02, when the first import lands (no unused dependency now). |
 | D2 | **DDL lives at `packages/aps/sql/0001_aps.sql`**, not `src/schema.sql`. | `tsc` does not copy `.sql` out of `src/`. The package ships `files: ["dist","sql"]` and resolves `APS_SQL_DIR = new URL('../sql/', import.meta.url)` from both `src` and `dist`. |
 | D3 | **mmbridge review *and* gate results go into `reviews`.** The review session becomes a `reviews` row (`mmbridge_session_id` = `localSessionId`); the gate result for that session is the `gate_json` column of the same row. The pre-merge gate is `merges.gate_json`. `card_links` no longer has a `mmbridge_gate` kind. | `GateResult` is `{status: pass|warn, warnings[]}`: no verdict and no sha, so a gate can't be a review row of its own without breaking the verdict CHECK, V12 and the "latest review" semantics behind V01/D01. As an untyped `card_links` row, guards could never see it. As a column on the row it certifies, it follows the owner's instruction, is visible to SQL, and lets stage D add "accept with `stale-review` warning is refused" as one trigger. |
-| D4 | **Guards: keep the rule-backed set, cut the unreachable ones.** Kept: independence T04/V13/X04/M03 (APS §11 "작성자 ≠ 리뷰어" is a fixed gate), rework ≤ 3 W03 (§10.4), size-L-not-to-L3 W02 (§2: L3 cards are size S/M), append-only L01 and no-replace L02 (a ledger; L02 closes the `INSERT OR REPLACE` bypass), frozen spec C09, gapless ids C02/J01, PDCA Q-guards (plan §3 "Check 생략 불가"), feedback K-guards (plan §1). **Cut:** D03 (assignee closed at done) and the transition-time copies of R02/R03. | A guard that cannot fire can't be tested. D03 is implied by S01 + A02 (closed is final) + C10 (no reassignment after `working`). Acceptance is frozen after `issued` (C09), so a report that passed R02/R03 on insert passes them forever. All 83 remaining codes have an executed rejection test (§7). |
-| D5 | **DB path:** `--db <path>` > env `MMBRIDGE_APS_DB` > `.mmbridge.config.json` `aps.dbPath` > `~/ss-work/aps/aps.db`. | Implemented as `resolveApsDbPath()`. The config key needs `MmbridgeConfig.aps?: { dbPath?: string }` in `packages/core/src/types.ts` plus a branch in `isMmbridgeConfig` (A-02). |
+| D4 | **Guards: keep the rule-backed set, cut the unreachable ones.** Kept: independence T04/V13/X04/M03/O04 (APS §11 "작성자 ≠ 리뷰어" is a fixed gate), rework ≤ 3 W03 (§10.4), size-L-not-to-L3 W02 (§2: L3 cards are size S/M), append-only L01 and no-replace L02 (a ledger; L02 closes the `INSERT OR REPLACE` bypass), frozen spec C09, gapless ids C02/J01, PDCA Q-guards (plan §3 "Check 생략 불가"), feedback K-guards (plan §1). **Cut:** D03 (assignee closed at done) and the transition-time copies of R02/R03. | A guard that cannot fire can't be tested. D03 is implied by S01 + A02 (closed is final) + C10 (no reassignment after `working`). Acceptance is frozen after `issued` (C09), so a report that passed R02/R03 on insert passes them forever. All 84 remaining codes have an executed rejection test (§7). |
+| D5 | **DB path:** `--db <path>` > env `MMBRIDGE_APS_DB` > env alias `APS_DB` > `.mmbridge.config.json` `aps.dbPath` > `~/ss-work/aps/aps.db`. | Implemented as `resolveApsDbPath()`. `--project-dir <path>` selects the git/config workspace (default: cwd). The config key is `MmbridgeConfig.aps?: { dbPath?: string }` in `packages/core/src/types.ts`, validated by `isMmbridgeConfig`. |
 | D6 | **Rework stays on the same card id as a new attempt** (`cards.attempt`), not a child card. After the 3rd revise the card can only be `rejected`, and L1 issues a new card with `parent_card`. | One identity per card keeps DPMO and cycle time simple, and matches the plan's `revise → working` loop. |
 
 ## 1. Files
@@ -31,7 +31,7 @@ The CLI is **not** implemented here; that is A-02 (L2). Everything an implemente
 
 - Driver: `node:sqlite` `DatabaseSync` (Node ≥ 22.13 per root `engines`; this host: Node v22.23.3, SQLite 3.51.3). STRICT tables, JSON1, triggers and `printf` are all used. No new dependency.
 - `openApsDb(path)` runs `PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;` on every connection, then applies each `sql/NNNN_*.sql` whose number is above `PRAGMA user_version`. Each file wraps itself in `BEGIN IMMEDIATE … PRAGMA user_version = N; COMMIT;`. If a migration fails the connection is closed, which rolls the open transaction back.
-- Writes from the CLI: one `BEGIN IMMEDIATE … COMMIT` per command (§8). The CLI never passes `at`/`created_at`; defaults stamp UTC ISO-8601 with milliseconds.
+- Writes from the CLI: K10 escalation runs in its own committed `BEGIN IMMEDIATE … COMMIT` before the command transaction (§8), so a failing command cannot roll it back. The CLI never passes `at`/`created_at`; defaults stamp UTC ISO-8601 with milliseconds.
 - Guards are fail-closed: a missing referenced row never satisfies a guard, so `PRAGMA foreign_keys = OFF` from raw SQL opens no bypass.
 
 ## 3. Schema
@@ -93,9 +93,9 @@ stateDiagram-v2
 
 ## 5. Guards
 
-Every guard below is a SQLite trigger, so it holds under raw SQL. A rejection reaches `node:sqlite` as an `Error` whose `message` is exactly the text in the table (`code: 'ERR_SQLITE_ERROR'`, extended code SQLITE_CONSTRAINT_TRIGGER). Inside one trigger the guards run in table order, so the first failing one wins. CHECK/NOT NULL failures use SQLite's own text (e.g. `CHECK constraint failed: review_gate`).
+Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS guards in §5.2 require the CLI (§11). A SQL rejection reaches `node:sqlite` as an `Error` whose `message` is exactly the text in the table (`code: 'ERR_SQLITE_ERROR'`, extended code SQLITE_CONSTRAINT_TRIGGER). Inside one trigger the guards run in table order, so the first failing one wins. CHECK/NOT NULL failures use SQLite's own text (e.g. `CHECK constraint failed: review_gate`).
 
-### 5.1 SQL guards (83 codes, all executed — §7)
+### 5.1 SQL guards (84 codes, all executed — §7)
 
 | Code | Enforced at (trigger) | Exact message | Executed by |
 |---|---|---|---|
@@ -131,12 +131,13 @@ Every guard below is a SQLite trigger, so it holds under raw SQL. A rejection re
 | L01 | 25 triggers (update+delete) on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits | `APS-L01: ledger rows are append-only` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table |
 | L02 | insert on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits | `APS-L02: ledger rows cannot be replaced` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table |
 | L03 | insert, update, delete on: defect_categories, state_edges, states | `APS-L03: reference tables change only via migrations` | `guards-ledger.test.ts` › reference tables: L03 on insert, update and delete |
-| M01 | merges insert | `APS-M01: merge confirmation needs state accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O03 |
-| M02 | merges insert | `APS-M02: merge sha must be the reported sha and carry an accept review` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O03 |
-| M03 | merges insert | `APS-M03: merge must be verified by a live agent other than the assignee` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O03 |
-| O01 | owner_oks insert | `APS-O01: owner OK needs state inspecting, accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O03 |
-| O02 | owner_oks insert | `APS-O02: owner OK sha must be the current attempt reported sha` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O03 |
-| O03 | owner_oks insert | `APS-O03: owner OK must be recorded by a live L0 or L1 agent` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O03 |
+| M01 | merges insert | `APS-M01: merge confirmation needs state accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
+| M02 | merges insert | `APS-M02: merge sha must be the reported sha and carry an accept review` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
+| M03 | merges insert | `APS-M03: merge must be verified by a live agent other than the assignee` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
+| O01 | owner_oks insert | `APS-O01: owner OK needs state inspecting, accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
+| O02 | owner_oks insert | `APS-O02: owner OK sha must be the current attempt reported sha` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
+| O03 | owner_oks insert | `APS-O03: owner OK must be recorded by a live L0 or L1 agent` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
+| O04 | owner_oks insert | `APS-O04: owner OK must be recorded by an agent independent of the card assignee and reporters` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | P01 | reports insert | `APS-P01: reports can be recorded only while the card is working` | `guards-card.test.ts` › reports: R01–R03, P01–P08 |
 | P02 | reports insert | `APS-P02: report by_agent must be the card assignee (a proxy goes in recorded_by)` | `guards-card.test.ts` › reports: R01–R03, P01–P08 |
 | P03 | reports insert | `APS-P03: report attempt must equal the card current attempt` | `guards-card.test.ts` › reports: R01–R03, P01–P08 |
@@ -192,7 +193,8 @@ Every guard below is a SQLite trigger, so it holds under raw SQL. A rejection re
 | H02 | `aps review --from-session` | `APS-H02: mmbridge session <uuid> head.sha <x> != reported sha <y>` | `SessionStore(tmp).save({head:{sha:x}})`, report sha y |
 | H03 | `aps merge` | `APS-H03: <merged_sha> does not contain <sha> (git merge-base --is-ancestor failed)` | temp git repo with two unrelated commits |
 | H04 | `aps review --from-session` | `APS-H04: mmbridge session <uuid> not found` | unknown uuid |
-| K10 | every `aps` invocation, before the command | `APS-K10: feedback <id> unanswered for > <N> min; escalated` (warning on stderr, sets `escalated=1, escalated_at`; not a rejection) | feedback with `created_at` 31 min ago |
+| H05 | `aps merge --merged-sha` after H03 | `APS-H05: target <target> does not contain <merged_sha> (unresolved or not an ancestor)` | `git init -q -b main`; reported commit passes H03, but target is missing or points behind it → exit 3; fast-forward and real `--no-ff` merges on main → exit 0 |
+| K10 | every `aps` invocation, before the command, in its own committed transaction | `APS-K10: feedback <id> unanswered for > <N> min; escalated` (warning on stderr immediately, sets `escalated=1, escalated_at`; not a rejection) | feedback with `created_at` 31 min ago; successful command and failing commands (exit 2/3) preserve escalation and print the warning |
 
 TS may pre-check for friendlier wording, but whenever SQL rejects, the CLI must print the trigger text unchanged.
 
@@ -247,7 +249,7 @@ Other shapes:
 
 ## 7. Self-check (executed)
 
-`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 83 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 runs on all 15 protected tables (update+delete or delete), L02 on all 15 (`INSERT OR REPLACE … SELECT *`), L03 on insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
+`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 84 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 runs on all 15 protected tables (update+delete or delete), L02 on all 15 (`INSERT OR REPLACE … SELECT *`), L03 on insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
 
 ```
 seed()                                                      -- project, agents, card SS-C-0001 (issued)
@@ -267,7 +269,7 @@ INSERT transitions inspecting→accepted (no review)          -- APS-V01
 - `packages/cli/src/index.ts`: `const apsCmd = program.command('aps').description('APS work-card ledger');` then `apsCmd.command('<sub>')…action(async (…) => { const { runAps<Sub>Command } = await import('./commands/aps.js'); await runAps<Sub>Command(opts); })`, exactly like `context`/`hook`.
 - `packages/cli/src/commands/helpers.ts`: add `export const importAps = () => import('@mmbridge/aps');`. `packages/cli/package.json`: add `"@mmbridge/aps": "workspace:*"`; `packages/cli/tsconfig.json`: add the reference. If cli stays published, drop `"private": true` from `@mmbridge/aps` in the same PR.
 - `commands/aps.ts` holds the handlers; keep it under 500 LOC by moving per-command SQL into `@mmbridge/aps` functions (`issueCard`, `startCard`, `recordReport`, …) that each run one `BEGIN IMMEDIATE` transaction.
-- Every subcommand takes `--db <path>` and `--json`. `--by <agent>` defaults to env `APS_AGENT`; missing → exit 2.
+- Every subcommand takes `--db <path>`, `--project-dir <path>` and `--json`. Decision: retain mandatory `--by <agent>` (or env `APS_AGENT`) for all commands, including `init`, `doctor` and read-only queries; missing → exit 2. All invocations may write K10 escalations, so the invocation contract remains uniform. Bootstrap `init` / first `agent new` can use `--by bootstrap`; those commands do not validate it against an existing agent.
 
 ### 8.2 Exit codes and output
 
@@ -275,8 +277,8 @@ INSERT transitions inspecting→accepted (no review)          -- APS-V01
 |---|---|---|
 | 0 | success | — |
 | 1 | unexpected runtime error (I/O, SQLite busy after timeout) | `[mmbridge] <message>` (no stack, no secrets) |
-| 2 | invalid input caught before SQL (bad flag value, unreadable/invalid JSON file, missing `--by`) | `[mmbridge] <what> <why>` |
-| 3 | **ledger refused**: any `APS-` code (SQL trigger, U01, H01–H04) | `[mmbridge] APS-XXX: <exact message>` via `exitWithError(message, 3)` |
+| 2 | invalid input (bad flag value, unreadable/invalid JSON file, missing `--by`), including SQLite's own CHECK/NOT NULL/UNIQUE/FOREIGN KEY constraint failures | `[mmbridge] <what> <why>` |
+| 3 | **ledger refused**: any rejecting `APS-` code (SQL trigger, U01, H01–H05) | `[mmbridge] APS-XXX: <exact message>` via `exitWithError(message, 3)` |
 
 On success a state-changing command prints one line `<card> <from>→<to> by <agent> (attempt <n>)` per transition, or with `--json` an array of `{card,from,to,by,attempt}`. Insert-only commands print the new row id, or `{id}` with `--json`.
 
@@ -297,12 +299,12 @@ On success a state-changing command prints one line `<card> <from>→<to> by <ag
 | `aps review <card> --verdict accept|revise|reject [--items <file.json>] [--from-session <uuid>] [--owner]` | reviewer = `--by` | if state is `closed_session`: `T(→inspecting)` first. With `--from-session`: H04, H02, map findings to items (§9.1), compute gate (§9.1) into `gate_json`, add `card_links(handoff)` if the session has a handoff. Insert `reviews`; then accept: `T(→accepted)`, `T(→merge_wait)`; revise: `T(→revise)`; reject: `T(→rejected)`. In `accepted`/`merge_wait`, only revise moves the card | A |
 | `aps vision <card> --shots <file.json> --verdict pass|fail [--items <file.json>] [--notes …]` | auditor = `--by` | insert `vision_audits`; on fail `T(→revise)` | E (table ready in A) |
 | `aps owner-ok <card> --quote "…" [--source-ref …]` | recorder = `--by` (L0/L1) | insert `owner_oks` for the current reported sha | A |
-| `aps merge <card> --merged-sha <sha> | --applied-ref <ref> --target … [--gate]` | verifier = `--by` | H03 (`git merge-base --is-ancestor <sha> <merged_sha>`); `--gate` stores the gate result in `gate_json`; insert `merges` | A |
+| `aps merge <card> --merged-sha <sha> | --applied-ref <ref> --target … [--gate]` | verifier = `--by` | H03 (`git merge-base --is-ancestor <sha> <merged_sha>`), then H05 (`git rev-parse --verify <target>^{commit}` and `git merge-base --is-ancestor <merged_sha> <resolved target>`); store both checks in `verify_command`. Fast-forward (`merged_sha == sha`) is valid. `--applied-ref` remains unverified. `--gate` stores the gate result in `gate_json`; insert `merges` | A |
 | `aps done <card>` | | `T(merge_wait→done)` | A |
 | `aps reject <card> --note …` | | `T(→rejected)` from issued/revise (inspecting needs a reject review) | A |
 | `aps defect add <card> --source ci|revert|owner --category … --severity … --text … [--ref]` | | insert `defects` (opportunity = acceptance count) | C |
 | `aps feedback new --to <agent> --kind objection|proposal|andon --body … [--card]` / `aps feedback respond <id> --response accept|partial|reject [--reason]` | | insert / update `feedback` | C |
-| `aps todo-render [--out ~/ss-work/TODO.md] [--project]` | | one `##` section per state in `states.ord`, headed by `kanban_ko`; table `| id | title | assignee | manager | attempt/rework | since |` from `v_kanban`; writes atomically (tmp + rename) | A |
+| `aps todo-render [--out ~/ss-work/TODO.md] [--project]` | | one `##` section per state in `states.ord`, headed by `kanban_ko`; table `| id | title | assignee | manager | attempt/rework | since |` from `v_kanban`; with `--out`, writes atomically (tmp + rename); otherwise prints markdown to stdout (`--json`: `{markdown}`) | A |
 | `aps brief --level L0|L1|L2 [--since <iso>] [--save]` | | markdown from the ledger; `--save` inserts `briefings` with `metrics_json` | C |
 | `aps metrics [--week|--since <iso>] [--json]` | | §10 formulas | C |
 | `aps chart --metric rework|pass|cycle --days 14 [--json]` | | daily p-chart / X-bar points with centre line, UCL, LCL (computed in TS) | C |
@@ -348,7 +350,7 @@ When the imported session has `handoffId`/`handoffPath`, insert `card_links(kind
 
 ### 10.2 Test plan (for L3)
 
-Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message, the full allowed path with one revise, gate/session CHECKs, migrations, path precedence. A-02/L3 adds, per CLI command: success output (text and `--json`), exit 3 with the trigger text for one guard reachable from that command, exit 2 for bad input, and the TS guards H01–H04/K10 with the recipes in §5.2. Tests run with a temp `--db` and a temp `HOME`, as `packages/cli/test/operations.test.ts` does.
+Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message, the full allowed path with one revise, gate/session CHECKs, migrations, path precedence. A-02/L3 adds, per CLI command: success output (text and `--json`), exit 3 with the trigger text for one guard reachable from that command, exit 2 for bad input, and the TS guards H01–H05/K10 with the recipes in §5.2. Tests run with a temp `--db` and a temp `HOME`, as `packages/cli/test/operations.test.ts` does.
 
 ### 10.3 Extension points
 
@@ -359,6 +361,9 @@ Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message
 
 ## 11. Residual risks
 
+- TS guards H01–H05 are CLI-only; raw SQL bypasses them, including inserting an unrelated `merged_sha` (G5). `aps doctor` checks database integrity and trigger presence, not external git/herdr/session evidence.
+- `aps merge --applied-ref` accepts an unverified reference and skips H03/H05 (G2); callers must independently verify the applied work.
+- H01 checks `herdr agent list` only when the agent session recorded `--herdr-pane`; without it, session closure has no pane-liveness check.
 - `at` columns accept caller values, so backdating by raw SQL is possible; the CLI never passes them. [INFERENCE] Stage C may add a monotonic-time guard on `transitions`.
 - Independence compares `agents.name`; an agent registered under a different name for the same worker defeats it. Naming is an L2/L1 responsibility at `agent new`.
 - `node:sqlite` prints an ExperimentalWarning on Node 22; it is not an error.

@@ -128,14 +128,10 @@ async function withLedger(
     const config = await core.loadConfig(resolve(options.projectDir ?? process.cwd()));
     db = aps.openApsDb(aps.resolveApsDbPath({ flag: options.db, configPath: config.aps?.dbPath }));
     const ledger = db;
-    const result = await aps.commandTransaction(ledger, async () => {
-      aps.doctor(ledger);
-      const warnings = aps.escalateFeedback(ledger);
-      const value = await action(ledger, by);
-      return { value, warnings };
-    });
-    for (const warning of result.warnings) process.stderr.write(`[mmbridge] ${warning}\n`);
-    emit(result.value, options.json);
+    aps.doctor(ledger);
+    for (const warning of aps.escalateFeedback(ledger)) process.stderr.write(`[mmbridge] ${warning}\n`);
+    const result = await aps.commandTransaction(ledger, () => action(ledger, by));
+    emit(result, options.json);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const code = message.startsWith('APS-')
@@ -401,6 +397,7 @@ export async function runApsCommand(
         if (Boolean(options.mergedSha) === Boolean(options.appliedRef))
           throw new InputError('specify exactly one of --merged-sha or --applied-ref');
         const card = aps.getCard(db, cardId);
+        const target = required(options.target, 'target');
         let verify: string;
         let merged: string | null = null;
         if (options.mergedSha) {
@@ -411,7 +408,16 @@ export async function runApsCommand(
           });
           if (!result.ok)
             throw new Error(`APS-H03: ${merged} does not contain ${card.sha} (git merge-base --is-ancestor failed)`);
-          verify = `git merge-base --is-ancestor ${card.sha} ${merged}`;
+          const resolved = await core.runCommand('git', ['rev-parse', '--verify', `${target}^{commit}`], {
+            cwd: projectDir,
+          });
+          const targetSha = resolved.stdout.trim();
+          const landed = resolved.ok
+            ? await core.runCommand('git', ['merge-base', '--is-ancestor', merged, targetSha], { cwd: projectDir })
+            : null;
+          if (!landed?.ok)
+            throw new Error(`APS-H05: target ${target} does not contain ${merged} (unresolved or not an ancestor)`);
+          verify = `git merge-base --is-ancestor ${card.sha} ${merged} && git rev-parse --verify ${target}^{commit} && git merge-base --is-ancestor ${merged} ${targetSha}`;
         } else verify = `applied ${required(options.appliedRef, 'applied-ref')}`;
         const gate = options.gate ? await computeGate(projectDir, { baseRef: options.baseRef }) : null;
         return aps.transaction(db, () => ({
@@ -420,7 +426,7 @@ export async function runApsCommand(
             sha: card.sha,
             merged_sha: merged,
             applied_ref: options.appliedRef ?? null,
-            target: required(options.target, 'target'),
+            target,
             verified_by: by,
             verify_command: verify,
             gate_json: gate

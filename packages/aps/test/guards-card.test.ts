@@ -179,7 +179,7 @@ test('vision audits: X01–X08', () => {
   rejects(db, 'X08', visionSql({ verdict: 'fail' }));
 });
 
-test('merges and owner OKs: M01–M03, O01–O03', () => {
+test('merges and owner OKs: M01–M03, O01–O04', () => {
   const db = seed({ needsOwner: 1 });
   move(db, 'issued', 'working', 'w1');
   rejects(db, 'O01', ownerOkSql());
@@ -196,6 +196,8 @@ test('merges and owner OKs: M01–M03, O01–O03', () => {
   );
   rejects(db, 'O02', ownerOkSql(SHA2));
   rejects(db, 'O03', ownerOkSql(SHA, 'mgr'));
+  db.exec("INSERT INTO agents(id,name,layer,model,vendor) VALUES('w1-owner','devin','L1','local','local')");
+  rejects(db, 'O04', ownerOkSql(SHA, 'w1-owner'));
   review(db, 'accept');
   move(db, 'inspecting', 'accepted', 'mgr');
   rejects(
