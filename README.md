@@ -179,6 +179,11 @@ Version-1 ledgers retain lanes and reviews with
 through `BoardReadOptions.panes`; omit them after a herdr failure to show `?`
 rather than infer leaks or ghosts from stale data. Headless PID/yield observations
 are supplied separately through `observations`, keyed by run ID (or agent ID).
+Hygiene ignores terminal runs (`closed`, `blocked`, `failed`, `abandoned`) so a
+previous attempt cannot produce a false ghost beside its live replacement. A
+working card with a matching pane whose status is neither working, idle, nor done
+is shown as `?`, without inferring a stuck session. Missing or non-finite feedback
+escalation settings use the default 30-minute overdue cutoff.
 Consumers keep the last good snapshot on read errors and own polling/DB cleanup.
 
 ## Configuration

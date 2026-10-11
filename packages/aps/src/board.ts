@@ -289,6 +289,7 @@ export function classifyHygiene(
   const matched = new Set<string>();
   const result: HygieneRow[] = [];
   for (const row of ledgerRows) {
+    if (row.runStatus !== null && !['intent', 'launched', 'reported'].includes(row.runStatus)) continue;
     const paneId = row.paneId ?? row.herdrPane;
     const candidate = paneId ? paneMap.get(paneId) : undefined;
     const pane = candidate && (row.terminalId === null || row.terminalId === candidate.terminalId) ? candidate : null;
@@ -323,6 +324,8 @@ export function classifyHygiene(
       ['working', 'idle'].includes(pane.agentStatus ?? '')
     ) {
       classification = 'OK';
+    } else if (row.agentStatus !== 'closed' && row.cardState === 'working' && pane) {
+      classification = '?';
     }
     if (!classification) continue;
     if (classification === 'CLOSE-NOW' || classification === 'GHOST') {
@@ -469,8 +472,10 @@ export function readBoardSnapshot(db: DatabaseSync, options: BoardReadOptions = 
     const reviewers = Number(
       db.prepare("SELECT count(*) n FROM agents WHERE status<>'closed' AND layer IN ('L1','L2')").get()?.n,
     );
-    const minutes = Number(db.prepare("SELECT value FROM settings WHERE key='feedback_escalate_minutes'").get()?.value);
-    const cutoff = new Date(now.getTime() - minutes * 60_000).toISOString();
+    const minutes = Number(
+      db.prepare("SELECT value FROM settings WHERE key='feedback_escalate_minutes'").get()?.value ?? 30,
+    );
+    const cutoff = new Date(now.getTime() - (Number.isFinite(minutes) ? minutes : 30) * 60_000).toISOString();
     const feedback = rows<{ feedbackOpen: number; feedbackEscalated: number; feedbackOverdue: number }>(
       db,
       `SELECT

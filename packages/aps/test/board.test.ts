@@ -8,7 +8,9 @@ import {
   APS_SQL_DIR,
   type HerdrPane,
   type HygieneLedgerRow,
+  addRunEvent,
   classifyHygiene,
+  createRun,
   dataVersion,
   openApsDb,
   openApsDbReadOnly,
@@ -158,6 +160,24 @@ test('ISO cutoff excludes feedback one second past threshold and never escalates
   assert.equal(db.prepare('SELECT sum(escalated) n FROM feedback').get()?.n, 0);
 });
 
+test('feedback cutoff defaults to 30 minutes for missing or non-finite settings', (t) => {
+  const { db } = diskLedger(t);
+  db.exec(`INSERT INTO feedback(from_agent,to_agent,kind,card_id,body,created_at) VALUES
+    ('w1','mgr','proposal','${CARD}','overdue','2030-01-02T11:29:59.000Z'),
+    ('w1','mgr','proposal','${CARD}','not overdue','2030-01-02T11:30:01.000Z');`);
+  for (const value of [null, 'not-a-number', 'NaN', 'Infinity', '-Infinity']) {
+    db.exec("DELETE FROM settings WHERE key='feedback_escalate_minutes'");
+    if (value !== null)
+      db.prepare('INSERT INTO settings(key,value) VALUES(?,?)').run('feedback_escalate_minutes', value);
+    const snapshot = readBoardSnapshot(db, { now: NOW });
+    assert.equal(snapshot.header.feedbackOpen, 2, String(value));
+    assert.equal(snapshot.header.feedbackOverdue, 1, String(value));
+    assert.equal(snapshot.header.feedbackEscalated, 0, String(value));
+    assert.equal(db.isTransaction, false);
+  }
+  assert.equal(db.prepare('SELECT sum(escalated) n FROM feedback').get()?.n, 0);
+});
+
 test('snapshot project filter, review semantics and independent lane identity', () => {
   const db = seed();
   try {
@@ -256,6 +276,51 @@ test('assigned lane cells aggregate owners while unassigned cells stay owner-sco
       ['mgr2', 1],
     ],
   );
+});
+
+test('failed historical run does not produce a ghost beside the live retry', (t) => {
+  const { db, dir } = diskLedger(t);
+  move(db, 'issued', 'working', 'w1');
+  const input = {
+    card_id: CARD,
+    attempt: 1,
+    agent_id: 'w1',
+    harness: 'herdr' as const,
+    kind: 'omp' as const,
+    model: 'opus',
+    worktree: '/tmp/worktree',
+    branch: 'fac/test',
+    base_sha: SHA,
+    packet_dir: dir,
+    created_by: 'mgr',
+  };
+  createRun(db, { ...input, id: 'old' });
+  addRunEvent(db, 'old', 'launched', 'mgr', { pane_id: 'old-pane', terminal_id: 'old-terminal' });
+  addRunEvent(db, 'old', 'failed', 'mgr');
+  createRun(db, { ...input, id: 'retry' });
+  addRunEvent(db, 'retry', 'launched', 'mgr', { pane_id: 'p1', terminal_id: 't1' });
+  const snapshot = readBoardSnapshot(db, { now: NOW, panes: [pane] });
+  const workerRows = snapshot.hygiene.filter((row) => row.agentId === 'w1');
+  assert.equal(workerRows.length, 1);
+  assert.equal(workerRows[0].classification, 'OK');
+  assert.equal(workerRows[0].runId, 'retry');
+  assert.equal(snapshot.cards[0].runs.length, 2);
+});
+
+test('terminal run rows are excluded from pure hygiene classification', () => {
+  for (const runStatus of ['closed', 'blocked', 'failed', 'abandoned'] as const) {
+    assert.deepEqual(classifyHygiene([{ ...ledger, runStatus }], [], NOW), []);
+  }
+  assert.equal(classifyHygiene([{ ...ledger, runStatus: null, runId: null }], [pane], NOW)[0].classification, 'OK');
+});
+
+test('working card with an unknown or blocked pane status is surfaced as unknown', () => {
+  for (const agentStatus of ['unknown', 'blocked', null, undefined]) {
+    const row = classifyHygiene([ledger], [{ ...pane, agentStatus }], NOW)[0];
+    assert.equal(row.classification, '?');
+    assert.equal(row.action, null);
+    assert.equal(row.runId, 'run1');
+  }
 });
 
 test('OK', () => {
