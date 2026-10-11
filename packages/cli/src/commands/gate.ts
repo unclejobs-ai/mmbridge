@@ -49,10 +49,9 @@ function readProjectArg(argv: string[]): string | undefined {
   return undefined;
 }
 
-export async function runGateCommand(options: GateCommandOptions): Promise<void> {
-  const projectDir = resolveProjectDir(options.project ?? readProjectArg(process.argv));
+/** Shared, read-only gate computation; callers own formatting and persistence. */
+export async function computeGate(projectDir: string, options: { mode?: string; baseRef?: string } = {}) {
   const mode = options.mode ?? 'review';
-  const format = options.format ?? 'compact';
 
   const { evaluateGate, getChangedFiles, getDefaultBaseRef, getDiff, runCommand, shortDigest } = await importCore();
   const { ProjectMemoryStore, RunStore, SessionStore } = await importSessionStore();
@@ -120,6 +119,13 @@ export async function runGateCommand(options: GateCommandOptions): Promise<void>
           }
         : null,
   });
+  return { result, baseRef, diffDigest, latestSessionId: latestSessions[0]?.id ?? null };
+}
+
+export async function runGateCommand(options: GateCommandOptions): Promise<void> {
+  const projectDir = resolveProjectDir(options.project ?? readProjectArg(process.argv));
+  const format = options.format ?? 'compact';
+  const { result } = await computeGate(projectDir, options);
 
   if (format === 'json') {
     jsonOutput(result);

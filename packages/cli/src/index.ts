@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 
+import type { ApsCommandOptions } from './commands/aps.js';
 import type { ContextPacketCommandOptions, ContextTreeCommandOptions } from './commands/context.js';
 import type { ConversationOptions } from './commands/conversation.js';
 import type { DebateCommandOptions } from './commands/debate.js';
@@ -485,6 +486,148 @@ export async function main(): Promise<void> {
       const { runContextPacketCommand } = await import('./commands/context.js');
       await runContextPacketCommand(opts);
     });
+
+  // APS handlers are deliberately lazy so unrelated --help does not load node:sqlite.
+  const apsCmd = program.command('aps').description('APS work-card ledger');
+  const addAps = (parent: Command, spec: string, action: string, flags: [string, string][]) => {
+    const cmd = parent
+      .command(spec)
+      .description(`APS ${action.replaceAll('-', ' ')}`)
+      .option('--db <path>', 'Ledger path')
+      .option('--json', 'Output JSON')
+      .option('--by <agent>', 'Acting agent (default: APS_AGENT)')
+      .option('--project-dir <dir>', 'Git project directory (default: cwd)')
+      .exitOverride((error) => {
+        process.exit(error.exitCode === 0 ? 0 : 2);
+      });
+    for (const [flag, description] of flags) cmd.option(flag, description);
+    cmd.action(async (...args: unknown[]) => {
+      const command = args.at(-1) as Command;
+      const id = typeof args[0] === 'string' ? args[0] : undefined;
+      const { runApsCommand } = await import('./commands/aps.js');
+      await runApsCommand(action, id, command.optsWithGlobals() as ApsCommandOptions);
+    });
+    return cmd;
+  };
+  addAps(apsCmd, 'init', 'init', []);
+  addAps(apsCmd, 'doctor', 'doctor', []);
+  const apsProject = apsCmd.command('project').description('Ledger projects');
+  addAps(apsProject, 'add <id>', 'project-add', [
+    ['--prefix <prefix>', 'Card prefix'],
+    ['--name <name>', 'Project name'],
+  ]);
+  const apsAgent = apsCmd.command('agent').description('Agent sessions');
+  addAps(apsAgent, 'new', 'agent-new', [
+    ['--name <name>', 'Worker identity'],
+    ['--layer <layer>', 'L0|L1|L2|L3'],
+    ['--model <model>', 'Model'],
+    ['--vendor <vendor>', 'Vendor'],
+    ['--project <id>', 'Ledger project'],
+    ['--herdr-pane <pane>', 'Pane ID'],
+  ]);
+  const apsCard = apsCmd.command('card').description('Work cards');
+  addAps(apsCard, 'new', 'card-new', [
+    ['--project <id>', 'Ledger project'],
+    ['--title <title>', 'Goal'],
+    ['--kind <kind>', 'mech|design|review|vision|research'],
+    ['--size <size>', 'S|M|L'],
+    ['--scope <scope>', 'Scope'],
+    ['--acceptance <file>', 'Acceptance JSON file'],
+    ['--forbidden <text>', 'Forbidden actions'],
+    ['--needs-owner <bit>', '0|1'],
+    ['--needs-vision <bit>', '0|1'],
+    ['--owner <agent>', 'Manager'],
+    ['--assignee <agent>', 'Worker session'],
+    ['--parent <card>', 'Parent card'],
+    ['--body <file>', 'Details markdown'],
+    ['--source-ref <ref>', 'Source reference'],
+  ]);
+  addAps(apsCard, 'show <id>', 'card-show', [['--as-prompt', 'Worker prompt']]);
+  addAps(apsCard, 'list', 'card-list', [
+    ['--project <id>', 'Filter project'],
+    ['--state <state>', 'Filter state'],
+    ['--assignee <agent>', 'Filter worker'],
+  ]);
+  addAps(apsCmd, 'start <card>', 'start', [['--assignee <agent>', 'Worker session']]);
+  addAps(apsCmd, 'return <card>', 'return', [['--note <text>', 'Return reason']]);
+  addAps(apsCmd, 'reject <card>', 'reject', [['--note <text>', 'Rejection reason']]);
+  addAps(apsCmd, 'done <card>', 'done', []);
+  addAps(apsCmd, 'report <card>', 'report', [
+    ['--sha <sha>', 'Reported commit'],
+    ['--branch <branch>', 'Branch'],
+    ['--files <json>', 'JSON or @file'],
+    ['--evidence <file>', 'Evidence JSON'],
+    ['--status <status>', 'DONE|DONE_WITH_CONCERNS|BLOCKED'],
+    ['--risks <text>', 'Concerns'],
+    ['--pr <url>', 'Pull request'],
+    ['--body <file>', 'Report markdown'],
+    ['--recorded-by <agent>', 'Proxy recorder'],
+  ]);
+  addAps(apsCmd, 'close-session <agent>', 'close-session', [
+    ['--note <text>', 'Closure evidence'],
+    ['--abandon', 'Return working cards'],
+  ]);
+  addAps(apsCmd, 'review <card>', 'review', [
+    ['--verdict <verdict>', 'accept|revise|reject'],
+    ['--items <file>', 'Findings JSON'],
+    ['--from-session <uuid>', 'Local mmbridge session'],
+    ['--owner', 'On behalf of owner'],
+    ['--category <category>', 'Imported findings category'],
+  ]);
+  addAps(apsCmd, 'vision <card>', 'vision', [
+    ['--shots <file>', 'Screenshot JSON'],
+    ['--verdict <verdict>', 'pass|fail'],
+    ['--items <file>', 'Findings JSON'],
+    ['--notes <text>', 'Notes'],
+  ]);
+  addAps(apsCmd, 'owner-ok <card>', 'owner-ok', [
+    ['--quote <text>', 'Owner quote'],
+    ['--source-ref <ref>', 'Source reference'],
+  ]);
+  addAps(apsCmd, 'merge <card>', 'merge', [
+    ['--merged-sha <sha>', 'Merged commit'],
+    ['--applied-ref <ref>', 'Applied non-git change'],
+    ['--target <target>', 'Merge/apply target'],
+    ['--gate', 'Record gate'],
+    ['--base-ref <ref>', 'Gate base ref'],
+  ]);
+  addAps(apsCmd, 'todo-render', 'todo-render', [
+    ['--out <path>', 'Atomically write markdown'],
+    ['--project <id>', 'Filter project'],
+  ]);
+  addAps(apsCmd, 'brief', 'brief', [
+    ['--level <level>', 'L0|L1|L2'],
+    ['--since <iso>', 'Period start'],
+    ['--save', 'Persist briefing'],
+    ['--project <id>', 'Filter kanban'],
+  ]);
+  addAps(apsCmd, 'metrics', 'metrics', [
+    ['--week', 'Last seven days'],
+    ['--since <iso>', 'Period start'],
+  ]);
+  addAps(apsCmd, 'chart', 'chart', [
+    ['--metric <metric>', 'rework|pass|cycle'],
+    ['--days <days>', 'Daily points (default 14)'],
+  ]);
+  const apsFeedback = apsCmd.command('feedback').description('Feedback ledger');
+  addAps(apsFeedback, 'new', 'feedback-new', [
+    ['--to <agent>', 'Recipient'],
+    ['--kind <kind>', 'objection|proposal|andon'],
+    ['--body <text>', 'Feedback'],
+    ['--card <card>', 'Card'],
+  ]);
+  addAps(apsFeedback, 'respond <id>', 'feedback-respond', [
+    ['--response <response>', 'accept|partial|reject'],
+    ['--reason <text>', 'Reason'],
+  ]);
+  const apsDefect = apsCmd.command('defect').description('External defects');
+  addAps(apsDefect, 'add <card>', 'defect-add', [
+    ['--source <source>', 'ci|revert|owner'],
+    ['--category <category>', 'Category'],
+    ['--severity <severity>', 'blocker|major|minor|nit'],
+    ['--text <text>', 'Description'],
+    ['--ref <ref>', 'Reference'],
+  ]);
 
   await program.parseAsync(process.argv);
 }

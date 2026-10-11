@@ -30,6 +30,7 @@
   "dependencies": {
     "@mmbridge/adapters": "workspace:*",
     "@mmbridge/agent": "workspace:*",
+    "@mmbridge/aps": "workspace:*",
     "@mmbridge/auth": "workspace:*",
     "@mmbridge/context-broker": "workspace:*",
     "@mmbridge/core": "workspace:*",

@@ -4,6 +4,9 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
+export * from './analytics.js';
+export * from './ledger.js';
+export * from './render.js';
 export const APS_DB_ENV = 'MMBRIDGE_APS_DB';
 export const APS_SQL_DIR = fileURLToPath(new URL('../sql/', import.meta.url));
 
@@ -20,7 +23,9 @@ export interface ApsDbPathSources {
 /** Precedence: --db flag > MMBRIDGE_APS_DB > config aps.dbPath > ~/ss-work/aps/aps.db */
 export function resolveApsDbPath(sources: ApsDbPathSources = {}): string {
   const env = sources.env ?? process.env;
-  return sources.flag || env[APS_DB_ENV] || sources.configPath || join(homedir(), 'ss-work', 'aps', 'aps.db');
+  return (
+    sources.flag || env[APS_DB_ENV] || env.APS_DB || sources.configPath || join(homedir(), 'ss-work', 'aps', 'aps.db')
+  );
 }
 
 export interface ApsMigration {

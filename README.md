@@ -123,6 +123,50 @@ mmbridge security --tool all --bridge standard
 | `mmbridge sync-agents` | Sync agent definitions to Claude Code |
 | `mmbridge hook` | Manage Claude Code hooks |
 
+### APS Work-Card Ledger
+
+`mmbridge aps` records work cards, worker sessions, evidence, independent reviews,
+vision audits, owner approvals, and merge confirmations in a guarded SQLite ledger.
+It is local-only: importing a review uses an existing mmbridge session and never
+starts a model call.
+
+```bash
+export APS_AGENT=<manager-session-id>
+mmbridge aps init
+mmbridge aps project add studio --prefix SS --name Studio
+mmbridge aps agent new --name worker --layer L2 --model sol --vendor subscription
+mmbridge aps card new --project studio --title "Fix the parser" --kind mech --size S \
+  --scope packages/parser --acceptance acceptance.json --forbidden "paid calls" \
+  --owner "$APS_AGENT" --assignee <worker-session-id>
+mmbridge aps card show SS-C-0001 --as-prompt
+mmbridge aps start SS-C-0001 --assignee <worker-session-id>
+mmbridge aps report SS-C-0001 --by <worker-session-id> --sha <commit-sha> \
+  --branch feature/parser --files '["packages/parser/src/index.ts"]' \
+  --evidence evidence.json --status DONE
+mmbridge aps close-session <worker-session-id> --note "worker pane ended"
+mmbridge aps review SS-C-0001 --verdict accept --from-session <local-session-uuid>
+mmbridge aps merge SS-C-0001 --merged-sha <merged-commit-sha> --target main --gate
+mmbridge aps done SS-C-0001
+mmbridge aps todo-render --out ./TODO.md
+mmbridge aps metrics --week --json
+mmbridge aps brief --level L1 --save
+mmbridge aps chart --metric rework --days 14 --json
+mmbridge aps doctor
+```
+
+Use `--db <path>` on any leaf command to isolate a ledger. Resolution is
+`--db` → `MMBRIDGE_APS_DB` → `APS_DB` (demo alias) → config `aps.dbPath` →
+`~/ss-work/aps/aps.db`. Every command accepts `--by` (default `APS_AGENT`) and
+`--json`; `card show --as-prompt` is text-only. Exit codes are 0 for success,
+2 for invalid input, 3 for an `APS-*` guard rejection, and 1 for unexpected errors.
+Writes are transactional; missing guard triggers fail closed. `--project-dir`
+selects the git/context working directory, independently of the ledger project ID.
+Required owner/vision approvals remain enforced before `done`.
+
+See [the APS contract](docs/aps/DESIGN.md) for JSON evidence shapes, all commands,
+state transitions, and exact guard messages. `return`, `reject`, `feedback`,
+`defect`, `vision`, and `owner-ok` are also available via `mmbridge aps --help`.
+
 ## Configuration
 
 Create `.mmbridge.config.json` in your project root:
