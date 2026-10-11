@@ -69,11 +69,33 @@ function reply(args: string[], result: unknown): Step {
   return { args, stdout: { result } };
 }
 
-test('getPane maps pane_not_found to absent', () => {
-  assert.deepEqual(invoke('getPane', ['wH:p2'], [{ args: ['pane', 'get', 'wH:p2'], stdout: absent, exit: 1 }]), {
+test('parseHerdrEnvelope preserves stderr error codes for failed commands', () => {
+  assert.deepEqual(invoke('parseHerdrEnvelope', [{ code: 1, stdout: '', stderr: JSON.stringify(absent) }], []), {
     ok: true,
-    value: { state: 'absent' },
+    value: absent,
   });
+});
+
+test('getPane maps pane_not_found to absent', () => {
+  assert.deepEqual(
+    invoke(
+      'getPane',
+      ['wH:p2'],
+      [{ args: ['pane', 'get', 'wH:p2'], stdout: '', stderr: JSON.stringify(absent), exit: 1 }],
+    ),
+    { ok: true, value: { state: 'absent' } },
+  );
+});
+
+test('getPane reads stderr when successful stdout is empty', () => {
+  assert.deepEqual(
+    invoke(
+      'getPane',
+      ['wH:p2'],
+      [{ args: ['pane', 'get', 'wH:p2'], stdout: '', stderr: JSON.stringify({ result: { pane } }) }],
+    ),
+    { ok: true, value: { state: 'present', pane } },
+  );
 });
 
 test('getPane returns a present bare-shell pane and agent session metadata', () => {
@@ -91,6 +113,7 @@ test('terminal_id change counts as ended', () => {
   assert.deepEqual(result.value.argv, ['pane', 'get', 'wH:p2']);
   assert.equal(result.value.exit, 0);
   assert.equal(JSON.parse(result.value.stdout_head).result.pane.terminal_id, 'term_2');
+  assert.equal(result.value.stderr_head, '');
   assert.ok(Number.isFinite(Date.parse(result.value.at)));
 });
 
@@ -104,20 +127,27 @@ test('confirmPaneEnded refuses an open pane even without a detected agent', () =
 });
 
 test('confirmPaneEnded records explicit absence evidence', () => {
-  const result = invoke('confirmPaneEnded', ['wH:p2'], [{ args: ['pane', 'get', 'wH:p2'], stdout: absent, exit: 1 }]);
+  const result = invoke(
+    'confirmPaneEnded',
+    ['wH:p2'],
+    [{ args: ['pane', 'get', 'wH:p2'], stdout: '', stderr: JSON.stringify(absent), exit: 1 }],
+  );
   assert.equal(result.ok, true);
   assert.equal(result.value.exit, 1);
-  assert.equal(JSON.parse(result.value.stdout_head).error.code, 'pane_not_found');
+  assert.equal(result.value.stdout_head, '');
+  assert.equal(JSON.parse(result.value.stderr_head).error.code, 'pane_not_found');
 });
 
 test('herdr failure is a runtime error not absent', () => {
   for (const step of [
-    { stdout: { error: { code: 'transport_error' } }, exit: 1 },
+    { stdout: '', stderr: JSON.stringify({ error: { code: 'server_not_running' } }), exit: 1 },
+    { stdout: '', stderr: JSON.stringify({ error: { code: 'transport_error' } }), exit: 1 },
+    { stdout: { result: { pane } }, stderr: JSON.stringify({ error: { code: 'server_not_running' } }), exit: 1 },
     { stdout: '', exit: 1, stderr: 'connection refused' },
     { stdout: 'not JSON', exit: 0 },
     { stdout: { result: {} }, exit: 0 },
-    { stdout: absent, exit: 0 },
-    { stdout: absent, exit: 255 },
+    { stdout: '', stderr: JSON.stringify(absent), exit: 0 },
+    { stdout: '', stderr: JSON.stringify(absent), exit: 255 },
     { stdout: { result: { pane: { ...pane, terminal_id: null } } }, exit: 0 },
     { stdout: { result: { pane: { ...pane, pane_id: 'another-pane' } } }, exit: 0 },
   ]) {
@@ -130,7 +160,11 @@ test('herdr failure is a runtime error not absent', () => {
 
 test('getPane bounds a hung herdr call to 15 seconds', () => {
   assert.deepEqual(
-    invoke('getPane', ['wH:p2'], [{ args: ['pane', 'get', 'wH:p2'], stdout: absent, exit: 1, delayMs: 16_000 }]),
+    invoke(
+      'getPane',
+      ['wH:p2'],
+      [{ args: ['pane', 'get', 'wH:p2'], stdout: '', stderr: JSON.stringify(absent), exit: 1, delayMs: 16_000 }],
+    ),
     { ok: false, error: 'cannot confirm pane ended: herdr pane get failed' },
   );
 });

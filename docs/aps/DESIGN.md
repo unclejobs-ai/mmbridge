@@ -193,7 +193,7 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | Code | Where | Exact message | Test recipe |
 |---|---|---|---|
 | U01 | `openApsDb` (implemented) | `APS-U01: ledger schema v<N> is newer than this build (max v<M>)` | `smoke.test.ts` › openApsDb … (executed) |
-| H01 | `aps close-session` via `confirmPaneEnded` | `APS-H01: herdr pane <pane> is still open` | fake `herdr pane get` on PATH: open pane (including a bare shell) refuses; exit 1 with `pane_not_found` passes |
+| H01 | `aps close-session` via `confirmPaneEnded` | `APS-H01: herdr pane <pane> is still open` | fake `herdr pane get` on PATH: open pane (including a bare shell) refuses; exit 1 with `pane_not_found` on stderr passes; `server_not_running` on stderr refuses |
 | H02 | `aps review --from-session` | `APS-H02: mmbridge session <uuid> head.sha <x> != reported sha <y>` | `SessionStore(tmp).save({head:{sha:x}})`, report sha y |
 | H03 | `aps merge` | `APS-H03: <merged_sha> does not contain <sha> (git merge-base --is-ancestor failed)` | temp git repo with two unrelated commits |
 | H04 | `aps review --from-session` | `APS-H04: mmbridge session <uuid> not found` | unknown uuid |
@@ -340,7 +340,7 @@ When the imported session has `handoffId`/`handoffPath`, insert `card_links(kind
 
 ### 9.4 herdr, scc
 
-- `agent new --herdr-pane` records the pane; `close-session` uses the shared herdr adapter's `confirmPaneEnded(pane)` to probe `herdr pane get`. Any open pane, including a bare shell with no detected agent, refuses with H01. Only exit 1 with an explicit `pane_not_found` proves absence; other failures exit 1 with `cannot confirm pane ended: herdr pane get failed`. Manual close-session does not close panes itself.
+- `agent new --herdr-pane` records the pane; `close-session` uses the shared herdr adapter's `confirmPaneEnded(pane)` to probe `herdr pane get`. Any open pane, including a bare shell with no detected agent, refuses with H01. Herdr emits error envelopes on stderr: the adapter parses stderr for nonzero exits or empty stdout. Only exit 1 with an explicit `pane_not_found` proves absence; other failures (including `server_not_running`, also exit 1) exit 1 with `cannot confirm pane ended: herdr pane get failed`. Close evidence preserves both `stdout_head` and `stderr_head` (up to 1024 characters each). Manual close-session does not close panes itself.
 - scc PDCA: `pdca_runs.scc_run_id` = `pdca_start_run` id. Phase moves mirror `pdca_transition`; Check cannot be skipped (Q01–Q03). Stage D wires `pdca_check_gate` results into `result_json`.
 
 ## 10. Migrations, tests, extension points

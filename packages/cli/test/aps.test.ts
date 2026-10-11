@@ -139,7 +139,7 @@ function paneFixture(t: TestContext, response: unknown, exit = 0) {
     join(binDir, 'herdr'),
     `#!/bin/sh
 [ "$#" -eq 3 ] && [ "$1" = pane ] && [ "$2" = get ] && [ "$3" = w12:p3 ] || exit 99
-printf '%s\\n' '${JSON.stringify(response)}'
+printf '%s\\n' '${JSON.stringify(response)}'${exit === 0 ? '' : ' >&2'}
 exit ${exit}
 `,
     { mode: 0o755 },
@@ -230,8 +230,8 @@ test('H01 passes when pane_not_found', (t) => {
   assert.equal(after.card?.state, 'closed_session');
 });
 
-test('H01 fails closed on herdr runtime errors', (t) => {
-  const f = paneFixture(t, { error: { code: 'transport_error' } }, 1);
+test('H01 fails closed on herdr server_not_running on stderr', (t) => {
+  const f = paneFixture(t, { error: { code: 'server_not_running' } }, 1);
   const before = f.snapshot();
   assert.match(
     f.run(['close-session', f.worker, '--note', 'ended'], 1).stderr,

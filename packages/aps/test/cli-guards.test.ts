@@ -108,7 +108,8 @@ test('H01: close-session refuses while the herdr pane is still open', { todo: TO
 [ "$#" -eq 3 ] && [ "$1" = pane ] && [ "$2" = get ] || exit 99
 case "$3" in
   pane-1) printf '%s\\n' '{"result":{"type":"pane_info","pane":{"pane_id":"pane-1","terminal_id":"terminal-1","tab_id":"tab-1","workspace_id":"workspace-1"}}}' ;;
-  pane-2) printf '%s\\n' '{"error":{"code":"pane_not_found"}}'; exit 1 ;;
+  pane-2) printf '%s\\n' '{"error":{"code":"pane_not_found"}}' >&2; exit 1 ;;
+  pane-3) printf '%s\\n' '{"error":{"code":"server_not_running"}}' >&2; exit 1 ;;
   *) exit 99 ;;
 esac
 `,
@@ -117,12 +118,24 @@ esac
   const dbPath = seedLedger(home);
   withDb(dbPath, (db) =>
     db.exec(`UPDATE agents SET herdr_pane='pane-1' WHERE id='w1';
-             UPDATE agents SET herdr_pane='pane-2' WHERE id='w2'`),
+             UPDATE agents SET herdr_pane='pane-2' WHERE id='w2';
+             UPDATE agents SET herdr_pane='pane-3' WHERE id='w1b'`),
   );
 
   const denied = aps(['close-session', 'w1', '--by', 'mgr', '--note', 'done', '--db', dbPath], { home, fakeBin });
   assert.equal(denied.status, 3, denied.stderr);
   assert.ok(denied.stderr.includes('[mmbridge] APS-H01: herdr pane pane-1 is still open'));
+
+  const failed = aps(['close-session', 'w1b', '--by', 'mgr', '--note', 'done', '--db', dbPath], {
+    home,
+    fakeBin,
+  });
+  assert.equal(failed.status, 1, failed.stderr);
+  assert.ok(failed.stderr.includes('cannot confirm pane ended: herdr pane get failed'));
+  assert.equal(
+    withDb(dbPath, (db) => db.prepare("SELECT status FROM agents WHERE id='w1b'").get()?.status),
+    'active',
+  );
 
   // allowed: w2's pane-2 is explicitly reported as pane_not_found
   const ok = aps(['close-session', 'w2', '--by', 'mgr', '--note', 'done', '--db', dbPath], { home, fakeBin });
