@@ -60,7 +60,7 @@ contract=5, security=6, change=7, metrics=8, review=9. Defaults:
 `enforcement: "block"`, `run.cwd: "."`, `timeoutSec: 900`,
 `okExitCodes: [0]`, `tolerance: 0`, `.aps/baseline.json`, `.aps/exemptions.json`.
 Literal `run.env` values overlay inherited process environment; do not put secrets
-in configuration. Pipelines must live in a repository script or explicit shell argv.
+in configuration. Pipelines belong in a repository script.
 
 Sources: `json` uses an RFC 6901 `pointer` to a finite number (an array yields its
 length); `regex` takes the first match and numeric capture (`group: 1`, optional

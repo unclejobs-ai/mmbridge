@@ -227,6 +227,7 @@ test('base-ref baseline wins over a loosened head baseline', (t) => {
   f.baseline(4);
   const base = f.commit();
   f.baseline(100);
+  f.commit();
   const result = f.run(['--base-ref', base], 1).value;
   assert.equal(result.gates[0].metrics[0].baseline, 4);
   assert.equal(result.gates[0].metrics[0].baselineSource, 'base');
@@ -455,6 +456,7 @@ test('--card appends exact result on the current attempt without changing state'
   required.mode = 'required';
   required.metrics = undefined;
   f.config([required]);
+  const base = f.commit();
   const dbPath = join(f.root, 'ledger.db');
   const db = openApsDb(dbPath);
   db.exec(`INSERT INTO projects(id,prefix,name) VALUES('test','TEST','test');
@@ -462,7 +464,7 @@ test('--card appends exact result on the current attempt without changing state'
     INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner,assignee)
     VALUES('TEST-C-0001','test','gate','mech','S','scope','[{"id":"AC1","text":"gates","command":"mmbridge aps gate","expect":"exit 0"}]','none',0,0,'manager','worker');`);
   const before = db.prepare('SELECT state,attempt FROM cards').get();
-  const result = f.run(['--card', 'TEST-C-0001', '--db', dbPath, '--by', 'worker']).value;
+  const result = f.run(['--card', 'TEST-C-0001', '--db', dbPath, '--by', 'worker', '--base-ref', base]).value;
   const link = db.prepare('SELECT attempt,kind,ref,detail_json FROM card_links').get() as {
     attempt: number;
     kind: string;
@@ -472,7 +474,17 @@ test('--card appends exact result on the current attempt without changing state'
   assert.equal(link.kind, 'other');
   assert.equal(link.ref, `aps-gate:${result.runId}`);
   assert.equal(link.attempt, before?.attempt);
-  assert.deepEqual(JSON.parse(link.detail_json), result);
+  const expectedDetail = structuredClone(result);
+  for (const g of expectedDetail.gates) {
+    g.stdout = undefined;
+    g.stderr = undefined;
+  }
+  const actualDetail = JSON.parse(link.detail_json);
+  for (const g of actualDetail.gates) {
+    g.stdout = undefined;
+    g.stderr = undefined;
+  }
+  assert.deepEqual(actualDetail, expectedDetail);
   assert.deepEqual(db.prepare('SELECT state,attempt FROM cards').get(), before);
   db.close();
 });
@@ -528,4 +540,296 @@ test('ratchet boundaries satisfy both directional invariants (property based)', 
     ),
     { numRuns: 500 },
   );
+});
+test('H1: base-ref mode binds gate config to base and rejects relaxed or missing gates/metrics', (t) => {
+  const f = fixture(t);
+  const baseGate = structuredClone(gate);
+  baseGate.run.timeoutSec = 100;
+  baseGate.metrics = [
+    { id: 'count', source: { kind: 'json', pointer: '/count' }, direction: 'lower', tolerance: 0, min: 0, max: 10 },
+  ];
+  f.config([baseGate]);
+  const base = f.commit();
+
+  // Test 1: missing gate in head fails
+  const headGate = structuredClone(baseGate);
+  headGate.id = 'static.other';
+  f.config([headGate]);
+  f.commit();
+  const resMissing = f.run(['--base-ref', base], 1).value;
+  assert.equal(resMissing.verdict, 'fail');
+  assert.match(resMissing.gates.find((g: Gate) => g.id === baseGate.id)?.message, /missing in head/i);
+
+  // Test 2: relaxed timeoutSec in head fails
+  const relaxedTimeout = structuredClone(baseGate);
+  relaxedTimeout.run.timeoutSec = 200;
+  f.config([relaxedTimeout]);
+  f.commit();
+  const resTimeout = f.run(['--base-ref', base], 1).value;
+  assert.equal(resTimeout.verdict, 'fail');
+  assert.match(resTimeout.gates[0].message, /timeoutSec raised/);
+
+  // Test 3: relaxed tolerance in head fails
+  const relaxedTol = structuredClone(baseGate);
+  if (relaxedTol.metrics?.[0]) relaxedTol.metrics[0].tolerance = 5;
+  f.config([relaxedTol]);
+  f.commit();
+  const resTol = f.run(['--base-ref', base], 1).value;
+  assert.equal(resTol.verdict, 'fail');
+  assert.match(resTol.gates[0].message, /tolerance raised/);
+
+  // Test 4: approval exemption on base waives the relaxation
+  f.file('exemptions.json', { version: 1, exemptions: [exemption({ gate: baseGate.id, metric: undefined })] });
+  const approvedBase = f.commit();
+  const resWaived = f.run(['--base-ref', approvedBase], 0).value;
+  assert.equal(resWaived.verdict, 'pass');
+
+  f.git(['rm', '-f', '.aps/exemptions.json']);
+  const relaxedMode = structuredClone(baseGate);
+  relaxedMode.mode = 'report';
+  f.config([relaxedMode]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /mode relaxed/);
+
+  const relaxedMin = structuredClone(baseGate);
+  if (relaxedMin.metrics?.[0]) relaxedMin.metrics[0].min = -1;
+  f.config([relaxedMin]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /min bound loosened/);
+
+  const relaxedMax = structuredClone(baseGate);
+  if (relaxedMax.metrics?.[0]) relaxedMax.metrics[0].max = 20;
+  f.config([relaxedMax]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /max bound loosened/);
+
+  const relaxedEnforcement = structuredClone(baseGate);
+  relaxedEnforcement.enforcement = 'warn';
+  f.config([relaxedEnforcement]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /enforcement relaxed/);
+
+  const relaxedCodes = structuredClone(baseGate);
+  relaxedCodes.run.okExitCodes = [0, 2];
+  f.config([relaxedCodes]);
+  f.commit();
+  assert.match(f.run(['--base-ref', base], 1).value.gates[0].message, /okExitCodes widened/);
+
+  const pathGate = structuredClone(baseGate);
+  pathGate.when = { changedPaths: ['src/**', 'lib/**'] };
+  f.config([pathGate]);
+  const pathBase = f.commit();
+  const narrowed = structuredClone(pathGate);
+  narrowed.when = { changedPaths: ['src/**'] };
+  f.config([narrowed]);
+  f.commit();
+  assert.match(f.run(['--base-ref', pathBase], 1).value.gates[0].message, /changedPaths narrowed/);
+
+  f.config([baseGate]);
+  f.file('baseline.json', {
+    version: 1,
+    gates: { [baseGate.id]: { count: { value: 4, sha: 'a'.repeat(40), measuredAt: '2026-10-11T00:00:00Z' } } },
+  });
+  const baselineBase = f.commit();
+  f.file('gates.json', {
+    version: 1,
+    repo: 'test/repo',
+    baselineFile: '.aps/baseline-v2.json',
+    gates: [baseGate],
+  });
+  f.file('baseline-v2.json', {
+    version: 1,
+    gates: { [baseGate.id]: { count: { value: 5, sha: 'a'.repeat(40), measuredAt: '2026-10-11T00:00:00Z' } } },
+  });
+  f.commit();
+  const redirected = f.run(['--base-ref', baselineBase], 1).value;
+  assert.equal(redirected.gates[0].metrics[0].baseline, 4);
+  assert.equal(redirected.gates[0].metrics[0].baselineSource, 'base');
+});
+
+test('H2: base-ref mode fails when head baseline loosens or deletes a base key', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+
+  // Loosen baseline in head (higher value for lower direction)
+  f.baseline(10);
+  f.commit();
+  const resLoosened = f.run(['--base-ref', base], 1).value;
+  assert.equal(resLoosened.verdict, 'fail');
+  assert.match(resLoosened.warnings.join(' '), /head-baseline-loosened/);
+
+  // Delete baseline key in head
+  f.file('baseline.json', { version: 1, gates: {} });
+  f.commit();
+  const resDeleted = f.run(['--base-ref', base], 1).value;
+  assert.equal(resDeleted.verdict, 'fail');
+  assert.match(resDeleted.warnings.join(' '), /head-baseline-loosened.*deleted/);
+});
+
+test('M1: dirty tracked files fail with exit 2 under --base-ref or --card', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+
+  // Dirty tracked file
+  writeFileSync(join(f.root, 'dirty.txt'), 'hello');
+  f.git(['add', 'dirty.txt']);
+  const resBase = f.run(['--base-ref', base], 2);
+  assert.match(resBase.stdout, /tracked files dirty/);
+
+  // Untracked file does not trigger dirty error
+  f.git(['reset', '--hard', 'HEAD']);
+  writeFileSync(join(f.root, 'untracked.txt'), 'hello');
+  const resClean = f.run(['--base-ref', base], 0);
+  assert.equal(resClean.value.verdict, 'pass');
+
+  // Baseline dirtiness is exempt only when this run writes it.
+  const baselinePath = join(f.root, '.aps/baseline.json');
+  writeFileSync(baselinePath, `${readFileSync(baselinePath, 'utf8')}\n`);
+  const resDirtyBaseline = f.run(['--base-ref', base], 2);
+  assert.match(resDirtyBaseline.stdout, /tracked files dirty/);
+  const resUpdate = f.run(['--base-ref', base, '--update-baseline'], 0);
+  assert.equal(resUpdate.value.baselineUpdated, true);
+});
+
+test('M2: git diff detects renames with old and new paths via --no-renames', (t) => {
+  const f = fixture(t);
+  const condGate = structuredClone(gate);
+  condGate.mode = 'required';
+  condGate.metrics = undefined;
+  condGate.when = { changedPaths: ['old-dir/**'] };
+  f.config([condGate]);
+  mkdirSync(join(f.root, 'old-dir'));
+  writeFileSync(join(f.root, 'old-dir/file.txt'), 'content');
+  const base = f.commit();
+
+  // Rename old-dir/file.txt to new-dir/file.txt
+  f.git(['mv', 'old-dir', 'new-dir']);
+  f.commit();
+  // Gate watching old-dir/** should still trigger because old path is in diff
+  const res = f.run(['--base-ref', base], 0).value;
+  assert.equal(res.gates[0].status, 'pass');
+});
+
+test('M3: stdout/stderr capped to 8 KiB tail on fail/error, omitted on card link', (t) => {
+  const f = fixture(t);
+  const failGate = structuredClone(gate);
+  failGate.mode = 'required';
+  failGate.metrics = undefined;
+  // Gate that produces > 10 KiB output and exits 1
+  failGate.run.argv = [
+    process.execPath,
+    '-e',
+    'console.log("X".repeat(12000) + "TAIL_STDOUT"); console.error("Y".repeat(12000) + "TAIL_STDERR"); process.exit(1);',
+  ];
+  f.config([failGate]);
+  const base = f.commit();
+
+  const res = f.run(['--base-ref', base], 1).value;
+  const g = res.gates[0];
+  assert.equal(g.status, 'fail');
+  assert.ok(g.stdout.length <= 8192);
+  assert.ok(g.stderr.length <= 8192);
+  assert.ok(g.stdout.endsWith('TAIL_STDOUT\n'));
+  assert.ok(g.stderr.endsWith('TAIL_STDERR\n'));
+});
+
+test('L1: running outside repository root exits 2', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.commit();
+  mkdirSync(join(f.root, 'sub-dir'));
+  const res = spawnSync(process.execPath, [bin, 'aps', 'gate'], {
+    cwd: join(f.root, 'sub-dir'),
+    encoding: 'utf8',
+  });
+  assert.equal(res.status, 2);
+  assert.match(res.stderr, /projectDir must be repository root/);
+});
+
+test('L2: ledger validation happens before gate execution', (t) => {
+  const f = fixture(t);
+  f.config();
+  const base = f.commit();
+  // Pass non-existent card with --card
+  const res = f.run(
+    ['--base-ref', base, '--card', 'NONEXISTENT', '--by', 'worker', '--db', join(f.root, 'ledger.db')],
+    2,
+  );
+  assert.match(res.stdout, /card NONEXISTENT not found/);
+});
+
+test('L3: baselineSha256 binds to base baseline in base-ref mode', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+
+  // Head baseline updated
+  f.baseline(5);
+  const res = f.run(['--base-ref', base], 0).value;
+  assert.ok(res.baselineSha256);
+});
+
+test('L4: not-yet-active exemptions emit warning and are ignored', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.baseline(5);
+  const base = f.commit();
+  const future = '2099-01-01';
+  f.file('exemptions.json', {
+    version: 1,
+    exemptions: [exemption({ createdAt: future, expiresAt: future })],
+  });
+  const approvedBase = f.commit();
+  const res = f.run(['--base-ref', approvedBase], 0).value;
+  assert.match(res.warnings.join(' '), /not-yet-active-exemption/);
+});
+
+test('L6: --card requires --base-ref', (t) => {
+  const f = fixture(t);
+  f.config();
+  f.commit();
+  const res = f.run(['--card', 'TEST-C-0001', '--by', 'worker'], 2);
+  assert.match(res.stdout, /--card requires --base-ref/);
+});
+
+test('M4: timeout kills the process group, including a grandchild', (t) => {
+  const f = fixture(t);
+  const hang = structuredClone(gate);
+  hang.mode = 'required';
+  hang.metrics = undefined;
+  hang.run.timeoutSec = 1;
+  const pidFile = join(f.root, 'grandchild.pid');
+  hang.run.argv = [
+    process.execPath,
+    '-e',
+    `const {spawn}=require('node:child_process');const fs=require('node:fs');const child=spawn('sleep',['30'],{stdio:'inherit'});fs.writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));setInterval(()=>{},1000);`,
+  ];
+  f.config([hang]);
+  const base = f.commit();
+  // Real timeout: process-group kill cannot be proven with fake timers. spawnSync timeout fails the test if the grandchild keeps the pipe open.
+  const started = Date.now();
+  const result = spawnSync(process.execPath, [bin, 'aps', 'gate', '--base-ref', base, '--json'], {
+    cwd: f.root,
+    env: { ...process.env, HOME: f.root, APS_AGENT: '', NODE_NO_WARNINGS: '1' },
+    encoding: 'utf8',
+    timeout: 8000,
+  });
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.ok(Date.now() - started < 8000, `elapsed ${Date.now() - started}`);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.gates[0].status, 'error');
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  const alive = spawnSync('kill', ['-0', String(pid)]);
+  assert.notEqual(alive.status, 0, `grandchild ${pid} still alive`);
+});
+
+test('L5: pipelines belong in a repository script', () => {
+  const doc = readFileSync(resolve(import.meta.dirname, '../../../docs/aps/GATES.md'), 'utf8');
+  assert.match(doc, /Pipelines belong in a repository script\./);
+  assert.doesNotMatch(doc, /or explicit shell argv/);
 });

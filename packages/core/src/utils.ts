@@ -16,6 +16,7 @@ export async function runCommand(
     env = process.env,
     timeoutMs = 120000,
     killGraceMs = 5000,
+    detached = false,
     onStdout: onStdoutCb,
     onStderr: onStderrCb,
   } = options;
@@ -25,6 +26,7 @@ export async function runCommand(
     const child = spawn(command, args, {
       cwd,
       env,
+      detached,
       stdio: 'pipe',
     });
 
@@ -42,13 +44,25 @@ export async function runCommand(
       resolve(result);
     };
 
+    const killProc = (signal: NodeJS.Signals): void => {
+      if (detached && child.pid) {
+        try {
+          process.kill(-child.pid, signal);
+          return;
+        } catch {
+          // process group may already be gone, fall back to child.kill
+        }
+      }
+      child.kill(signal);
+    };
+
     const timeout = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
+      killProc('SIGTERM');
       killTimer = setTimeout(() => {
         if (settled) return;
         forcedKill = true;
-        child.kill('SIGKILL');
+        killProc('SIGKILL');
       }, killGraceMs);
     }, timeoutMs);
 
