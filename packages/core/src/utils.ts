@@ -54,6 +54,17 @@ export async function runCommand(
         // ESRCH means the group is already gone. Any other code must not reject the command result.
       }
     };
+    const scheduleGroupSigkill = (): void => {
+      if (!detached || !child.pid) return;
+      try {
+        process.kill(-child.pid, 0);
+      } catch {
+        return;
+      }
+      const pid = child.pid;
+      const killer = spawn('sh', ['-c', `sleep 2; kill -KILL -${pid}`], { detached: true, stdio: 'ignore' });
+      killer.unref();
+    };
 
     const killProc = (signal: NodeJS.Signals): void => {
       if (detached && child.pid) {
@@ -70,6 +81,7 @@ export async function runCommand(
           for (const [installed, installedHandler] of signalHandlers) process.off(installed, installedHandler);
           signalHandlers.clear();
           killGroup(signal);
+          scheduleGroupSigkill();
           process.kill(process.pid, signal);
         };
         signalHandlers.set(signal, handler);
@@ -110,6 +122,7 @@ export async function runCommand(
 
     child.on('close', (code: number | null) => {
       killGroup('SIGTERM');
+      scheduleGroupSigkill();
       if (timedOut) {
         const suffix = forcedKill ? ` (SIGKILL after ${killGraceMs}ms grace)` : '';
         const timeoutMsg = `Command timed out after ${timeoutMs}ms${suffix}`;

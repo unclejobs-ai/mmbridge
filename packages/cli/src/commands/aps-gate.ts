@@ -218,13 +218,16 @@ export async function executeApsGates(options: ApsGateOptions): Promise<GateRunR
     if (command.code < 0 || !(gate.run.okExitCodes ?? [0]).includes(command.code)) {
       row.status = command.code >= 0 && gate.mode === 'required' ? (gateExemption ? 'exempt' : 'fail') : 'error';
       row.exemption = row.status === 'exempt' ? (gateExemption?.id ?? null) : null;
-      row.message = redactBoundedText(
-        core.redactContent,
-        command.stderr.trim() || `Command exited ${command.code}`,
-        2048,
-      );
+      const redactedStderr = redactBoundedText(core.redactContent, command.stderr, 8192);
+      const trimmedStderr = redactedStderr.trim();
+      const trimmedBytes = Buffer.from(trimmedStderr, 'utf8');
+      row.stderr = redactedStderr;
+      row.message = trimmedStderr
+        ? trimmedBytes.byteLength <= 2048
+          ? trimmedStderr
+          : trimmedBytes.subarray(trimmedBytes.byteLength - 2048).toString('utf8')
+        : `Command exited ${command.code}`;
       row.stdout = redactBoundedText(core.redactContent, command.stdout, 8192);
-      row.stderr = redactBoundedText(core.redactContent, command.stderr, 8192);
       continue;
     }
     for (const metric of gate.metrics ?? []) {

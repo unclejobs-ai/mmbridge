@@ -17,12 +17,14 @@ const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: stri
   { pattern: /polar_at_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_POLAR_TOKEN]', label: 'Polar access token' },
   { pattern: /whsk_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_WEBHOOK_SECRET]', label: 'Webhook secret' },
   {
-    pattern: /(?:password|passwd|pwd)\s*[:=]\s*["']?([^\s"']{8,})["']?/gi,
+    pattern:
+      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,64}(?:password|passwd|pwd)(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S{8,})/gi,
     replacement: '[REDACTED_PASSWORD]',
     label: 'Password value',
   },
   {
-    pattern: /(?:secret|token|key)\s*[:=]\s*["']([A-Za-z0-9_\-./+]{16,})["']/gi,
+    pattern:
+      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,64}(?:secret|token|key)(?![A-Za-z0-9_])["']?\s*[:=]\s*["'][^"'[\]]{16,}["']/gi,
     replacement: '[REDACTED_SECRET]',
     label: 'Generic secret/token',
   },

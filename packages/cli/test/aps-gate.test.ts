@@ -1064,21 +1064,55 @@ test('R4: each gate token rule redacts a sample the built-ins miss', () => {
   }
   assert.equal(redactBoundedText(redactContent, 'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI', 2048), '[REDACTED_SECRET]');
   assert.equal(redactBoundedText(redactContent, 'Secret: hunter2', 2048), '[REDACTED_SECRET]');
+  const quoted = [
+    { sample: '{"password":"hunter2-secret-value"}', leak: /hunter2-secret-value/ },
+    { sample: '"api_key": "abcd1234efgh5678zz"', leak: /abcd1234efgh5678zz/ },
+    { sample: 'password: "correct horse battery staple"', leak: /correct|horse|battery|staple/ },
+  ];
+  for (const item of quoted) {
+    const redacted = redactBoundedText(redactContent, item.sample, 2048);
+    assert.doesNotMatch(redacted, item.leak, item.sample);
+    assert.match(redacted, /\[REDACTED_/);
+  }
+  assert.equal(redactBoundedText(redactContent, 'author: Jane Doe', 2048), 'author: Jane Doe');
+  assert.equal(redactBoundedText(redactContent, 'auth_failures: fail', 2048), 'auth_failures: fail');
+  const urls = [
+    { sample: 'https://tokensecretvalue@host.example/x', leak: /tokensecretvalue/ },
+    { sample: 'https://user:pa/ssword@host.example/app', leak: /pa\/ssword/ },
+    { sample: 'https://user:p@zzsecret@host.example/app', leak: /zzsecret/ },
+  ];
+  for (const item of urls) {
+    const redacted = redactBoundedText(redactContent, item.sample, 2048);
+    assert.doesNotMatch(redacted, item.leak, item.sample);
+    assert.match(redacted, /\[REDACTED_URL_USERINFO\]/);
+  }
+});
+
+test('NEW-2: a 256 KiB word run and a repeated-keyword run redact within 1s', () => {
+  const samples = ['a'.repeat(256 * 1024), 'key'.repeat(Math.ceil((256 * 1024) / 3))];
+  for (const sample of samples) {
+    const started = Date.now();
+    redactBoundedText(redactContent, sample, sample.length);
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 1000, `${sample.slice(0, 12)} took ${elapsed}ms`);
+  }
 });
 
 test('R4: card metric messages redact extraction tokens', (t) => {
   const f = fixture(t);
   const leaked = structuredClone(gate);
-  leaked.run.argv = [process.execPath, '-e', 'console.log("TOKEN=ghp_probe_not_real")'];
+  leaked.run.argv = [process.execPath, '-e', 'console.log("ghp_ab12")'];
   f.config([leaked]);
   f.baseline(5);
   const base = f.commit();
   const dbPath = seedCard(f.root);
   const res = f.run(['--base-ref', base, '--card', 'TEST-C-0001', '--db', dbPath, '--by', 'worker'], 1).value;
-  assert.doesNotMatch(res.gates[0].metrics[0].message, /ghp_probe_not_real/);
+  assert.doesNotMatch(res.gates[0].metrics[0].message, /ghp_ab12/);
+  assert.match(res.gates[0].metrics[0].message, /\[REDACTED_/);
   const db = openApsDb(dbPath);
   const link = db.prepare('SELECT detail_json FROM card_links').get() as { detail_json: string };
-  assert.doesNotMatch(link.detail_json, /ghp_probe_not_real/);
+  assert.doesNotMatch(link.detail_json, /ghp_ab12/);
+  assert.match(link.detail_json, /\[REDACTED_/);
   db.close();
 });
 
@@ -1197,4 +1231,44 @@ await runCommand(process.execPath, ['-e', ${JSON.stringify(child)}], { detached:
   process.kill(helperPid, 'SIGTERM');
   await waitUntilDead(helperPid);
   await waitUntilDead(childPid);
+});
+
+test('R6: SIGKILL follow-up kills a gate that traps SIGTERM', async (t) => {
+  const f = fixture(t);
+  const helperPidFile = join(f.root, 'helper.pid');
+  const childPidFile = join(f.root, 'child.pid');
+  const utilsPath = resolve(import.meta.dirname, '../../core/dist/utils.js');
+  const script = join(f.root, 'trap.mjs');
+  const child = [
+    'process.on("SIGTERM", () => {});',
+    'process.on("SIGINT", () => {});',
+    `require("node:fs").writeFileSync(${JSON.stringify(childPidFile)}, String(process.pid));`,
+    'setInterval(() => {}, 1000);',
+  ].join('');
+  writeFileSync(
+    script,
+    `import { writeFileSync } from 'node:fs';
+import { runCommand } from ${JSON.stringify(utilsPath)};
+writeFileSync(${JSON.stringify(helperPidFile)}, String(process.pid));
+await runCommand(process.execPath, ['-e', ${JSON.stringify(child)}], { detached: true, timeoutMs: 60000 });
+`,
+  );
+  const helper = spawn(process.execPath, [script], { stdio: 'ignore' });
+  t.after(() => {
+    if (helper.pid) spawnSync('kill', ['-9', String(helper.pid)]);
+  });
+  const helperPid = Number(await waitForText(helperPidFile));
+  const childPid = Number(await waitForText(childPidFile));
+  process.kill(helperPid, 'SIGTERM');
+  await waitUntilDead(helperPid);
+  // Real wait: SIGKILL is a detached sleep 2 in another session, so fake timers cannot advance it.
+  const started = Date.now();
+  while (Date.now() - started < 6000) {
+    if (spawnSync('kill', ['-0', String(childPid)]).status !== 0) return;
+    const { promise, resolve: done } = Promise.withResolvers<void>();
+    setTimeout(done, 50);
+    await promise;
+  }
+  spawnSync('kill', ['-9', String(childPid)]);
+  assert.fail(`trapped gate ${childPid} still alive after SIGKILL follow-up`);
 });

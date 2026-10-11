@@ -13,13 +13,17 @@ export const GATE_TOKEN_RULES = [
     flags: 'i',
   },
   {
-    pattern: '[A-Za-z0-9_]*(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)[A-Za-z0-9_]*\\s*[:=]\\s*\\S+',
+    // Keyword must end the identifier so `author` and `auth_failures` stay visible.
+    // Prefix length is bounded so a word run cannot backtrack.
+    pattern:
+      '(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,64}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?![A-Za-z0-9_])["\']?\\s*[:=]\\s*(?:"[^"]*"|\'[^\']*\'|\\S+)',
     replacement: '[REDACTED_SECRET]',
     label: 'secret assignment',
     flags: 'i',
   },
   {
-    pattern: '[a-z][a-z0-9+.-]*://[^/\\s:@]+:[^@\\s/]+@',
+    // Greedy userinfo up to the last @ before the host, including token-only and / or @ in the password.
+    pattern: '[a-z][a-z0-9+.-]{0,32}://[^\\s]*@(?=[^\\s/@])',
     replacement: '[REDACTED_URL_USERINFO]',
     label: 'URL userinfo',
     flags: 'i',
@@ -28,15 +32,20 @@ export const GATE_TOKEN_RULES = [
   { pattern: 'xox[abprs]-[0-9A-Za-z-]+', replacement: '[REDACTED_SLACK_TOKEN]', label: 'Slack token' },
 ];
 
+const REDACT_TAIL_SLACK_BYTES = 4096;
+
 export function redactBoundedText(
   redact: (value: string, rules?: typeof GATE_TOKEN_RULES) => { redacted: string },
   text: string,
   maxBytes: number,
 ): string {
-  const redacted = redact(text, GATE_TOKEN_RULES).redacted;
-  const buf = Buffer.from(redacted, 'utf8');
-  if (buf.byteLength <= maxBytes) return redacted;
-  return buf.subarray(buf.byteLength - maxBytes).toString('utf8');
+  const buf = Buffer.from(text, 'utf8');
+  const windowBytes = maxBytes + REDACT_TAIL_SLACK_BYTES;
+  const slice = buf.byteLength <= windowBytes ? text : buf.subarray(buf.byteLength - windowBytes).toString('utf8');
+  const redacted = redact(slice, GATE_TOKEN_RULES).redacted;
+  const out = Buffer.from(redacted, 'utf8');
+  if (out.byteLength <= maxBytes) return redacted;
+  return out.subarray(out.byteLength - maxBytes).toString('utf8');
 }
 export async function validateLedgerOptions(options: ApsCommandOptions): Promise<void> {
   const aps = await importAps();

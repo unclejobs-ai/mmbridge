@@ -86,16 +86,17 @@ base ref, conditions always run (uncommitted files do not affect CI filtering).
 With `--base-ref`, the base `.aps/gates.json` is the authority. The head tree is
 what runs, but a head config that weakens a base gate fails unless that base file
 has a gate-level `waive` exemption. A metric-level `allow` does not skip these
-checks. Drift is any change to `run.argv`, `run.cwd`, `run.env`, `mode`, or a
-metric `source`, plus a missing gate or metric, a direction flip, a raised
-tolerance, a loosened min/max, `enforcement` from block to warn, widened
-`okExitCodes`, or a raised `timeoutSec`. A lower timeout, a narrower exit-code
-set, a tighter bound, or a lower tolerance is not drift.
+checks. A metric-level `waive` skips that metric's direction, tolerance, and
+min/max bound drift, but not source drift. Drift is any change to `run.argv`,
+`run.cwd`, `run.env`, `mode`, or a metric `source`, plus a missing gate or metric,
+a direction flip, a raised tolerance, a loosened min/max, `enforcement` from block
+to warn, widened `okExitCodes`, or a raised `timeoutSec`. A lower timeout, a
+narrower exit-code set, a tighter bound, or a lower tolerance is not drift.
 
 `when` may be removed or broadened: a missing head filter, or a superset of the
-base globs, still runs on every base path and is not drift. Adding `when` to a
-gate that had none, or dropping a base glob, is drift. Path filtering never
-skips more than the base gate.
+base glob strings (compared as strings, not by glob meaning), still runs on every
+base path and is not drift. Adding `when` to a gate that had none, or dropping a
+base glob, is drift. Path filtering never skips more than the base gate.
 
 `--update-baseline` refuses the whole write when any gate failed drift. It does
 not rewrite the baseline or turn that row back to pass. Results include
