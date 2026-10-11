@@ -307,11 +307,41 @@ test('failed historical run does not produce a ghost beside the live retry', (t)
   assert.equal(snapshot.cards[0].runs.length, 2);
 });
 
-test('terminal run rows are excluded from pure hygiene classification', () => {
+test('terminal runs are suppressed only when the same agent has a live replacement', () => {
   for (const runStatus of ['closed', 'blocked', 'failed', 'abandoned'] as const) {
-    assert.deepEqual(classifyHygiene([{ ...ledger, runStatus }], [], NOW), []);
+    const terminal = { ...ledger, runId: 'old', runStatus, paneId: 'old-pane', terminalId: 'old-terminal' };
+    for (const rows of [
+      [terminal, ledger],
+      [ledger, terminal],
+    ]) {
+      const result = classifyHygiene(rows, [pane], NOW);
+      assert.equal(result.length, 1);
+      assert.equal(result[0].classification, 'OK');
+      assert.equal(result[0].runId, 'run1');
+    }
+    assert.equal(classifyHygiene([{ ...ledger, runStatus }], [pane], NOW)[0].classification, 'OK');
   }
   assert.equal(classifyHygiene([{ ...ledger, runStatus: null, runId: null }], [pane], NOW)[0].classification, 'OK');
+});
+
+test('closed agent with a terminal run and lingering pane remains LEAK', () => {
+  for (const runStatus of ['closed', 'blocked', 'failed', 'abandoned'] as const) {
+    const result = classifyHygiene([{ ...ledger, runStatus, agentStatus: 'closed' }], [pane], NOW);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].classification, 'LEAK');
+    assert.equal(result[0].action, 'herdr pane close p1');
+  }
+});
+
+test('active agent with a terminal run, reported card and lingering pane remains CLOSE-NOW', () => {
+  for (const runStatus of ['closed', 'blocked', 'failed', 'abandoned'] as const) {
+    const terminal = { ...ledger, runStatus, cardState: 'reported' as const };
+    const other = { ...ledger, agentId: 'other', runId: 'other-run', paneId: null, herdrPane: null };
+    const result = classifyHygiene([terminal, other], [pane], NOW);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].classification, 'CLOSE-NOW');
+    assert.equal(result[0].action, `mmbridge aps collect ${CARD} --by <you>`);
+  }
 });
 
 test('working card with an unknown or blocked pane status is surfaced as unknown', () => {

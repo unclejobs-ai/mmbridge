@@ -5,6 +5,8 @@ import { listMigrations } from './index.js';
 import { ApsInputError } from './ledger.js';
 import type { RunStatus } from './runs.js';
 
+const LIVE_RUN_STATUSES: readonly RunStatus[] = ['intent', 'launched', 'reported'];
+
 export type CardState =
   | 'issued'
   | 'working'
@@ -288,15 +290,22 @@ export function classifyHygiene(
   const paneMap = new Map(panes?.map((pane) => [pane.paneId, pane]));
   const matched = new Set<string>();
   const result: HygieneRow[] = [];
+  const liveAgents = new Set<string>();
   for (const row of ledgerRows) {
-    if (row.runStatus !== null && !['intent', 'launched', 'reported'].includes(row.runStatus)) continue;
+    if (row.runStatus !== null && LIVE_RUN_STATUSES.includes(row.runStatus)) liveAgents.add(row.agentId);
+  }
+  for (const row of ledgerRows) {
+    const terminalRun = row.runStatus !== null && !LIVE_RUN_STATUSES.includes(row.runStatus);
+    if (terminalRun && liveAgents.has(row.agentId)) continue;
+    // Without a live replacement, terminal runs still identify lingering panes.
+    const runStatus = terminalRun ? null : row.runStatus;
     const paneId = row.paneId ?? row.herdrPane;
     const candidate = paneId ? paneMap.get(paneId) : undefined;
     const pane = candidate && (row.terminalId === null || row.terminalId === candidate.terminalId) ? candidate : null;
     if (pane) matched.add(pane.paneId);
     let classification: HygieneClass | null = null;
     let action: string | null = null;
-    if (row.runStatus === 'intent' && row.runSince && now.getTime() - Date.parse(row.runSince) > 120_000) {
+    if (runStatus === 'intent' && row.runSince && now.getTime() - Date.parse(row.runSince) > 120_000) {
       classification = 'STUCK-INTENT';
       action = `inspect ${row.packetDir}/dispatch.log; mmbridge aps collect ${row.cardId} --abandon --by <you>`;
     } else if (paneId && panes === null) {
