@@ -134,6 +134,9 @@ importers:
       '@mmbridge/adapters':
         specifier: workspace:*
         version: link:../adapters
+      '@mmbridge/aps':
+        specifier: workspace:*
+        version: link:../aps
       '@mmbridge/core':
         specifier: workspace:*
         version: link:../core
