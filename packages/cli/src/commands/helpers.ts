@@ -24,3 +24,4 @@ export const importAdapters = async (projectDir = process.cwd()) => {
 export const importSessionStore = () => import('@mmbridge/session-store');
 export const importTui = () => import('@mmbridge/tui');
 export const importIntegrations = () => import('@mmbridge/integrations');
+export const importAps = () => import('@mmbridge/aps');

@@ -48,6 +48,8 @@ importers:
         specifier: workspace:*
         version: link:../session-store
 
+  packages/aps: {}
+
   packages/auth: {}
 
   packages/cli:
@@ -61,6 +63,9 @@ importers:
       '@mmbridge/agent':
         specifier: workspace:*
         version: link:../agent
+      '@mmbridge/aps':
+        specifier: workspace:*
+        version: link:../aps
       '@mmbridge/auth':
         specifier: workspace:*
         version: link:../auth

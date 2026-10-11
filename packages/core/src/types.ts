@@ -212,6 +212,8 @@ export interface FileClassifierRule {
 }
 
 export interface MmbridgeConfig {
+  /** APS ledger database path (overridden by --db and MMBRIDGE_APS_DB). */
+  aps?: { dbPath?: string };
   /** Custom file classifier rules (matched by path prefix) */
   classifiers?: FileClassifierRule[];
   /** If true (default), custom classifiers are prepended to built-in defaults. Set false to replace entirely. */

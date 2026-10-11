@@ -37,6 +37,10 @@ function isMmbridgeConfig(value: unknown): value is MmbridgeConfig {
   if (obj.context !== undefined && (typeof obj.context !== 'object' || obj.context === null)) return false;
   if (obj.redaction !== undefined && (typeof obj.redaction !== 'object' || obj.redaction === null)) return false;
   if (obj.bridge !== undefined && (typeof obj.bridge !== 'object' || obj.bridge === null)) return false;
+  if (obj.aps !== undefined && (typeof obj.aps !== 'object' || obj.aps === null || Array.isArray(obj.aps)))
+    return false;
+  const aps = obj.aps as Record<string, unknown> | undefined;
+  if (aps?.dbPath !== undefined && (typeof aps.dbPath !== 'string' || !aps.dbPath.trim())) return false;
 
   const context = obj.context as Record<string, unknown> | undefined;
   if (context?.maxBytes !== undefined && typeof context.maxBytes !== 'number') return false;
