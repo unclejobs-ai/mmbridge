@@ -448,10 +448,11 @@ export function readBoardSnapshot(db: DatabaseSync, options: BoardReadOptions = 
     }
     const lanes = rows<LaneRow>(
       db,
-      `SELECT k.project,coalesce(a.name,'(unassigned)') lane,a.layer,k.layer_owner,
+      `SELECT k.project,coalesce(a.name,'(unassigned)') lane,min(a.layer) layer,min(k.layer_owner) layer_owner,
       k.state,k.kanban_ko,k.state_ord,count(*) n,min(k.since) oldest_since FROM v_kanban k LEFT JOIN agents a ON a.id=k.assignee
       WHERE (? IS NULL OR k.project=?) AND (k.state NOT IN ('done','rejected') OR k.since>=?)
-      GROUP BY k.project,lane,a.layer,k.layer_owner,k.state,k.kanban_ko,k.state_ord ORDER BY k.project,lane,k.state_ord`,
+      GROUP BY k.project,lane,CASE WHEN a.id IS NULL THEN k.layer_owner END,k.state,k.kanban_ko,k.state_ord
+      ORDER BY k.project,lane,k.state_ord,layer_owner`,
       project,
       project,
       today,

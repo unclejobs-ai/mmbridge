@@ -235,6 +235,29 @@ test('migrated ledger preserves hygiene for sessions with no tracked run', (t) =
   assert.equal(ghost?.cardId, CARD);
 });
 
+test('assigned lane cells aggregate owners while unassigned cells stay owner-scoped', (t) => {
+  const { db } = diskLedger(t);
+  db.exec(`INSERT INTO agents(id,name,layer,model,vendor,project)
+    VALUES('mgr2','other manager','L2','opus','anthropic','ss');
+    INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner,assignee) VALUES
+    ('SS-C-0002','ss','assigned','mech','S','scope','${AC2}','none',0,0,'mgr2','w1'),
+    ('SS-C-0003','ss','unassigned','mech','S','scope','${AC2}','none',0,0,'mgr',NULL),
+    ('SS-C-0004','ss','unassigned','mech','S','scope','${AC2}','none',0,0,'mgr2',NULL);`);
+  const snapshot = readBoardSnapshot(db, { now: NOW });
+  const assigned = snapshot.lanes.filter((row) => row.lane === 'worker');
+  assert.equal(assigned.length, 1);
+  assert.equal(assigned[0].n, 2);
+  const unassigned = snapshot.lanes.filter((row) => row.lane === '(unassigned)');
+  assert.equal(unassigned.length, 2);
+  assert.deepEqual(
+    unassigned.map((row) => [row.layerOwner, row.n]),
+    [
+      ['mgr', 1],
+      ['mgr2', 1],
+    ],
+  );
+});
+
 test('OK', () => {
   assert.equal(classifyHygiene([ledger], [pane], NOW)[0].classification, 'OK');
 });

@@ -172,7 +172,9 @@ The `@mmbridge/aps` library also exposes `openApsDbReadOnly`, `dataVersion`,
 The reader never creates or migrates a ledger, refuses newer schemas, and reads
 each snapshot in a single deferred transaction. Snapshots include lane cells,
 card evidence and blockers, review queues, run-only list-equivalent costs, quota
-samples, and session hygiene. Version-1 ledgers retain lanes and reviews with
+samples, and session hygiene. Assigned lane cells aggregate across card owners;
+unassigned cells remain grouped under their `layerOwner`.
+Version-1 ledgers retain lanes and reviews with
 `runsAvailable: false` and `cost: null`. Pass fresh normalized pane observations
 through `BoardReadOptions.panes`; omit them after a herdr failure to show `?`
 rather than infer leaks or ghosts from stale data. Headless PID/yield observations
