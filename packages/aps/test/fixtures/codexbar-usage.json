@@ -1,0 +1,108 @@
+[
+  {
+    "source": "oauth",
+    "rateWindowLabels": {
+      "primary": "Session"
+    },
+    "resetCredits": {
+      "available": 0
+    },
+    "usage": {
+      "codexResetCredits": {
+        "updatedAt": "2026-10-11T12:35:55Z",
+        "credits": [],
+        "availableCount": 0
+      },
+      "secondary": null,
+      "tertiary": null,
+      "loginMethod": "free",
+      "identity": {
+        "providerID": "codex",
+        "accountEmail": "user@example.com",
+        "loginMethod": "free"
+      },
+      "updatedAt": "2026-10-11T12:35:55Z",
+      "dataConfidence": "exact",
+      "primary": {
+        "resetDescription": "Nov 8 at 3:56 PM",
+        "resetsAt": "2026-11-08T06:56:21Z",
+        "windowMinutes": 43200,
+        "usedPercent": 100
+      },
+      "accountEmail": "user@example.com"
+    },
+    "provider": "codex"
+  },
+  {
+    "pace": {
+      "primary": {
+        "deltaPercent": -36,
+        "willLastToReset": true,
+        "summary": "36% in reserve | Expected 45% used | Lasts until reset",
+        "expectedUsedPercent": 45,
+        "stage": "farBehind"
+      },
+      "secondary": {
+        "deltaPercent": 38,
+        "willLastToReset": false,
+        "etaSeconds": 70565,
+        "expectedUsedPercent": 12,
+        "summary": "38% in deficit | Expected 12% used | Runs out in 19h 37m",
+        "stage": "farAhead"
+      }
+    },
+    "source": "claude",
+    "rateWindowLabels": {
+      "primary": "Session",
+      "secondary": "Weekly"
+    },
+    "usage": {
+      "extraRateWindows": [
+        {
+          "title": "Fable only",
+          "id": "claude-weekly-scoped-fable",
+          "window": {
+            "resetDescription": "Resets Oct 18 at 2am (Asia/Seoul)",
+            "windowMinutes": 10080,
+            "resetsAt": "2026-10-17T17:00:00Z",
+            "usedPercent": 7
+          }
+        }
+      ],
+      "secondary": {
+        "windowMinutes": 10080,
+        "usedPercent": 50,
+        "resetsAt": "2026-10-17T17:00:00Z",
+        "resetDescription": "Resets Oct 18 at 2am (Asia/Seoul)"
+      },
+      "tertiary": null,
+      "loginMethod": "Max",
+      "identity": {
+        "providerID": "claude",
+        "accountEmail": "user@example.com",
+        "loginMethod": "Max"
+      },
+      "updatedAt": "2026-10-11T12:36:04Z",
+      "dataConfidence": "percentOnly",
+      "primary": {
+        "windowMinutes": 300,
+        "usedPercent": 9,
+        "resetsAt": "2026-10-11T15:20:00Z",
+        "resetDescription": "Resets 12:20am (Asia/Seoul)"
+      },
+      "accountEmail": "user@example.com"
+    },
+    "provider": "claude"
+  },
+  {
+    "source": "local",
+    "usage": {
+      "primary": null,
+      "updatedAt": "2026-10-11T12:36:04Z",
+      "dataConfidence": "estimated",
+      "secondary": null,
+      "tertiary": null
+    },
+    "provider": "pi"
+  }
+]
