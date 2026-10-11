@@ -137,6 +137,7 @@ export async function herdrLanes(): Promise<AuditLane[]> {
       cardKindSource: mech ? 'title' : null,
       lastOutputAt: session ? mtime(session) : null,
       finished: status === 'done',
+      recorded: null,
     } satisfies AuditLane;
   });
 }
@@ -182,6 +183,7 @@ export async function ledgerLanes(db: DatabaseSync, herdr: AuditLane[]): Promise
       cardKindSource: 'ledger',
       lastOutputAt: outputs.length ? Math.max(...outputs) : null,
       finished: reported || exited,
+      recorded: true,
     });
   }
   return lanes;
@@ -195,4 +197,60 @@ export function recentVisionVerdicts(db: DatabaseSync, now: number): VisionVerdi
       FROM vision_audits v JOIN agents a ON a.id=v.auditor WHERE v.at >= ?`,
     )
     .all(new Date(now - 86_400_000).toISOString()) as unknown as VisionVerdict[];
+}
+
+/** Live run pids (`v_run_current.pid`) for intent/launched/reported. Empty below schema v2. */
+export function liveRunPids(db: DatabaseSync): number[] {
+  if (Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0) < 2) return [];
+  const rows = db
+    .prepare(`SELECT pid FROM v_run_current WHERE status IN ('intent','launched','reported') AND pid IS NOT NULL`)
+    .all() as unknown as Array<{ pid: number | string }>;
+  const pids: number[] = [];
+  for (const row of rows) {
+    const pid = Number(row.pid);
+    if (Number.isInteger(pid) && pid > 0) pids.push(pid);
+  }
+  return pids;
+}
+
+/**
+ * Herdr panes are recorded when a non-closed agent `herdr_pane` or a live run `pane_id` matches.
+ * Ledger lanes are always recorded. Process lanes are left as constructed. No-op below schema v1.
+ */
+export function applyLedgerRecording(lanes: AuditLane[], db: DatabaseSync): void {
+  const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
+  if (version < 1) return;
+  const agentPanes = paneSet(
+    db
+      .prepare(
+        `SELECT herdr_pane AS id FROM agents
+        WHERE status <> 'closed' AND herdr_pane IS NOT NULL AND trim(herdr_pane) <> ''`,
+      )
+      .all() as unknown as Array<{ id: unknown }>,
+  );
+  const runPanes =
+    version < 2
+      ? new Set<string>()
+      : paneSet(
+          db
+            .prepare(
+              `SELECT pane_id AS id FROM v_run_current
+              WHERE status IN ('intent','launched','reported') AND pane_id IS NOT NULL AND pane_id <> ''`,
+            )
+            .all() as unknown as Array<{ id: unknown }>,
+        );
+  for (const lane of lanes) {
+    if (lane.source === 'ledger') lane.recorded = true;
+    else if (lane.source === 'herdr') lane.recorded = agentPanes.has(lane.id) || runPanes.has(lane.id);
+  }
+}
+
+function paneSet(rows: Array<{ id: unknown }>): Set<string> {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    if (row.id === null || row.id === undefined) continue;
+    const id = String(row.id);
+    if (id !== '') ids.add(id);
+  }
+  return ids;
 }

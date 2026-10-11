@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { AuditLane, AuditReport, VisionVerdict } from '@mmbridge/aps';
-import { herdrLanes, ledgerLanes, recentVisionVerdicts } from './aps-lanes.js';
+import { applyLedgerRecording, herdrLanes, ledgerLanes, liveRunPids, recentVisionVerdicts } from './aps-lanes.js';
 import { probeQuota } from './aps-quota.js';
 import { exitWithError, importAps, importCore, jsonOutput } from './helpers.js';
 
@@ -13,6 +13,8 @@ export interface ApsAuditOptions {
   projectDir?: string;
   herdr?: boolean;
   stallMin?: string;
+  ps?: boolean;
+  ignorePid?: string;
 }
 
 /** Exit code when the audit ran but found violations (distinct from 1 = audit failed). */
@@ -24,8 +26,9 @@ export interface AuditRun {
   probes: { quotaSource: string | null; ledger: string | null; errors: string[] };
 }
 
-/** Read-only: herdr lanes + live ledger runs + quota probe → APS §14 audit. Never writes the ledger. */
+/** Read-only: herdr lanes + live ledger runs + optional process scan + quota probe. Never writes the ledger. */
 export async function runAudit(options: ApsAuditOptions, now = Date.now()): Promise<AuditRun> {
+  const ignorePids = parseIgnorePids(options.ignorePid);
   const aps = await importAps();
   const core = await importCore();
   const errors: string[] = [];
@@ -41,18 +44,28 @@ export async function runAudit(options: ApsAuditOptions, now = Date.now()): Prom
   const dbPath = aps.resolveApsDbPath({ flag: options.db, configPath: config.aps?.dbPath });
   let ledger: string | null = null;
   let visionVerdicts: VisionVerdict[] = [];
+  let runPids: number[] = [];
   if (existsSync(dbPath)) {
     const db = aps.openApsDbReadOnly(dbPath);
     try {
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
       if (version >= 2) lanes = [...lanes, ...(await ledgerLanes(db, lanes))];
       else errors.push(`ledger ${dbPath} is schema v${version}: run lanes need v2 (FAC-M12 cutover)`);
+      applyLedgerRecording(lanes, db);
+      if (version >= 2) runPids = liveRunPids(db);
       visionVerdicts = recentVisionVerdicts(db, now);
       ledger = `${dbPath} (v${version})`;
     } finally {
       db.close();
     }
   } else errors.push(`ledger not found at ${dbPath}`);
+  if (options.ps) {
+    try {
+      lanes = [...lanes, ...aps.lanesFromPs({ ps: await readPs(), runPids, ignorePids, selfPid: process.pid })];
+    } catch (error) {
+      errors.push(`ps: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const quota = await probeQuota(options.quotaJson, now);
   errors.push(...quota.errors);
   const stallMin = Number(options.stallMin ?? '30');
@@ -88,4 +101,23 @@ export async function runApsAuditCommand(options: ApsAuditOptions): Promise<void
   if (options.json) jsonOutput({ ...run.report, probes: run.probes });
   else process.stdout.write(run.markdown);
   if (run.report.violations.length > 0) process.exitCode = AUDIT_VIOLATION_EXIT;
+}
+
+function parseIgnorePids(value: string | undefined): number[] {
+  if (value === undefined || value.trim() === '') return [];
+  const pids: number[] = [];
+  for (const part of value.split(',')) {
+    const token = part.trim();
+    if (token === '') continue;
+    if (!/^[1-9]\d*$/.test(token)) throw new Error(`--ignore-pid: invalid pid ${JSON.stringify(token)}`);
+    pids.push(Number(token));
+  }
+  return pids;
+}
+
+async function readPs(): Promise<string> {
+  const core = await importCore();
+  const result = await core.runCommand('ps', ['-axo', 'pid=,ppid=,command='], { timeoutMs: 15_000 });
+  if (!result.ok) throw new Error(`ps exited ${result.code}: ${result.stderr.trim() || result.stdout.trim()}`);
+  return result.stdout;
 }

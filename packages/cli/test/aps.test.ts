@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
-import { openApsDb } from '@mmbridge/aps';
+import { type AuditLane, addRunEvent, buildAudit, createRun, openApsDb } from '@mmbridge/aps';
 import { SessionStore } from '@mmbridge/session-store';
+import { applyLedgerRecording, liveRunPids } from '../dist/commands/aps-lanes.js';
 
 const bin = resolve(import.meta.dirname, '../dist/bin/mmbridge.js');
+const usageFixture = resolve(import.meta.dirname, '../../aps/test/fixtures/omp-usage.json');
 const SHA = 'a'.repeat(40);
 function fixture(t: TestContext) {
   const home = mkdtempSync(join(tmpdir(), 'aps-cli-'));
@@ -683,4 +685,236 @@ test('context lineage survives missing compacted nodes without changing the tree
   assert.equal(after.lineage[0].label, '(compacted)');
   assert.equal(after.lineage[0].parentId, parentLink.ref);
   assert.equal(readFileSync(cache, 'utf8'), '');
+});
+
+function herdrLane(id: string): AuditLane {
+  return {
+    id,
+    source: 'herdr',
+    harness: 'omp',
+    model: 'xai-oauth/grok-4.7',
+    tier: 'L3',
+    provider: 'xai-oauth',
+    status: 'working',
+    cwd: '/work',
+    title: 'manual',
+    cardKind: null,
+    cardKindSource: null,
+    lastOutputAt: null,
+    finished: false,
+    recorded: null,
+  };
+}
+
+function unrecordedLanes(lanes: AuditLane[]): string[] {
+  return buildAudit({ now: Date.now(), lanes, quota: [], minL3Ratio: 0 })
+    .violations.filter((violation) => violation.code === 'UNRECORDED_LANE')
+    .map((violation) => violation.lane ?? '');
+}
+
+function installHerdr(home: string, agents: unknown[]): string {
+  const binDir = join(home, 'bin');
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(
+    join(binDir, 'herdr'),
+    [
+      '#!/bin/sh',
+      'if [ "$1" = agent ] && [ "$2" = list ]; then',
+      `  printf '%s\\n' '${JSON.stringify({ result: { agents } })}'`,
+      '  exit 0',
+      'fi',
+      'echo "unexpected herdr: $*" >&2',
+      'exit 99',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  return binDir;
+}
+
+function runAuditBin(
+  f: { home: string; env: NodeJS.ProcessEnv },
+  args: string[],
+  pathPrefix?: string,
+): { status: number | null; stdout: string; stderr: string } {
+  return spawnSync(process.execPath, [bin, 'audit', ...args, '--json'], {
+    cwd: f.home,
+    env: pathPrefix ? { ...f.env, PATH: `${pathPrefix}:${f.env.PATH ?? ''}` } : f.env,
+    encoding: 'utf8',
+  });
+}
+
+test('pane matched by agent herdr_pane has no UNRECORDED_LANE', (t) => {
+  const f = fixture(t);
+  const db = openApsDb(f.dbPath);
+  try {
+    db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run('w9:p1', f.worker);
+    db.prepare(
+      `UPDATE agents SET herdr_pane=?, status='closed', closed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+      closed_by=?, close_note='ended' WHERE id=?`,
+    ).run('w9:closed', f.manager, f.vision);
+    const lanes = [herdrLane('w9:p1'), herdrLane('w9:closed')];
+    const ledger = { ...herdrLane('run-1'), source: 'ledger' as const };
+    applyLedgerRecording([...lanes, ledger], db);
+    assert.equal(lanes[0].recorded, true);
+    assert.equal(lanes[1].recorded, false);
+    assert.equal(ledger.recorded, true);
+    assert.deepEqual(unrecordedLanes(lanes), ['w9:closed']);
+  } finally {
+    db.close();
+  }
+});
+
+test('pane matched by a live run pane_id has no UNRECORDED_LANE', (t) => {
+  const f = fixture(t);
+  const live = f.working();
+  const reported = f.working();
+  const failed = f.working();
+  const db = openApsDb(f.dbPath);
+  try {
+    const liveRun = createRun(db, {
+      id: 'run-live',
+      card_id: live,
+      attempt: 1,
+      agent_id: f.worker,
+      harness: 'omp',
+      model: 'xai-oauth/grok-4.7',
+      worktree: f.home,
+      branch: 'feature',
+      base_sha: SHA,
+      packet_dir: f.home,
+      created_by: f.manager,
+    });
+    addRunEvent(db, liveRun, 'launched', f.manager, { pane_id: 'w9:p3', pid: 4242 });
+    const reportedRun = createRun(db, {
+      id: 'run-reported',
+      card_id: reported,
+      attempt: 1,
+      agent_id: f.worker,
+      harness: 'omp',
+      model: 'xai-oauth/grok-4.7',
+      worktree: f.home,
+      branch: 'feature',
+      base_sha: SHA,
+      packet_dir: f.home,
+      created_by: f.manager,
+    });
+    addRunEvent(db, reportedRun, 'launched', f.manager, { pane_id: 'w9:rep', pid: 7 });
+    addRunEvent(db, reportedRun, 'reported', f.manager, {});
+    const failedRun = createRun(db, {
+      id: 'run-failed',
+      card_id: failed,
+      attempt: 1,
+      agent_id: f.worker,
+      harness: 'omp',
+      model: 'xai-oauth/grok-4.7',
+      worktree: f.home,
+      branch: 'feature',
+      base_sha: SHA,
+      packet_dir: f.home,
+      created_by: f.manager,
+    });
+    addRunEvent(db, failedRun, 'launched', f.manager, { pane_id: 'w9:dead', pid: 111 });
+    addRunEvent(db, failedRun, 'failed', f.manager, { reason: 'exit' });
+    const lanes = [herdrLane('w9:p3'), herdrLane('w9:rep'), herdrLane('w9:dead')];
+    applyLedgerRecording(lanes, db);
+    assert.equal(lanes[0].recorded, true);
+    assert.equal(lanes[1].recorded, true);
+    assert.equal(lanes[2].recorded, false);
+    assert.deepEqual(unrecordedLanes(lanes), ['w9:dead']);
+    assert.deepEqual(
+      liveRunPids(db).sort((a, b) => a - b),
+      [7, 4242],
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('unmatched working pane is UNRECORDED_LANE', (t) => {
+  const f = fixture(t);
+  const db = openApsDb(f.dbPath);
+  try {
+    const lanes = [herdrLane('w9:missing')];
+    applyLedgerRecording(lanes, db);
+    assert.equal(lanes[0].recorded, false);
+    assert.deepEqual(unrecordedLanes(lanes), ['w9:missing']);
+  } finally {
+    db.close();
+  }
+});
+
+test('ledger unavailable leaves recorded null and emits no UNRECORDED_LANE', (t) => {
+  const f = fixture(t);
+  const binDir = installHerdr(f.home, [
+    {
+      pane_id: 'w9:p9',
+      agent: 'omp',
+      agent_status: 'working',
+      cwd: '/tmp/lane',
+      terminal_title_stripped: 'manual',
+    },
+  ]);
+  const result = runAuditBin(f, ['--db', join(f.home, 'missing.db'), '--quota-json', usageFixture], binDir);
+  assert.notEqual(result.status, 1, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.lanes[0].id, 'w9:p9');
+  assert.equal(report.lanes[0].recorded, null);
+  assert.equal(
+    report.violations.some((violation: { code: string }) => violation.code === 'UNRECORDED_LANE'),
+    false,
+  );
+});
+
+test('audit records a herdr pane owned by a live agent', (t) => {
+  const f = fixture(t);
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run('w9:p9', f.worker);
+  db.close();
+  const binDir = installHerdr(f.home, [
+    {
+      pane_id: 'w9:p9',
+      agent: 'omp',
+      agent_status: 'working',
+      cwd: '/tmp/lane',
+      terminal_title_stripped: 'manual',
+    },
+  ]);
+  const result = runAuditBin(f, ['--db', f.dbPath, '--quota-json', usageFixture], binDir);
+  assert.notEqual(result.status, 1, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.lanes[0].recorded, true);
+  assert.equal(
+    report.violations.some((violation: { code: string }) => violation.code === 'UNRECORDED_LANE'),
+    false,
+  );
+});
+
+test('audit --ps reports a bare omp and honours --ignore-pid', (t) => {
+  const f = fixture(t);
+  const binDir = join(f.home, 'bin');
+  mkdirSync(binDir);
+  writeFileSync(join(binDir, 'ps'), "#!/bin/sh\nprintf '%s\\n' '  41  1 omp --model x -p'\n", { mode: 0o755 });
+  const args = ['--db', f.dbPath, '--no-herdr', '--quota-json', usageFixture, '--ps'];
+  const result = runAuditBin(f, args, binDir);
+  assert.equal(result.status, 4, result.stderr);
+  const report = JSON.parse(result.stdout);
+  const processLanes = report.lanes.filter((lane: { source: string }) => lane.source === 'process');
+  assert.equal(processLanes.length, 1);
+  assert.equal(processLanes[0].id, 'pid:41');
+  assert.equal(processLanes[0].harness, 'omp');
+  assert.equal(processLanes[0].model, 'x');
+  assert.equal(processLanes[0].recorded, false);
+  assert.equal(processLanes[0].status, 'working');
+  assert.equal(
+    report.violations.some(
+      (violation: { code: string; lane: string }) =>
+        violation.code === 'UNRECORDED_LANE' && violation.lane === 'pid:41',
+    ),
+    true,
+  );
+  const ignored = runAuditBin(f, [...args, '--ignore-pid', '41'], binDir);
+  assert.equal(ignored.status, 0, ignored.stderr);
+  const ignoredReport = JSON.parse(ignored.stdout);
+  assert.equal(ignoredReport.lanes.filter((lane: { source: string }) => lane.source === 'process').length, 0);
 });

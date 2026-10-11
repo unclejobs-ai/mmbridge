@@ -563,9 +563,19 @@ Output, one line per card: `card worker result sha ac n/n rework N — note`.
 
 Read-only (`openApsDbReadOnly`): herdr lanes (model from the pane's omp session; Devin
 panes assume `devin/swe-2-max`), live ledger runs (v2 only; a run in a listed pane
-enriches that lane), vision verdicts of the last 24 h, and quota. `buildAudit` reports
+enriches that lane), vision verdicts of the last 24 h, and quota. A herdr pane is
+recorded when its id is `agents.herdr_pane` of a non-closed agent or `pane_id` of a
+live run (`v_run_current` status intent, launched, or reported). Ledger lanes are
+always recorded. If the ledger is missing, `recorded` stays null. `buildAudit` reports
 `L3_RATIO` (< 60 % of working lanes), `MECH_ON_PREMIUM`, `L3_VISION_VERDICT`,
-`EXHAUSTED_PROVIDER` (≤ 1 % left), `STALLED` (`--stall-min`, default 30) and
-`FINISHED_OPEN`. `--out` writes the markdown atomically; `--json` prints the report.
-Exit 4 when violations exist, 1 when the audit itself failed. MBP runs it every 30 min
-via launchd `com.ss.aps-audit` into `~/ss-work/squads/Reports/aps-audit-latest.md`.
+`EXHAUSTED_PROVIDER` (≤ 1 % left), `STALLED` (`--stall-min`, default 30),
+`FINISHED_OPEN`, and `UNRECORDED_LANE` (`recorded` false and status working or idle;
+listed under `## Unrecorded lanes`). `--ps` also scans
+`ps -axo pid=,ppid=,command=` for `omp`, `grok`, `claude`, and `devin`. A process is
+skipped when any ancestor is `herdr`, when it or an ancestor is a live run pid, when
+its pid is in `--ignore-pid`, or when it is an ancestor of the audit process. Each
+remaining process is a working lane `pid:<n>` (`source: process`, `recorded: false`,
+model from that process's `--model`). `--out` writes the markdown atomically; `--json`
+prints the report. Exit 4 when violations exist, 1 when the audit itself failed. MBP
+runs it every 30 min via launchd `com.ss.aps-audit` into
+`~/ss-work/squads/Reports/aps-audit-latest.md`.
