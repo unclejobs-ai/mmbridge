@@ -52,9 +52,9 @@ function parsePane(value: unknown): HerdrPane {
   return pane as unknown as HerdrPane;
 }
 
-async function run(args: string[]): Promise<RunResult> {
+async function run(args: string[], timeoutMs = TIMEOUT_MS): Promise<RunResult> {
   const core = await importCore();
-  return core.runCommand('herdr', args, { timeoutMs: TIMEOUT_MS });
+  return core.runCommand('herdr', args, { timeoutMs });
 }
 
 function response(result: RunResult): JsonObject {
@@ -63,12 +63,14 @@ function response(result: RunResult): JsonObject {
   return object(envelope.result);
 }
 
-async function command(args: string[]): Promise<{ result: JsonObject; raw: RunResult }> {
-  const raw = await run(args);
+async function command(args: string[], timeoutMs = TIMEOUT_MS): Promise<{ result: JsonObject; raw: RunResult }> {
+  const raw = await run(args, timeoutMs);
   try {
     return { result: response(raw), raw };
   } catch (cause) {
-    throw new Error(`herdr ${args.slice(0, 2).join(' ')} failed`, { cause });
+    throw new Error(`herdr ${args.slice(0, 2).join(' ')} failed`, {
+      cause: new Error(`herdr command exited ${raw.code}; stderr: ${raw.stderr.slice(0, 1024)}`, { cause }),
+    });
   }
 }
 
@@ -170,25 +172,31 @@ export async function startAgent(options: {
   args?: string[];
 }): Promise<RunResult> {
   return (
-    await command([
-      'agent',
-      'start',
-      options.name,
-      '--kind',
-      options.kind,
-      '--pane',
-      options.pane,
-      '--timeout',
-      '60000',
-      '--',
-      ...(options.args ?? []),
-    ])
+    await command(
+      [
+        'agent',
+        'start',
+        options.name,
+        '--kind',
+        options.kind,
+        '--pane',
+        options.pane,
+        '--timeout',
+        '60000',
+        '--',
+        ...(options.args ?? []),
+      ],
+      70_000,
+    )
   ).raw;
 }
 
 export async function promptAgent(target: string, prompt: string): Promise<RunResult> {
   return (
-    await command(['agent', 'prompt', target, prompt, '--wait', '--until', 'working', '--timeout', String(TIMEOUT_MS)])
+    await command(
+      ['agent', 'prompt', target, prompt, '--wait', '--until', 'working', '--timeout', String(TIMEOUT_MS)],
+      20_000,
+    )
   ).raw;
 }
 

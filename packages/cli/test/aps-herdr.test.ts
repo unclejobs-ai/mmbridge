@@ -19,7 +19,7 @@ const absent = { error: { code: 'pane_not_found', message: 'pane wH:p2 not found
 
 type Step = { args: string[]; stdout: unknown; exit?: number; stderr?: string; delayMs?: number };
 
-function invoke(method: string, args: unknown[], steps: Step[]) {
+function invoke(method: string, args: unknown[], steps: Step[], includeCause = false) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'mmbridge-herdr-'));
   try {
     const statePath = path.join(root, 'state.json');
@@ -38,7 +38,11 @@ function invoke(method: string, args: unknown[], steps: Step[]) {
         const value = await adapter[${JSON.stringify(method)}](...${JSON.stringify(args)});
         process.stdout.write(JSON.stringify({ ok: true, value }));
       } catch (error) {
-        process.stdout.write(JSON.stringify({ ok: false, error: error.message }));
+        process.stdout.write(JSON.stringify({
+          ok: false,
+          error: error.message,
+          ...(${includeCause} ? { cause: error.cause?.message } : {}),
+        }));
       }
     `,
       ],
@@ -113,7 +117,7 @@ test('herdr failure is a runtime error not absent', () => {
     { stdout: 'not JSON', exit: 0 },
     { stdout: { result: {} }, exit: 0 },
     { stdout: absent, exit: 0 },
-    { stdout: absent, exit: -1 },
+    { stdout: absent, exit: 255 },
     { stdout: { result: { pane: { ...pane, terminal_id: null } } }, exit: 0 },
     { stdout: { result: { pane: { ...pane, pane_id: 'another-pane' } } }, exit: 0 },
   ]) {
@@ -232,4 +236,58 @@ test('startAgent, promptAgent and closePane preserve argv and return captured ou
       /herdr .* failed/,
     );
   }
+});
+
+test('startAgent allows readiness beyond the 15-second probe timeout', () => {
+  const result = invoke(
+    'startAgent',
+    [{ name: 'run-1', kind: 'omp', pane: 'wH:p2' }],
+    [
+      {
+        ...reply(['agent', 'start', 'run-1', '--kind', 'omp', '--pane', 'wH:p2', '--timeout', '60000', '--'], {
+          type: 'ok',
+        }),
+        delayMs: 16_000,
+      },
+    ],
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.value.code, 0);
+});
+
+test('promptAgent allows herdr to return after its 15-second wait', () => {
+  const result = invoke(
+    'promptAgent',
+    ['run-1', 'Read the packet.'],
+    [
+      {
+        ...reply(
+          ['agent', 'prompt', 'run-1', 'Read the packet.', '--wait', '--until', 'working', '--timeout', '15000'],
+          { type: 'ok' },
+        ),
+        delayMs: 16_000,
+      },
+    ],
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.value.code, 0);
+});
+
+test('failed commands retain exit code and bounded stderr in their cause', () => {
+  const result = invoke(
+    'closePane',
+    ['wH:p2'],
+    [{ args: ['pane', 'close', 'wH:p2'], stdout: '', exit: 2, stderr: 'connection refused' }],
+    true,
+  );
+  assert.equal(result.error, 'herdr pane close failed');
+  assert.equal(result.cause, 'herdr command exited 2; stderr: connection refused');
+  const longStderr = 'x'.repeat(2048);
+  const bounded = invoke(
+    'closePane',
+    ['wH:p2'],
+    [{ args: ['pane', 'close', 'wH:p2'], stdout: '', exit: 2, stderr: longStderr }],
+    true,
+  );
+  assert.equal(bounded.cause, `herdr command exited 2; stderr: ${longStderr.slice(0, 1024)}`);
 });
