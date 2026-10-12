@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { APS_SQL_DIR, listMigrations } from './index.js';
@@ -63,10 +63,36 @@ export function getAgent(db: DatabaseSync, id: string): Row {
   if (!agent) throw new ApsInputError(`agent ${id} not found`);
   return agent;
 }
+/** Card states past review/merge whose still-`launched` runs can no longer be collected (APS-P01). */
+const RUN_CLOSING_STATES: Record<string, true> = { merge_wait: true, done: true, rejected: true };
+/**
+ * Appends `reported` then `closed` (N03 allows no direct launched→closed) for every launched run of the card,
+ * with close evidence naming the transition and the packet's report.json when present.
+ */
+function closeLaunchedRuns(db: DatabaseSync, card: string, from: string, to: string, by: string): void {
+  if (Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0) < 2) return;
+  const runs = db
+    .prepare("SELECT run_id,packet_dir FROM v_run_current WHERE card_id=? AND status='launched' ORDER BY since,run_id")
+    .all(card);
+  for (const run of runs) {
+    const reportPath = join(String(run.packet_dir), 'report.json');
+    const report = existsSync(reportPath) ? reportPath : null;
+    for (const [status, detail] of [
+      ['reported', { auto_close: 'card_transition', card_to: to, report }],
+      ['closed', { evidence: { auto_close: 'card_transition', card_from: from, card_to: to, report } }],
+    ] as const)
+      insertRow(db, 'run_events', { run_id: run.run_id, status, by_agent: by, detail_json: JSON.stringify(detail) });
+  }
+}
+/** Moving to merge_wait/done/rejected also closes the card's launched runs in the same transaction. */
 export function moveCard(db: DatabaseSync, id: string, to: string, by: string, note = ''): Transition {
-  const card = getCard(db, id);
-  insertRow(db, 'transitions', { card_id: id, from_state: card.state, to_state: to, by_agent: by, note });
-  return { card: id, from: String(card.state), to, by, attempt: Number(getCard(db, id).attempt) };
+  return transaction(db, () => {
+    const card = getCard(db, id);
+    const from = String(card.state);
+    insertRow(db, 'transitions', { card_id: id, from_state: card.state, to_state: to, by_agent: by, note });
+    if (RUN_CLOSING_STATES[to]) closeLaunchedRuns(db, id, from, to, by);
+    return { card: id, from, to, by, attempt: Number(getCard(db, id).attempt) };
+  });
 }
 export function issueCard(db: DatabaseSync, values: Row): Transition[] {
   return transaction(db, () => {

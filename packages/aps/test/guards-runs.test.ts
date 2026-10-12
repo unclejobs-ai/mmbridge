@@ -15,10 +15,12 @@ import {
   createRun,
   doctor,
   getLiveRun,
+  moveCard,
   openApsDb,
+  recordReview,
   transaction,
 } from '../dist/index.js';
-import { CARD, SHA, closeAgent, move, rejects, seed } from './fixture.ts';
+import { CARD, SHA, closeAgent, merge, move, rejects, report, review, seed, toInspecting } from './fixture.ts';
 
 const RUN = 'run-1';
 const values: CreateRunInput = {
@@ -258,6 +260,65 @@ test('launch metadata survives lifecycle events and cost evidence is idempotent'
   );
   await commandTransaction(db, async () => addRunEvent(db, RUN, 'closed', 'mgr', { evidence: 'ended' }));
   assert.equal(db.prepare('SELECT pane_id FROM v_run_current WHERE run_id=?').get(RUN)?.pane_id, launch.pane_id);
+});
+
+test('moving to done closes a still-launched run in the same transaction', async (t) => {
+  const db = await workingRun();
+  t.after(() => db.close());
+  db.exec(eventSql('launched'));
+  toInspecting(db);
+  review(db, 'accept');
+  move(db, 'inspecting', 'accepted', 'mgr');
+  move(db, 'accepted', 'merge_wait', 'mgr');
+  // A transition the guards refuse (D02: no merge yet) rolls the run events back with it.
+  assert.throws(() => transaction(db, () => moveCard(db, CARD, 'done', 'mgr')), /APS-D02/);
+  assert.equal(getLiveRun(db, CARD)?.status, 'launched');
+  merge(db);
+  transaction(db, () => moveCard(db, CARD, 'done', 'mgr'));
+  assert.equal(db.prepare('SELECT status FROM v_run_current WHERE run_id=?').get(RUN)?.status, 'closed');
+  assert.equal(getLiveRun(db, CARD), undefined);
+  const events = db
+    .prepare(
+      "SELECT status,by_agent,detail_json FROM run_events WHERE run_id=? AND status NOT IN ('intent','launched')",
+    )
+    .all(RUN)
+    .map((row) => [row.status, row.by_agent, JSON.parse(String(row.detail_json))]);
+  assert.deepEqual(events, [
+    ['reported', 'mgr', { auto_close: 'card_transition', card_to: 'done', report: null }],
+    [
+      'closed',
+      'mgr',
+      { evidence: { auto_close: 'card_transition', card_from: 'merge_wait', card_to: 'done', report: null } },
+    ],
+  ]);
+});
+
+test('review accept to merge_wait closes a launched run; earlier transitions leave it', async (t) => {
+  const db = await workingRun();
+  t.after(() => db.close());
+  db.exec(eventSql('launched'));
+  report(db);
+  transaction(db, () => moveCard(db, CARD, 'reported', 'w1'));
+  closeAgent(db, 'w1');
+  transaction(db, () => moveCard(db, CARD, 'closed_session', 'mgr'));
+  assert.equal(getLiveRun(db, CARD)?.status, 'launched');
+  const transitions = recordReview(db, CARD, 'rev', { verdict: 'accept', items_json: '[]' });
+  assert.deepEqual(
+    transitions.map((row) => row.to),
+    ['inspecting', 'accepted', 'merge_wait'],
+  );
+  assert.deepEqual(
+    db
+      .prepare('SELECT status,by_agent FROM run_events WHERE run_id=? ORDER BY id')
+      .all(RUN)
+      .map((row) => [row.status, row.by_agent]),
+    [
+      ['intent', 'mgr'],
+      ['launched', 'mgr'],
+      ['reported', 'rev'],
+      ['closed', 'rev'],
+    ],
+  );
 });
 
 test('usage conflicts are explicit and unknown evidence can be superseded append-only', async (t) => {

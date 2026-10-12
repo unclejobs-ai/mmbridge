@@ -14,7 +14,7 @@ import {
   sessionEnded,
   summarize,
 } from './aps-collect-probe.js';
-import { getPane } from './aps-herdr.js';
+import { confirmPaneEnded, getPane } from './aps-herdr.js';
 import { newestSession } from './aps-lanes.js';
 import { type ApsCommandOptions, emit, parseDuration, required } from './aps-shared.js';
 import { exitWithError, importAps, importCore } from './helpers.js';
@@ -23,10 +23,13 @@ export interface ApsCollectOptions extends ApsCommandOptions {
   all?: boolean;
   wait?: string;
   ompSessionDir?: string;
+  closeOnly?: boolean;
 }
 
 export interface CollectRunOptions {
   abandon?: boolean;
+  /** Close the latest launched run of a card that already left working, from its report.json (no report row). */
+  closeOnly?: boolean;
   waitMs?: number;
   pollMs?: number;
   ompSessionDir?: string;
@@ -37,7 +40,7 @@ export interface CollectRunOptions {
 export interface CollectOutcome {
   card: string;
   run: string | null;
-  outcome: 'pending' | 'running' | 'reported' | 'blocked' | 'abandoned';
+  outcome: 'pending' | 'running' | 'reported' | 'closed' | 'blocked' | 'abandoned';
   code: 0 | 1 | 2 | 3;
   message: string;
   report?: unknown;
@@ -370,6 +373,63 @@ async function collectLiveRun(
   };
 }
 
+/**
+ * `--close-only`: once the card left working, APS-P01 bars `recordReport`, so the latest launched run is closed from
+ * its packet report.json without a report row or a card move: launched→reported→closed (a BLOCKED report ends at
+ * `blocked`). A closed agent stays untouched; an open one is closed (H01 first) only when it has no working cards.
+ */
+async function closeOnlyRun(aps: Aps, db: DatabaseSync, cardId: string, by: string): Promise<CollectOutcome> {
+  if (aps.getAgent(db, by).status === 'closed') throw new ApsInputError('--by must name a live manager agent');
+  const cardState = String(aps.getCard(db, cardId).state);
+  if (cardState === 'working')
+    throw new ApsInputError(`card ${cardId} is still working; collect it without --close-only`);
+  const run = db
+    .prepare(
+      "SELECT * FROM v_run_current WHERE card_id=? AND status='launched' ORDER BY since DESC, run_id DESC LIMIT 1",
+    )
+    .get(cardId);
+  if (!run) return { card: cardId, run: null, outcome: 'pending', code: 2, message: 'no launched run' };
+  const runId = String(run.run_id);
+  const reportPath = join(String(run.packet_dir), 'report.json');
+  if (!existsSync(reportPath))
+    throw new ApsInputError(`run ${runId} has no ${reportPath}; use --abandon once the session ended`);
+  const worker = readReport(reportPath);
+  if (worker.run !== runId || worker.card !== cardId || worker.attempt !== Number(run.attempt))
+    throw new ApsInputError(`report.json does not match launched run ${runId}`);
+  const agentId = String(run.agent_id);
+  const agent = aps.getAgent(db, agentId);
+  const working = db.prepare("SELECT count(*) AS n FROM cards WHERE assignee=? AND state='working'").get(agentId);
+  const closeAgent = agent.status !== 'closed' && Number(working?.n) === 0;
+  const pane = closeAgent && agent.herdr_pane ? await confirmPaneEnded(String(agent.herdr_pane)) : undefined;
+  const evidence = {
+    close_only: true,
+    report: reportPath,
+    report_status: worker.status,
+    sha: worker.sha,
+    branch: worker.branch,
+    card_state: cardState,
+    agent: agent.status === 'closed' ? 'already_closed' : closeAgent ? 'closed' : 'open_with_working_cards',
+    ...(pane ? { pane } : {}),
+  };
+  const blocked = worker.status === 'BLOCKED';
+  await aps.commandTransaction(db, async () => {
+    if (blocked) aps.addRunEvent(db, runId, 'blocked', by, { report: reportPath, evidence });
+    else {
+      aps.addRunEvent(db, runId, 'reported', by, { report: reportPath, close_only: true });
+      aps.addRunEvent(db, runId, 'closed', by, { evidence });
+    }
+    if (closeAgent) aps.closeSession(db, agentId, by, `collect --close-only ${runId}`, false);
+  });
+  return {
+    card: cardId,
+    run: runId,
+    outcome: blocked ? 'blocked' : 'closed',
+    code: 0,
+    message: `collect ${runId}: ${blocked ? 'blocked' : 'closed'} without a report row (card ${cardState})`,
+    evidence,
+  };
+}
+
 export async function collectRun(
   db: DatabaseSync,
   cardId: string,
@@ -379,6 +439,7 @@ export async function collectRun(
   const aps = await importAps();
   let run: Row | undefined;
   try {
+    if (opts.closeOnly) return await closeOnlyRun(aps, db, cardId, by);
     run = aps.getLiveRun(db, cardId);
     if (!run) return { card: cardId, run: null, outcome: 'pending', code: 2, message: 'no live run' };
     return await collectLiveRun(aps, db, run, by, opts);
@@ -403,6 +464,8 @@ export async function runApsCollectCommand(
   try {
     const by = required(options.by ?? process.env.APS_AGENT, 'by');
     if (options.all && id !== undefined) throw new ApsInputError('pass either a card or --all, not both');
+    if (options.closeOnly && (options.all || options.abandon || options.wait !== undefined))
+      throw new ApsInputError('--close-only takes one card and no --all, --abandon or --wait');
     const cardId = options.all ? undefined : required(id, 'card');
     const waitMs = options.wait === undefined ? undefined : parseDuration(options.wait, 'wait');
     const core = await importCore();
@@ -414,6 +477,7 @@ export async function runApsCollectCommand(
     for (const warning of aps.escalateFeedback(ledger)) process.stderr.write(`[mmbridge] ${warning}\n`);
     const opts: CollectRunOptions = {
       abandon: Boolean(options.abandon),
+      closeOnly: Boolean(options.closeOnly),
       waitMs,
       ompSessionDir: options.ompSessionDir,
       projectDir,
