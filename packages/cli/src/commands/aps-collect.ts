@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ApsInputError, type Row, type UsageByModel } from '@mmbridge/aps';
+import { pidAlive } from './aps-adopt.js';
 import {
   type LaunchInfo,
   expandGlob,
@@ -13,6 +14,7 @@ import {
   sessionEnded,
   summarize,
 } from './aps-collect-probe.js';
+import { getPane } from './aps-herdr.js';
 import { newestSession } from './aps-lanes.js';
 import { type ApsCommandOptions, emit, parseDuration, required } from './aps-shared.js';
 import { exitWithError, importAps, importCore } from './helpers.js';
@@ -33,7 +35,7 @@ export interface CollectRunOptions {
 export interface CollectOutcome {
   card: string;
   run: string | null;
-  outcome: 'pending' | 'reported' | 'blocked' | 'abandoned';
+  outcome: 'pending' | 'running' | 'reported' | 'blocked' | 'abandoned';
   code: 0 | 1 | 2 | 3;
   message: string;
   report?: unknown;
@@ -57,6 +59,15 @@ interface WorkerReport {
 type Aps = Awaited<ReturnType<typeof importAps>>;
 
 const DEFAULT_POLL_MS = 5_000;
+const ADOPTED_NO_REPORT = 'adopted lane ended without report; record aps report';
+
+/** Adopted lanes stay running while any recorded pid is alive or pane is present. */
+async function adoptedLaneRunning(detail: Record<string, unknown>): Promise<boolean> {
+  const paneId = typeof detail.pane_id === 'string' && detail.pane_id.length > 0 ? detail.pane_id : null;
+  const pid = typeof detail.pid === 'number' && Number.isInteger(detail.pid) ? detail.pid : null;
+  if (paneId && (await getPane(paneId)).state === 'present') return true;
+  return pid !== null && pidAlive(pid);
+}
 
 function readOptional(path: string): string {
   try {
@@ -182,6 +193,46 @@ async function collectLiveRun(
   const launch = launchInfo(db, runId);
   if (!launch || !probeKind(launch.detail)) throw new Error(`run ${runId} has no recorded session fields`);
   const reportPath = join(packet, 'report.json');
+  if (launch.detail.adopted === true && (await adoptedLaneRunning(launch.detail)))
+    return { card: cardId, run: runId, outcome: 'running', code: 0, message: 'running' };
+  if (launch.detail.adopted === true && status === 'launched') {
+    const stored = db
+      .prepare('SELECT * FROM reports WHERE card_id=? AND attempt=? ORDER BY id DESC LIMIT 1')
+      .get(cardId, Number(run.attempt));
+    if (stored) {
+      const reportStatus = String(stored.status);
+      await verifyCommit(run, { sha: String(stored.sha), branch: String(stored.branch) } as WorkerReport);
+      await aps.commandTransaction(db, async () => {
+        aps.addRunEvent(db, runId, reportStatus === 'BLOCKED' ? 'blocked' : 'reported', by, {
+          adopted: true,
+          report: 'ledger',
+        });
+      });
+      const evidence = await sessionClose(run, launch, opts);
+      const summary = summarize(evidence);
+      const abandon = reportStatus === 'BLOCKED';
+      await aps.commandTransaction(db, async () => {
+        aps.closeSession(db, String(run.agent_id), by, `collect ${runId}: ${summary}`, abandon);
+        if (!abandon) aps.addRunEvent(db, runId, 'closed', by, { evidence });
+      });
+      await recordUsage(aps, db, run, launch, opts);
+      return {
+        card: cardId,
+        run: runId,
+        outcome: abandon ? 'blocked' : 'reported',
+        code: 0,
+        message: `collect ${runId}: ${abandon ? 'blocked; card returned to issued' : 'closed_session'}`,
+        report: stored,
+        evidence,
+      };
+    }
+    if (!existsSync(reportPath)) {
+      await aps.commandTransaction(db, async () => {
+        aps.addRunEvent(db, runId, 'blocked', by, { adopted: true, message: ADOPTED_NO_REPORT });
+      });
+      return { card: cardId, run: runId, outcome: 'blocked', code: 0, message: ADOPTED_NO_REPORT };
+    }
+  }
   let reportStatus: string;
   let report: unknown;
 
