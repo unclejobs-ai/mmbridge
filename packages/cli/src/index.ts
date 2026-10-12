@@ -551,6 +551,11 @@ export async function main(): Promise<void> {
     ['--project <id>', 'Ledger project'],
     ['--herdr-pane <pane>', 'Pane ID'],
   ]);
+  addAps(apsAgent, 'list', 'agent-list', [
+    ['--status <status>', 'active|idle|closed|open|all (default open)'],
+    ['--project <id>', 'Filter project'],
+    ['--layer <layer>', 'L0|L1|L2|L3'],
+  ]);
   const apsCard = apsCmd.command('card').description('Work cards');
   addAps(apsCard, 'new', 'card-new', [
     ['--project <id>', 'Ledger project'],
