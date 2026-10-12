@@ -90,6 +90,7 @@ stateDiagram-v2
 - A move is `INSERT INTO transitions(card_id, from_state, to_state, by_agent, note)`; `trg_transitions_apply` updates `cards.state` and adds 1 to `attempt` on every `→working`.
 - Kanban labels (`states.kanban_ko`): 발행 작업 완료보고 종료 검수 수정요청 수락 머지대기 완료 반려.
 - Reviews, vision audits, owner OKs and merges must name the current attempt's reported sha (V12, X03, O02, M02).
+- `aps review --verdict accept --partial` inserts the review and still moves `closed_session → inspecting`, but does not advance to `accepted` / `merge_wait`. `--partial` with any other verdict is refused. The last required reviewer records the non-partial accept, which advances as today.
 
 ## 5. Guards
 
@@ -306,7 +307,7 @@ On success a state-changing command prints one line `<card> <from>→<to> by <ag
 | `aps return <card> --note …` | manager | `T(working→issued)` | A |
 | `aps report <card> --sha <40hex> --branch … --files <json|@file> --evidence <file.json> --status DONE|DONE_WITH_CONCERNS|BLOCKED [--risks …] [--pr …] [--body <file.md>] [--recorded-by <agent>]` | | insert `reports` (attempt = card attempt); unless BLOCKED, `T(working→reported)` | A |
 | `aps close-session <agent> --by <agent> --note … [--abandon]` | | H01; `UPDATE agents SET status='closed'…`; for each of the agent's cards in `reported`: `T(→closed_session)`; with cards still `working`: exit 2 unless `--abandon`, which applies `T(working→issued, note)` | A |
-| `aps review <card> --verdict accept|revise|reject [--items <file.json>] [--from-session <uuid>] [--owner]` | reviewer = `--by` | if state is `closed_session`: `T(→inspecting)` first. With `--from-session`: H04, H02, map findings to items (§9.1), compute gate (§9.1) into `gate_json`, add `card_links(handoff)` if the session has a handoff. Insert `reviews`; then accept: `T(→accepted)`, `T(→merge_wait)`; revise: `T(→revise)`; reject: `T(→rejected)`. In `accepted`/`merge_wait`, only revise moves the card | A |
+| `aps review <card> --verdict accept|revise|reject [--items <file.json>] [--from-session <uuid>] [--owner] [--partial]` | reviewer = `--by` | if state is `closed_session`: `T(→inspecting)` first. With `--from-session`: H04, H02, map findings to items (§9.1), compute gate (§9.1) into `gate_json`, add `card_links(handoff)` if the session has a handoff. Insert `reviews`; then accept: `T(→accepted)`, `T(→merge_wait)` unless `--partial` (§4); revise: `T(→revise)`; reject: `T(→rejected)`. In `accepted`/`merge_wait`, only revise moves the card | A |
 | `aps vision <card> --shots <file.json> --verdict pass|fail [--items <file.json>] [--notes …]` | auditor = `--by` | insert `vision_audits`; on fail `T(→revise)` | E (table ready in A) |
 | `aps owner-ok <card> --quote "…" [--source-ref …]` | recorder = `--by` (L0/L1) | insert `owner_oks` for the current reported sha | A |
 | `aps merge <card> --merged-sha <sha> | --applied-ref <ref> --target … [--gate]` | verifier = `--by` | H03 (`git merge-base --is-ancestor <sha> <merged_sha>`), then H05 (`git rev-parse --verify <target>^{commit}` and `git merge-base --is-ancestor <merged_sha> <resolved target>`); store both checks in `verify_command`. Fast-forward (`merged_sha == sha`) is valid. `--applied-ref` remains unverified. `--gate` stores the gate result in `gate_json`; insert `merges` | A |

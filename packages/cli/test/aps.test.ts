@@ -463,6 +463,35 @@ test('review accept advances to merge_wait and persists independent reviewer', (
   );
   assert.equal(f.run(['card', 'show', id]).value.current.latest_review, 'accept');
 });
+test('review --partial records the first accept without advancing', (t) => {
+  const f = fixture(t);
+  const id = f.inspecting();
+  const partial = f.run(['review', id, '--verdict', 'accept', '--partial']).value;
+  assert.deepEqual(
+    partial.map((row: Record<string, unknown>) => row.to),
+    ['inspecting'],
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'inspecting');
+  const again = f.run(['review', id, '--verdict', 'accept', '--partial', '--by', f.vision]).value;
+  assert.deepEqual(again, []);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'inspecting');
+  const advanced = f.run(['review', id, '--verdict', 'accept', '--by', f.manager]).value;
+  assert.deepEqual(
+    advanced.map((row: Record<string, unknown>) => row.to),
+    ['accepted', 'merge_wait'],
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'merge_wait');
+});
+test('review --partial refuses revise and leaves the card unmoved', (t) => {
+  const f = fixture(t);
+  const id = f.inspecting();
+  const items = f.file('items.json', [{ severity: 'major', category: 'test', text: 'Missing test' }]);
+  assert.match(
+    f.run(['review', id, '--verdict', 'revise', '--partial', '--items', items], 2).stderr,
+    /partial requires verdict accept/,
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'closed_session');
+});
 test('review revise/reject stores findings and rework prompt', (t) => {
   const f = fixture(t);
   const id = f.inspecting();

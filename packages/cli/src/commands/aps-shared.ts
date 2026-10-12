@@ -45,6 +45,7 @@ export interface ApsCommandOptions {
   items?: string;
   fromSession?: string;
   category?: string;
+  partial?: boolean;
   shots?: string;
   notes?: string;
   quote?: string;
