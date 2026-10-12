@@ -579,23 +579,37 @@ Output, one line per card: `card worker result sha ac n/n rework N — note`.
 
 ### 12.5 `mmbridge audit`
 
-Read-only (`openApsDbReadOnly`): herdr lanes (model from the pane's omp session; Devin
-panes assume `devin/swe-2-max`), live ledger runs (v2 only; a run in a listed pane
-enriches that lane), vision verdicts of the last 24 h, and quota. A herdr pane is
-recorded when its id is `agents.herdr_pane` of a non-closed agent or `pane_id` of a
-live run (`v_run_current` status intent, launched, or reported). Ledger lanes are
-always recorded. If the ledger is missing, `recorded` stays null. `buildAudit` reports
-`L3_RATIO` (< 60 % of working lanes), `MECH_ON_PREMIUM`, `L3_VISION_VERDICT`,
+Read-only (`openApsDbReadOnly`) unless `--close-idle` is set: herdr lanes (model from the
+pane's omp session; Devin panes assume `devin/swe-2-max`), live ledger runs (v2 only; a
+run in a listed pane enriches that lane), vision verdicts of the last 24 h, and quota.
+A herdr pane is recorded when its id is `agents.herdr_pane` of a non-closed agent or
+`pane_id` of a live run (`v_run_current` status intent, launched, or reported). The same
+open-agent row supplies `agentId` (newest session when several share a pane). Ledger
+lanes are always recorded. If the ledger is missing, `recorded` stays null. `buildAudit`
+reports `L3_RATIO` (< 60 % of working lanes), `MECH_ON_PREMIUM`, `L3_VISION_VERDICT`,
 `EXHAUSTED_PROVIDER` (≤ 1 % left), `STALLED` (`--stall-min`, default 30),
-`FINISHED_OPEN`, and `UNRECORDED_LANE` (`recorded` false and status working or idle;
-listed under `## Unrecorded lanes`). `--ps` also scans
+`FINISHED_OPEN`, `UNRECORDED_LANE` (`recorded` false and status working or idle; listed
+under `## Unrecorded lanes`), and `IDLE_OPEN` (open agent, lane `idle` or `done`, no
+output for `--idle-min` minutes, default 10, minimum 1). `--ps` also scans
 `ps -axo pid=,ppid=,command=` for `omp`, `grok`, `claude`, and `devin`. A process is
 skipped when any ancestor is `herdr`, when it or an ancestor is a live run pid, when
 its pid is in `--ignore-pid`, or when it is an ancestor of the audit process. Each
 remaining process is a working lane `pid:<n>` (`source: process`, `recorded: false`,
 model from that process's `--model`). `--out` writes the markdown atomically; `--json`
-prints the report. Exit 4 when violations exist, 1 when the audit itself failed. MBP
-runs it every 30 min via launchd `com.ss.aps-audit` into
+prints the report. Exit 4 when violations exist, 1 when the audit itself failed,
+2 on input errors.
+
+`--close-idle --by <agent>` is opt-in write mode. `--by` is resolved once after the
+writer opens and before any pane is closed: it must name a live agent, and that agent
+is not auto-closed. Each other `IDLE_OPEN` lane is skipped when the agent has a
+`working` card, re-checked immediately before `herdr pane close` (the report says why).
+A card that becomes `working` during pane close or the pane-ended probe still loses
+the pane; `close-session` then refuses and the row is `failed` (session stays open).
+Otherwise `herdr pane close <pane>`, the existing pane-ended probe, then `close-session`
+in its own ledger transaction (`audit: idle >= <n>m, auto-closed`, not abandon). One
+lane failing does not stop the others. Any close failure exits 1. The markdown gains
+`## Auto-closed`. After merge, launchd `com.ss.aps-audit` will pass `--close-idle --by
+<foreman agent>`. MBP already runs the audit every 30 min into
 `~/ss-work/squads/Reports/aps-audit-latest.md`.
 
 ### 12.6 `aps adopt`

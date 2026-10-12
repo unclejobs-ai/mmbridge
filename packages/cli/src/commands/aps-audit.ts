@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { AuditLane, AuditReport, VisionVerdict } from '@mmbridge/aps';
+import { ApsInputError, type AuditLane, type AuditReport, type VisionVerdict } from '@mmbridge/aps';
+import { closePane, confirmPaneEnded } from './aps-herdr.js';
 import { applyLedgerRecording, herdrLanes, ledgerLanes, liveRunPids, recentVisionVerdicts } from './aps-lanes.js';
 import { probeQuota } from './aps-quota.js';
 import { exitWithError, importAps, importCore, jsonOutput } from './helpers.js';
@@ -13,6 +14,11 @@ export interface ApsAuditOptions {
   projectDir?: string;
   herdr?: boolean;
   stallMin?: string;
+  /** Minutes before an idle/done open session is IDLE_OPEN. Default 10. */
+  idleMin?: string;
+  by?: string;
+  /** Opt-in: close IDLE_OPEN sessions. Without this flag the audit stays read-only. */
+  closeIdle?: boolean;
   ps?: boolean;
   ignorePid?: string;
 }
@@ -20,13 +26,106 @@ export interface ApsAuditOptions {
 /** Exit code when the audit ran but found violations (distinct from 1 = audit failed). */
 export const AUDIT_VIOLATION_EXIT = 4;
 
+export interface IdleCloseRow {
+  agent: string;
+  pane: string;
+  result: string;
+}
+
 export interface AuditRun {
   report: AuditReport;
   markdown: string;
   probes: { quotaSource: string | null; ledger: string | null; errors: string[] };
+  closed: IdleCloseRow[];
+  closeFailed: boolean;
 }
 
-/** Read-only: herdr lanes + live ledger runs + optional process scan + quota probe. Never writes the ledger. */
+function renderAutoClosed(rows: IdleCloseRow[]): string {
+  const lines = ['## Auto-closed', ''];
+  if (rows.length === 0) lines.push('- none');
+  else {
+    lines.push('| agent | pane | result |', '| --- | --- | --- |');
+    for (const row of rows) {
+      const agent = row.agent.replace(/\|/g, '\\|').replace(/[\r\n]/g, ' ');
+      const pane = row.pane.replace(/\|/g, '\\|').replace(/[\r\n]/g, ' ');
+      const result = row.result.replace(/\|/g, '\\|').replace(/[\r\n]/g, ' ');
+      lines.push(`| ${agent} | ${pane} | ${result} |`);
+    }
+  }
+  return `\n\n${lines.join('\n')}`;
+}
+
+/** One ledger transaction per lane. A failure is recorded and does not stop the rest. */
+async function closeIdleSessions(
+  dbPath: string,
+  lanes: AuditLane[],
+  by: string,
+  idleMin: number,
+): Promise<{ rows: IdleCloseRow[]; failed: boolean }> {
+  const aps = await importAps();
+  if (!existsSync(dbPath)) {
+    if (lanes.length === 0) return { rows: [], failed: false };
+    return {
+      failed: true,
+      rows: lanes.map((lane) => ({
+        agent: lane.agentId ?? '',
+        pane: lane.id,
+        result: 'failed: ledger missing',
+      })),
+    };
+  }
+  const db = aps.openApsDb(dbPath);
+  const rows: IdleCloseRow[] = [];
+  let failed = false;
+  try {
+    const manager = aps.getAgent(db, by);
+    if (manager.status === 'closed') throw new ApsInputError('--by must name a live manager agent');
+    const managerPane = typeof manager.herdr_pane === 'string' && manager.herdr_pane !== '' ? manager.herdr_pane : null;
+    for (const lane of lanes) {
+      const agent = lane.agentId;
+      if (!agent) {
+        rows.push({ agent: '', pane: lane.id, result: 'skipped: no open agent' });
+        continue;
+      }
+      if (agent === by || lane.id === managerPane) {
+        rows.push({ agent, pane: lane.id, result: 'skipped: acting --by agent' });
+        continue;
+      }
+      try {
+        const working = db
+          .prepare("SELECT id FROM cards WHERE assignee=? AND state='working' ORDER BY id")
+          .all(agent) as unknown as { id: string }[];
+        if (working.length > 0) {
+          rows.push({
+            agent,
+            pane: lane.id,
+            result: `skipped: working card ${working.map((card) => card.id).join(', ')}`,
+          });
+          continue;
+        }
+        // Last check before pane close. A card that becomes working during herdr
+        // pane close or confirmPaneEnded still loses the pane; closeSession then
+        // refuses and this row is recorded as failed.
+        await closePane(lane.id);
+        await confirmPaneEnded(lane.id);
+        aps.closeSession(db, agent, by, `audit: idle >= ${idleMin}m, auto-closed`, false);
+        rows.push({ agent, pane: lane.id, result: 'closed' });
+      } catch (error) {
+        failed = true;
+        rows.push({
+          agent,
+          pane: lane.id,
+          result: `failed: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+  } finally {
+    db.close();
+  }
+  return { rows, failed };
+}
+
+/** Herdr lanes + live ledger runs + optional process scan + quota. Read-only unless `--close-idle`. */
 export async function runAudit(options: ApsAuditOptions, now = Date.now()): Promise<AuditRun> {
   const ignorePids = parseIgnorePids(options.ignorePid);
   const aps = await importAps();
@@ -69,7 +168,28 @@ export async function runAudit(options: ApsAuditOptions, now = Date.now()): Prom
   const quota = await probeQuota(options.quotaJson, now);
   errors.push(...quota.errors);
   const stallMin = Number(options.stallMin ?? '30');
-  const report = aps.buildAudit({ now, lanes, quota: quota.quota, visionVerdicts, stallMs: stallMin * 60_000 });
+  const idleText = options.idleMin ?? '10';
+  if (!/^[1-9]\d*$/.test(idleText)) {
+    throw new ApsInputError('--idle-min must be an integer number of minutes >= 1');
+  }
+  const idleMin = Number(idleText);
+  const report = aps.buildAudit({
+    now,
+    lanes,
+    quota: quota.quota,
+    visionVerdicts,
+    stallMs: stallMin * 60_000,
+    idleMs: idleMin * 60_000,
+  });
+  let closed: IdleCloseRow[] = [];
+  let closeFailed = false;
+  if (options.closeIdle) {
+    const by = (options.by ?? process.env.APS_AGENT)?.trim();
+    if (!by) throw new ApsInputError('--by is required with --close-idle');
+    const outcome = await closeIdleSessions(dbPath, report.idleOpen, by, idleMin);
+    closed = outcome.rows;
+    closeFailed = outcome.failed;
+  }
   const footer = [
     '',
     '## Probes',
@@ -78,10 +198,13 @@ export async function runAudit(options: ApsAuditOptions, now = Date.now()): Prom
     `- ledger: ${ledger ?? 'unavailable'}`,
     ...errors.map((error) => `- warning: ${error}`),
   ];
+  const auto = options.closeIdle ? renderAutoClosed(closed) : '';
   return {
     report,
-    markdown: `${aps.renderAuditMarkdown(report)}${footer.join('\n')}\n`,
+    markdown: `${aps.renderAuditMarkdown(report).replace(/\n$/, '')}${auto}${footer.join('\n')}\n`,
     probes: { quotaSource: quota.source, ledger, errors },
+    closed,
+    closeFailed,
   };
 }
 
@@ -90,7 +213,8 @@ export async function runApsAuditCommand(options: ApsAuditOptions): Promise<void
   try {
     run = await runAudit(options);
   } catch (error) {
-    exitWithError(error instanceof Error ? error.message : String(error), 1);
+    const message = error instanceof Error ? error.message : String(error);
+    exitWithError(message, error instanceof ApsInputError ? 2 : 1);
   }
   if (options.out) {
     const out = resolve(options.out);
@@ -98,9 +222,15 @@ export async function runApsAuditCommand(options: ApsAuditOptions): Promise<void
     writeFileSync(`${out}.tmp`, run.markdown);
     renameSync(`${out}.tmp`, out);
   }
-  if (options.json) jsonOutput({ ...run.report, probes: run.probes });
-  else process.stdout.write(run.markdown);
-  if (run.report.violations.length > 0) process.exitCode = AUDIT_VIOLATION_EXIT;
+  if (options.json) {
+    jsonOutput({
+      ...run.report,
+      probes: run.probes,
+      ...(options.closeIdle ? { closed: run.closed } : {}),
+    });
+  } else process.stdout.write(run.markdown);
+  if (run.closeFailed) process.exitCode = 1;
+  else if (run.report.violations.length > 0) process.exitCode = AUDIT_VIOLATION_EXIT;
 }
 
 function parseIgnorePids(value: string | undefined): number[] {

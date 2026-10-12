@@ -19,6 +19,7 @@ function lane(overrides: Partial<AuditLane> & { id: string }): AuditLane {
     cardKind: null,
     cardKindSource: null,
     lastOutputAt: null,
+    agentId: null,
     finished: false,
     recorded: null,
     ...overrides,
@@ -296,6 +297,73 @@ test('STALLED honours a custom stallMs and floors the minutes', () => {
   ]);
 });
 
+test('IDLE_OPEN fires at 10 min for idle or done lanes with an open agent', () => {
+  const tenMin = 10 * 60 * 1000;
+  const report = buildAudit({
+    now: NOW,
+    quota: [],
+    minL3Ratio: 0,
+    lanes: [
+      lane({ id: 'under', status: 'idle', agentId: 'a-under', lastOutputAt: NOW - tenMin + 1000 }),
+      lane({ id: 'exact', status: 'idle', agentId: 'a-exact', lastOutputAt: NOW - tenMin }),
+      lane({ id: 'done-idle', status: 'done', agentId: 'a-done', lastOutputAt: NOW - tenMin, finished: true }),
+      lane({
+        id: 'working',
+        status: 'working',
+        agentId: 'a-work',
+        model: 'swe-2-max',
+        tier: 'L3',
+        provider: 'devin',
+        lastOutputAt: NOW - tenMin,
+      }),
+      lane({ id: 'no-agent', status: 'idle', agentId: null, lastOutputAt: NOW - tenMin }),
+      lane({ id: 'no-output', status: 'idle', agentId: 'a-none', lastOutputAt: null }),
+      lane({ id: 'blocked', status: 'blocked', agentId: 'a-blocked', lastOutputAt: NOW - tenMin }),
+    ],
+  });
+
+  assert.deepEqual(
+    report.idleOpen.map((entry) => entry.id),
+    ['exact', 'done-idle'],
+  );
+  assert.deepEqual(
+    report.violations.filter((violation) => violation.code === 'IDLE_OPEN'),
+    [
+      { code: 'IDLE_OPEN', lane: 'exact', card: null, detail: 'agent a-exact idle 10 min' },
+      { code: 'IDLE_OPEN', lane: 'done-idle', card: null, detail: 'agent a-done idle 10 min' },
+    ],
+  );
+  assert.equal(
+    report.violations.some((violation) => violation.code === 'IDLE_OPEN' && violation.lane === 'working'),
+    false,
+  );
+  assert.equal(
+    report.violations.some((violation) => violation.lane === 'under' || violation.lane === 'no-agent'),
+    false,
+  );
+  const markdown = renderAuditMarkdown(report);
+  assert.equal(markdown.includes('## Idle open sessions\n\n| pane | agent | status | idle min |'), true);
+  assert.equal(markdown.includes('| exact | a-exact | idle | 10 |'), true);
+  assert.equal(markdown.includes('| done-idle | a-done | done | 10 |'), true);
+});
+
+test('IDLE_OPEN honours a custom idleMs', () => {
+  const report = buildAudit({
+    now: NOW,
+    quota: [],
+    minL3Ratio: 0,
+    idleMs: 5 * 60 * 1000,
+    lanes: [
+      lane({ id: 'early', status: 'idle', agentId: 'a', lastOutputAt: NOW - 5 * 60 * 1000 + 1 }),
+      lane({ id: 'due', status: 'done', agentId: 'a', lastOutputAt: NOW - 5 * 60 * 1000 }),
+    ],
+  });
+  assert.deepEqual(
+    report.idleOpen.map((entry) => entry.id),
+    ['due'],
+  );
+});
+
 test('no working lanes yields a null ratio and no L3_RATIO violation', () => {
   const report = buildAudit({
     now: NOW,
@@ -381,6 +449,7 @@ test('renderAuditMarkdown prints - none for empty lists and an empty quota table
   assert.equal(markdown.includes('## Finished but open\n\n- none\n'), true);
   assert.equal(markdown.includes('## Unrecorded lanes\n\n- none\n'), true);
   assert.equal(markdown.includes('## Violations\n\n- none\n'), true);
+  assert.equal(markdown.includes('## Idle open sessions\n\n- none\n'), true);
 });
 
 test('UNRECORDED_LANE fires only for working or idle lanes with recorded false', () => {

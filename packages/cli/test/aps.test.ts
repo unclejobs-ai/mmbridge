@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -817,6 +827,265 @@ test('context lineage survives missing compacted nodes without changing the tree
   assert.equal(after.lineage[0].parentId, parentLink.ref);
   assert.equal(readFileSync(cache, 'utf8'), '');
 });
+
+const fakeHerdr = resolve(import.meta.dirname, 'fixtures/fake-herdr.mjs');
+
+function idleAudit(
+  f: { home: string; dbPath: string; manager: string; env: NodeJS.ProcessEnv },
+  steps: { args: string[]; stdout: unknown; stderr?: string; exit?: number }[],
+  extra: string[],
+  status: number,
+  opts: { by?: string; parse?: boolean } = {},
+) {
+  const label = opts.by === '' ? 'omit' : (opts.by ?? 'mgr').replace(/[^A-Za-z0-9._-]/g, '_');
+  const binDir = join(f.home, `fake-bin-${extra.includes('--close-idle') ? 'close' : 'read'}-${label}`);
+  mkdirSync(binDir);
+  copyFileSync(fakeHerdr, join(binDir, 'herdr'));
+  chmodSync(join(binDir, 'herdr'), 0o755);
+  symlinkSync(process.execPath, join(binDir, 'node'));
+  const state = join(binDir, 'state.json');
+  writeFileSync(state, JSON.stringify({ steps, calls: [] }));
+  const quota = join(f.home, 'quota.json');
+  writeFileSync(quota, '{"reports":[]}\n');
+  const out = join(f.home, `audit-${extra.includes('--close-idle') ? 'close' : 'read'}-${label}.md`);
+  const args = [bin, 'aps', 'audit', '--db', f.dbPath, '--quota-json', quota, '--out', out, '--json', ...extra];
+  if (opts.by !== '') args.splice(5, 0, '--by', opts.by ?? f.manager);
+  const env = { ...f.env, PATH: `${binDir}:/usr/bin:/bin`, FAKE_HERDR_STATE: state };
+  if (opts.by === '') env.APS_AGENT = undefined;
+  const result = spawnSync(process.execPath, args, {
+    cwd: f.home,
+    env,
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  assert.equal(result.status, status, `${result.stdout}\n${result.stderr}`);
+  const calls = JSON.parse(readFileSync(state, 'utf8')).calls as string[][];
+  if (opts.parse === false) return { result, calls, markdown: '', report: null };
+  return { result, calls, markdown: readFileSync(out, 'utf8'), report: JSON.parse(result.stdout) };
+}
+
+function idlePane(home: string, pane: string) {
+  const session = join(home, 'session.jsonl');
+  writeFileSync(session, '{}\n');
+  const old = new Date(Date.now() - 11 * 60 * 1000);
+  utimesSync(session, old, old);
+  return {
+    args: ['agent', 'list'],
+    stdout: {
+      result: {
+        agents: [{ pane_id: pane, agent: 'omp', agent_status: 'idle', cwd: home, agent_session: { value: session } }],
+      },
+    },
+  };
+}
+
+test('--close-idle closes an agent that only has reported cards', (t) => {
+  const f = fixture(t);
+  const id = f.reported();
+  const pane = 'w9:p1';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(pane, f.worker);
+  db.close();
+  const list = idlePane(f.home, pane);
+  const readonly = idleAudit(f, [list], [], 4);
+  assert.equal(
+    readonly.report.violations.some((row: { code: string }) => row.code === 'IDLE_OPEN'),
+    true,
+  );
+  assert.deepEqual(readonly.calls, [['agent', 'list']]);
+  const before = openApsDb(f.dbPath);
+  assert.equal(before.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'reported');
+  assert.equal(before.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  before.close();
+  const closed = idleAudit(
+    f,
+    [
+      list,
+      { args: ['pane', 'close', pane], stdout: { result: {} } },
+      {
+        args: ['pane', 'get', pane],
+        stdout: '',
+        stderr: JSON.stringify({ error: { code: 'pane_not_found', message: `pane ${pane} not found` } }),
+        exit: 1,
+      },
+    ],
+    ['--close-idle'],
+    4,
+  );
+  assert.deepEqual(closed.calls, [
+    ['agent', 'list'],
+    ['pane', 'close', pane],
+    ['pane', 'get', pane],
+  ]);
+  assert.equal(closed.report.closed[0].result, 'closed');
+  assert.match(closed.markdown, /## Auto-closed[\s\S]*\| closed \|/);
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'closed_session');
+  assert.equal(
+    after.prepare('SELECT status, close_note FROM agents WHERE id=?').get(f.worker)?.close_note,
+    'audit: idle >= 10m, auto-closed',
+  );
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'closed');
+  after.close();
+});
+
+test('--close-idle skips an agent that still has a working card', (t) => {
+  const f = fixture(t);
+  const id = f.working();
+  const pane = 'w9:p2';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(pane, f.worker);
+  db.close();
+  const closed = idleAudit(f, [idlePane(f.home, pane)], ['--close-idle'], 4);
+  assert.deepEqual(closed.calls, [['agent', 'list']]);
+  assert.match(closed.report.closed[0].result, new RegExp(`skipped: working card ${id}`));
+  assert.match(closed.markdown, new RegExp(`skipped: working card ${id}`));
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'working');
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  after.close();
+});
+
+test('--close-idle does not close the session when the pane is still present', (t) => {
+  const f = fixture(t);
+  const id = f.reported();
+  const pane = 'w9:p3';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(pane, f.worker);
+  db.close();
+  const present = {
+    pane_id: pane,
+    terminal_id: 'term',
+    tab_id: 'tab',
+    workspace_id: 'ws',
+  };
+  const closed = idleAudit(
+    f,
+    [
+      idlePane(f.home, pane),
+      { args: ['pane', 'close', pane], stdout: { result: {} } },
+      { args: ['pane', 'get', pane], stdout: { result: { pane: present } } },
+    ],
+    ['--close-idle'],
+    1,
+  );
+  assert.deepEqual(closed.calls, [
+    ['agent', 'list'],
+    ['pane', 'close', pane],
+    ['pane', 'get', pane],
+  ]);
+  assert.match(closed.report.closed[0].result, /failed: APS-H01:/);
+  assert.match(closed.markdown, /## Auto-closed[\s\S]*failed: APS-H01:/);
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'reported');
+  assert.equal(after.prepare('SELECT status, close_note FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  assert.equal(after.prepare('SELECT close_note FROM agents WHERE id=?').get(f.worker)?.close_note, null);
+  after.close();
+  assert.notEqual(closed.result.status, 0);
+});
+
+test('--close-idle continues after one lane fails', (t) => {
+  const f = fixture(t);
+  const id = f.reported();
+  const paneA = 'w9:pA';
+  const paneB = 'w9:pB';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(paneA, f.worker);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(paneB, f.vision);
+  db.close();
+  const session = join(f.home, 'session.jsonl');
+  writeFileSync(session, '{}\n');
+  const old = new Date(Date.now() - 11 * 60 * 1000);
+  utimesSync(session, old, old);
+  const list = {
+    args: ['agent', 'list'],
+    stdout: {
+      result: {
+        agents: [paneA, paneB].map((pane) => ({
+          pane_id: pane,
+          agent: 'omp',
+          agent_status: 'idle',
+          cwd: f.home,
+          agent_session: { value: session },
+        })),
+      },
+    },
+  };
+  const present = { pane_id: paneA, terminal_id: 'term', tab_id: 'tab', workspace_id: 'ws' };
+  const closed = idleAudit(
+    f,
+    [
+      list,
+      { args: ['pane', 'close', paneA], stdout: { result: {} } },
+      { args: ['pane', 'get', paneA], stdout: { result: { pane: present } } },
+      { args: ['pane', 'close', paneB], stdout: { result: {} } },
+      {
+        args: ['pane', 'get', paneB],
+        stdout: '',
+        stderr: JSON.stringify({ error: { code: 'pane_not_found', message: `pane ${paneB} not found` } }),
+        exit: 1,
+      },
+    ],
+    ['--close-idle'],
+    1,
+  );
+  assert.equal(closed.report.closed[0].pane, paneA);
+  assert.match(closed.report.closed[0].result, /failed: APS-H01:/);
+  assert.equal(closed.report.closed[1].pane, paneB);
+  assert.equal(closed.report.closed[1].result, 'closed');
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'reported');
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.vision)?.status, 'closed');
+  after.close();
+});
+
+test('--close-idle rejects an unknown or closed --by before closing panes', (t) => {
+  const f = fixture(t);
+  const id = f.reported();
+  const pane = 'w9:pBy';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(pane, f.worker);
+  db.close();
+  const list = idlePane(f.home, pane);
+  const unknown = idleAudit(f, [list], ['--close-idle'], 2, { by: 'no-such-agent', parse: false });
+  assert.deepEqual(unknown.calls, [['agent', 'list']]);
+  assert.match(unknown.result.stderr, /agent no-such-agent not found/);
+  f.run(['close-session', f.manager, '--by', f.vision, '--note', 'manager ended']);
+  const closedBy = idleAudit(f, [list], ['--close-idle'], 2, { parse: false });
+  assert.deepEqual(closedBy.calls, [['agent', 'list']]);
+  assert.match(closedBy.result.stderr, /--by must name a live manager agent/);
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'reported');
+  after.close();
+});
+
+test('--close-idle does not close the acting --by agent', (t) => {
+  const f = fixture(t);
+  const id = f.reported();
+  const pane = 'w9:pSelf';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(pane, f.worker);
+  db.close();
+  const closed = idleAudit(f, [idlePane(f.home, pane)], ['--close-idle'], 4, { by: f.worker });
+  assert.deepEqual(closed.calls, [['agent', 'list']]);
+  assert.equal(closed.report.closed[0].result, 'skipped: acting --by agent');
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'reported');
+  after.close();
+});
+
+test('--idle-min 0 and missing --by are input errors', (t) => {
+  const f = fixture(t);
+  const empty = { args: ['agent', 'list'], stdout: { result: { agents: [] } } };
+  const zero = idleAudit(f, [empty], ['--idle-min', '0'], 2, { parse: false });
+  assert.match(zero.result.stderr, /--idle-min must be an integer number of minutes >= 1/);
+  const missing = idleAudit(f, [empty], ['--close-idle'], 2, { by: '', parse: false });
+  assert.match(missing.result.stderr, /--by is required with --close-idle/);
+});
+
 test('review --recorded-by lets a live L1 record a closed reviewer accept', (t) => {
   const f = fixture(t);
   const reviewer = f.run(['agent', 'new', '--name', 'reviewer', '--layer', 'L1', '--model', 'opus', '--vendor', 'test'])
@@ -877,6 +1146,7 @@ function herdrLane(id: string): AuditLane {
     cardKindSource: null,
     lastOutputAt: null,
     finished: false,
+    agentId: null,
     recorded: null,
   };
 }
