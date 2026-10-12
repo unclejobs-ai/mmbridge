@@ -28,6 +28,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@clack/prompts": "^1.1.0",
     "@mmbridge/adapters": "workspace:*",
     "@mmbridge/agent": "workspace:*",
     "@mmbridge/aps": "workspace:*",
@@ -37,10 +38,15 @@
     "@mmbridge/integrations": "workspace:*",
     "@mmbridge/session-store": "workspace:*",
     "@mmbridge/tui": "workspace:*",
-    "@clack/prompts": "^1.1.0",
-    "commander": "^13.1.0"
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "commander": "^13.1.0",
+    "minimatch": "^10.0.1"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "fast-check": "^4.3.0"
   }
 }

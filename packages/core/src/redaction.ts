@@ -6,6 +6,7 @@ export interface RedactionRuleSpec {
   pattern: string;
   replacement: string;
   label: string;
+  flags?: string;
 }
 
 const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: string }> = [
@@ -16,18 +17,18 @@ const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: stri
   { pattern: /polar_at_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_POLAR_TOKEN]', label: 'Polar access token' },
   { pattern: /whsk_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_WEBHOOK_SECRET]', label: 'Webhook secret' },
   {
-    pattern: /(?:password|passwd|pwd)\s*[:=]\s*["']?([^\s"']{8,})["']?/gi,
-    replacement: '[REDACTED_PASSWORD]',
-    label: 'Password value',
-  },
-  {
-    pattern: /(?:secret|token|key)\s*[:=]\s*["']([A-Za-z0-9_\-./+]{16,})["']/gi,
+    pattern:
+      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?!(?:or|ors|ority|ored|oring|ori[sz]ation|ori[sz]e[ds]?|enticat[a-z]*|izer|izers|ization|board|boards|_?count|_?failures?|_?errors?|_?total|_?type|_?url|_?file|_?path|_?name)(?![A-Za-z0-9]))[A-Za-z0-9_]{0,32}(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S+)/gi,
     replacement: '[REDACTED_SECRET]',
-    label: 'Generic secret/token',
+    label: 'secret assignment',
   },
   { pattern: /Bearer\s+[A-Za-z0-9_\-.~+/]{20,}/g, replacement: 'Bearer [REDACTED_TOKEN]', label: 'Bearer token' },
 ];
 
+function compileFlags(flags?: string): string {
+  const raw = flags ?? '';
+  return raw.includes('g') ? raw : `${raw}g`;
+}
 function buildRules(
   extraRules: RedactionRuleSpec[] = [],
 ): Array<{ pattern: RegExp; replacement: string; label: string }> {
@@ -35,7 +36,7 @@ function buildRules(
   for (const rule of extraRules) {
     try {
       compiled.push({
-        pattern: new RegExp(rule.pattern, 'g'),
+        pattern: new RegExp(rule.pattern, compileFlags(rule.flags)),
         replacement: rule.replacement,
         label: rule.label,
       });

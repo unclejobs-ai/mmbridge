@@ -489,6 +489,24 @@ export async function main(): Promise<void> {
 
   // APS handlers are deliberately lazy so unrelated --help does not load node:sqlite.
   const apsCmd = program.command('aps').description('APS work-card ledger');
+  apsCmd
+    .command('gate')
+    .description('Run repository engineering gates and enforce baseline ratchets')
+    .option('--project-dir <dir>', 'Repository directory (default: cwd)')
+    .option('--update-baseline', 'Record passing metrics in the baseline')
+    .option('--base-ref <ref>', 'Trusted baseline/exemptions git ref and changed-path base')
+    .option('--format <format>', 'table|json (default: table)')
+    .option('--card <id>', 'Append gate evidence to an APS card')
+    .option('--db <path>', 'Ledger path (with --card)')
+    .option('--by <agent>', 'Acting agent (default: APS_AGENT, with --card)')
+    .option('--json', 'Output JSON instead of a human table')
+    .exitOverride((error) => {
+      process.exit(error.exitCode === 0 ? 0 : 2);
+    })
+    .action(async (options) => {
+      const { runApsGateCommand } = await import('./commands/aps-gate.js');
+      await runApsGateCommand(options);
+    });
   const addAps = (
     parent: Command,
     spec: string,
@@ -532,6 +550,11 @@ export async function main(): Promise<void> {
     ['--vendor <vendor>', 'Vendor'],
     ['--project <id>', 'Ledger project'],
     ['--herdr-pane <pane>', 'Pane ID'],
+  ]);
+  addAps(apsAgent, 'list', 'agent-list', [
+    ['--status <status>', 'active|idle|closed|open|all (default open)'],
+    ['--project <id>', 'Filter project'],
+    ['--layer <layer>', 'L0|L1|L2|L3'],
   ]);
   const apsCard = apsCmd.command('card').description('Work cards');
   addAps(apsCard, 'new', 'card-new', [
@@ -596,6 +619,27 @@ export async function main(): Promise<void> {
   );
   addAps(
     apsCmd,
+    'adopt <card>',
+    'adopt',
+    [
+      ['--agent <agent>', 'Existing open worker session'],
+      ['--worktree <path>', 'Absolute git worktree checked out on --branch'],
+      ['--branch <branch>', 'Checked-out worktree branch'],
+      ['--base-sha <sha>', '40 or 64 hex base sha (default: merge-base origin/main, else main)'],
+      ['--pid <pid>', 'Live process id of the lane'],
+      ['--pane <pane>', 'Live herdr pane id'],
+      ['--harness <harness>', 'herdr|omp|devin|grok (default: herdr if --pane, else omp)'],
+      ['--kind <kind>', 'herdr worker kind: omp|devin|grok (default omp)'],
+      ['--model <model>', 'Worker model (default: agent model)'],
+      ['--session-ref <path>', 'Session transcript or directory'],
+    ],
+    async () => {
+      const { runApsAdoptCommand } = await import('./commands/aps-adopt.js');
+      return { runApsCommand: runApsAdoptCommand };
+    },
+  );
+  addAps(
+    apsCmd,
     'collect [card]',
     'collect',
     [
@@ -633,8 +677,10 @@ export async function main(): Promise<void> {
     ['--quota-json <file>', 'omp/codexbar usage JSON instead of a live probe'],
     ['--no-herdr', 'Skip herdr lanes'],
     ['--stall-min <minutes>', 'Working lane without output this long is stalled (default 30)'],
-    ['--idle-min <minutes>', 'Idle or done open session with no output this long is IDLE_OPEN (default 10)'],
+    ['--idle-min <minutes>', 'Idle or done open session with no output this long is IDLE_OPEN (default 10, minimum 1)'],
     ['--close-idle', 'Close IDLE_OPEN sessions (herdr pane close, then close-session). Requires --by'],
+    ['--ps', 'Also scan omp/grok/claude/devin processes with no herdr pane'],
+    ['--ignore-pid <pids>', 'Comma-separated pids to skip in the --ps scan'],
   ];
   const auditLoader = async () => {
     const { runApsAuditCommand } = await import('./commands/aps-audit.js');
@@ -672,6 +718,8 @@ export async function main(): Promise<void> {
     ['--from-session <uuid>', 'Local mmbridge session'],
     ['--owner', 'On behalf of owner'],
     ['--category <category>', 'Imported findings category'],
+    ['--partial', 'Record an accept without advancing to merge_wait'],
+    ['--recorded-by <agent>', 'Proxy recorder'],
   ]);
   addAps(apsCmd, 'vision <card>', 'vision', [
     ['--shots <file>', 'Screenshot JSON'],

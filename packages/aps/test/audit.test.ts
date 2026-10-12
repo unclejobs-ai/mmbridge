@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AuditLane, ProviderQuota, VisionVerdict } from '../dist/index.js';
-import { buildAudit, classifyModel, mechanicalTitle, renderAuditMarkdown } from '../dist/index.js';
+import { buildAudit, classifyModel, lanesFromPs, mechanicalTitle, renderAuditMarkdown } from '../dist/index.js';
 
 const NOW = Date.parse('2026-10-11T10:00:00Z');
 const STALL_MS = 30 * 60 * 1000;
@@ -21,6 +21,7 @@ function lane(overrides: Partial<AuditLane> & { id: string }): AuditLane {
     lastOutputAt: null,
     agentId: null,
     finished: false,
+    recorded: null,
     ...overrides,
   };
 }
@@ -446,6 +447,109 @@ test('renderAuditMarkdown prints - none for empty lists and an empty quota table
   assert.equal(markdown.includes('| provider | source | window | used | left | resets | pace | status |'), true);
   assert.equal(markdown.includes('## Stalled (>30 min)\n\n- none\n'), true);
   assert.equal(markdown.includes('## Finished but open\n\n- none\n'), true);
+  assert.equal(markdown.includes('## Unrecorded lanes\n\n- none\n'), true);
   assert.equal(markdown.includes('## Violations\n\n- none\n'), true);
   assert.equal(markdown.includes('## Idle open sessions\n\n- none\n'), true);
+});
+
+test('UNRECORDED_LANE fires only for working or idle lanes with recorded false', () => {
+  const report = buildAudit({
+    now: NOW,
+    quota: [],
+    minL3Ratio: 0,
+    lanes: [
+      lane({
+        id: 'working',
+        recorded: false,
+        harness: 'omp',
+        model: 'xai-oauth/grok-4.7',
+        cwd: '/work',
+        title: 'manual',
+      }),
+      lane({ id: 'idle', status: 'idle', recorded: false, harness: 'grok', model: null }),
+      lane({ id: 'done', status: 'done', recorded: false }),
+      lane({ id: 'blocked', status: 'blocked', recorded: false }),
+      lane({ id: 'unchecked', recorded: null }),
+      lane({ id: 'known', recorded: true }),
+    ],
+  });
+
+  assert.deepEqual(
+    report.unrecorded.map((entry) => entry.id),
+    ['working', 'idle'],
+  );
+  assert.deepEqual(report.violations, [
+    {
+      code: 'UNRECORDED_LANE',
+      lane: 'working',
+      card: null,
+      detail: 'omp xai-oauth/grok-4.7 /work manual',
+    },
+    { code: 'UNRECORDED_LANE', lane: 'idle', card: null, detail: 'grok unknown' },
+  ]);
+  const markdown = renderAuditMarkdown(report);
+  assert.equal(markdown.includes('## Unrecorded lanes\n\n| id | harness | model | status | cwd | title |'), true);
+  assert.equal(markdown.includes('| working | omp | xai-oauth/grok-4.7 | working | /work | manual |'), true);
+  assert.equal(markdown.includes('| idle | grok |  | idle |  |  |'), true);
+});
+
+test('lanesFromPs skips covered processes and reports a bare omp --model', () => {
+  const ps = [
+    '  1   0 /sbin/launchd',
+    '  10  1 /opt/homebrew/bin/herdr serve',
+    '  11  10 /bin/zsh -l',
+    '  12  11 /usr/local/bin/omp --model hidden -p',
+    '  20  1 /usr/bin/node runner.js',
+    '  21  20 omp --model child -p',
+    '  22  21 omp --model grandchild -p',
+    '  30  1 /bin/zsh',
+    '  31  30 grok --model skipme',
+    '  32  31 claude --model kept',
+    '  40  1 /bin/zsh',
+    '  41  40 omp --model x -p',
+    '  50  1 /Users/me/.local/bin/claude --model opus',
+    '  60  50 node mmbridge audit --ps',
+    '  90  1 omp --model owned -p',
+    'not a process',
+  ].join('\n');
+  const lanes = lanesFromPs({ ps, runPids: [20, 90], ignorePids: [31], selfPid: 60 });
+
+  assert.deepEqual(
+    lanes.map((entry) => entry.id),
+    ['pid:32', 'pid:41'],
+  );
+  assert.equal(
+    lanes.some((entry) => entry.id === 'pid:12'),
+    false,
+    'herdr descendant',
+  );
+  assert.equal(
+    lanes.some((entry) => entry.id === 'pid:21' || entry.id === 'pid:22'),
+    false,
+    'run-pid descendant',
+  );
+  assert.equal(
+    lanes.some((entry) => entry.id === 'pid:90'),
+    false,
+    'live run pid',
+  );
+  assert.equal(
+    lanes.some((entry) => entry.id === 'pid:31'),
+    false,
+    'ignore-pid',
+  );
+  assert.equal(lanes.find((entry) => entry.id === 'pid:32')?.model, 'kept');
+  assert.equal(
+    lanes.some((entry) => entry.id === 'pid:50'),
+    false,
+    'ancestor of the audit process',
+  );
+  const reported = lanes.find((entry) => entry.id === 'pid:41');
+  assert.ok(reported);
+  assert.equal(reported.harness, 'omp');
+  assert.equal(reported.model, 'x');
+  assert.equal(reported.source, 'process');
+  assert.equal(reported.status, 'working');
+  assert.equal(reported.recorded, false);
+  assert.equal(reported.title, 'omp --model x -p');
 });

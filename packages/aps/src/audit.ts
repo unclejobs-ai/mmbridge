@@ -10,9 +10,9 @@ export interface ModelClass {
 }
 
 export interface AuditLane {
-  /** herdr pane id or ledger run id. */
+  /** herdr pane id, ledger run id, or `pid:<n>`. */
   id: string;
-  source: 'herdr' | 'ledger';
+  source: 'herdr' | 'ledger' | 'process';
   /** Harness/agent program: omp, pi, devin, grok, claude, codex, ... */
   harness: string;
   /** `provider/model` when known. */
@@ -32,6 +32,11 @@ export interface AuditLane {
   finished: boolean;
   /** Open ledger agent mapped by `agents.herdr_pane` = this pane id; null when none. */
   agentId: string | null;
+  /**
+   * True when a non-closed agent or live run owns the lane; false when known unrecorded;
+   * null when the ledger was not checked.
+   */
+  recorded: boolean | null;
 }
 
 export interface VisionVerdict {
@@ -60,7 +65,8 @@ export type ViolationCode =
   | 'EXHAUSTED_PROVIDER'
   | 'STALLED'
   | 'FINISHED_OPEN'
-  | 'IDLE_OPEN';
+  | 'IDLE_OPEN'
+  | 'UNRECORDED_LANE';
 
 export interface AuditViolation {
   code: ViolationCode;
@@ -82,6 +88,8 @@ export interface AuditReport {
   finishedOpen: AuditLane[];
   /** Idle or done lanes with an open agent and no output for `idleMs`. */
   idleOpen: AuditLane[];
+  /** `recorded === false` and status working or idle. */
+  unrecorded: AuditLane[];
   violations: AuditViolation[];
 }
 
@@ -198,6 +206,12 @@ export function buildAudit(input: AuditInput): AuditReport {
       detail: `agent ${lane.agentId} idle ${Math.floor((input.now - lane.lastOutputAt) / 60_000)} min`,
     });
   }
+  const unrecorded = input.lanes.filter(
+    (lane) => lane.recorded === false && (lane.status === 'working' || lane.status === 'idle'),
+  );
+  for (const lane of unrecorded) {
+    violations.push({ code: 'UNRECORDED_LANE', lane: lane.id, card: null, detail: unrecordedDetail(lane) });
+  }
 
   return {
     generatedAt: new Date(input.now).toISOString(),
@@ -210,6 +224,7 @@ export function buildAudit(input: AuditInput): AuditReport {
     stalled,
     finishedOpen,
     idleOpen,
+    unrecorded,
     violations,
   };
 }
@@ -255,6 +270,14 @@ export function renderAuditMarkdown(report: AuditReport): string {
   lines.push('', '## Stalled (>30 min)', '', ...renderLaneList(report.stalled));
   lines.push('', '## Finished but open', '', ...renderLaneList(report.finishedOpen));
   lines.push('', '## Idle open sessions', '', ...renderIdleOpen(report));
+  lines.push('', '## Unrecorded lanes', '');
+  if (report.unrecorded.length === 0) lines.push('- none');
+  else {
+    lines.push('| id | harness | model | status | cwd | title |', '| --- | --- | --- | --- | --- | --- |');
+    for (const lane of report.unrecorded) {
+      lines.push(tableRow([lane.id, lane.harness, lane.model ?? '', lane.status, lane.cwd ?? '', lane.title ?? '']));
+    }
+  }
   lines.push('', '## Violations', '');
   if (report.violations.length === 0) {
     lines.push('- none');
@@ -314,4 +337,115 @@ function renderIdleOpen(report: AuditReport): string[] {
     lines.push(tableRow([lane.id, lane.agentId ?? '', lane.status, minutes]));
   }
   return lines;
+}
+
+const PROCESS_HARNESS: Record<string, true> = { omp: true, grok: true, claude: true, devin: true };
+
+export interface ProcessScan {
+  /** Output of `ps -axo pid=,ppid=,command=`. */
+  ps: string;
+  /** Live run pids. The process or any ancestor in this set is skipped. */
+  runPids?: readonly number[];
+  /** `--ignore-pid`. The pid itself is skipped; descendants are not. */
+  ignorePids?: readonly number[];
+  /** Audit process pid. Its ancestors are skipped. */
+  selfPid: number;
+}
+
+interface PsProc {
+  pid: number;
+  ppid: number;
+  command: string;
+  argv0: string;
+}
+
+/** Opt-in process lanes: omp/grok/claude/devin not covered by herdr, a live run, or the audit's own parents. */
+export function lanesFromPs(scan: ProcessScan): AuditLane[] {
+  const rows = parsePs(scan.ps);
+  const byPid = new Map(rows.map((row) => [row.pid, row]));
+  const runPids = new Set(scan.runPids ?? []);
+  const ignorePids = new Set(scan.ignorePids ?? []);
+  const selfAncestors = new Set(pidChain(scan.selfPid, byPid).filter((pid) => pid !== scan.selfPid));
+  const lanes: AuditLane[] = [];
+  const seen = new Set<number>();
+  for (const row of rows) {
+    if (seen.has(row.pid)) continue;
+    seen.add(row.pid);
+    if (!PROCESS_HARNESS[row.argv0]) continue;
+    if (ignorePids.has(row.pid) || selfAncestors.has(row.pid)) continue;
+    const chain = pidChain(row.pid, byPid);
+    if (chain.some((pid) => runPids.has(pid))) continue;
+    if (chain.slice(1).some((pid) => byPid.get(pid)?.argv0 === 'herdr')) continue;
+    const model = modelFlag(row.command);
+    const classified = classifyModel(model);
+    lanes.push({
+      id: `pid:${row.pid}`,
+      source: 'process',
+      harness: row.argv0,
+      model,
+      tier: classified.tier,
+      provider: classified.provider,
+      status: 'working',
+      cwd: null,
+      title: row.command,
+      cardKind: null,
+      cardKindSource: null,
+      lastOutputAt: null,
+      finished: false,
+      recorded: false,
+      agentId: null,
+    });
+  }
+  return lanes;
+}
+
+function unrecordedDetail(lane: AuditLane): string {
+  const where = [lane.cwd, lane.title].filter((part): part is string => part !== null && part !== '');
+  return [lane.harness, lane.model ?? 'unknown', ...where].join(' ');
+}
+
+function parsePs(text: string): PsProc[] {
+  const rows: PsProc[] = [];
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S.*)$/.exec(line);
+    if (!match) continue;
+    const command = match[3].trim();
+    const argv0 = command.split(/\s+/)[0] ?? '';
+    rows.push({ pid: Number(match[1]), ppid: Number(match[2]), command, argv0: basename(argv0) });
+  }
+  return rows;
+}
+
+/** Self, then each ancestor pid. Stops when a parent is missing from the snapshot. */
+function pidChain(pid: number, byPid: Map<number, PsProc>): number[] {
+  const chain = [pid];
+  const seen = new Set<number>([pid]);
+  let current = byPid.get(pid)?.ppid ?? 0;
+  while (current > 0 && !seen.has(current)) {
+    chain.push(current);
+    seen.add(current);
+    const parent = byPid.get(current);
+    if (!parent) break;
+    current = parent.ppid;
+  }
+  return chain;
+}
+
+function modelFlag(command: string): string | null {
+  const tokens = command.split(/\s+/);
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] ?? '';
+    if (token === '--model') {
+      const value = tokens[i + 1];
+      return value && !value.startsWith('-') ? value : null;
+    }
+    if (token.startsWith('--model=')) return token.slice('--model='.length) || null;
+  }
+  return null;
+}
+
+function basename(token: string): string {
+  const slash = Math.max(token.lastIndexOf('/'), token.lastIndexOf('\\'));
+  return slash === -1 ? token : token.slice(slash + 1);
 }

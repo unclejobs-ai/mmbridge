@@ -34,6 +34,7 @@ export interface RunCommandOptions {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   killGraceMs?: number;
+  detached?: boolean;
   /** Called with each stdout chunk as it arrives */
   onStdout?: (chunk: string) => void;
   /** Called with each stderr chunk as it arrives */

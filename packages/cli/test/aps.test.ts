@@ -15,10 +15,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
-import { openApsDb } from '@mmbridge/aps';
+import { type AuditLane, addRunEvent, buildAudit, createRun, openApsDb } from '@mmbridge/aps';
 import { SessionStore } from '@mmbridge/session-store';
+import { applyLedgerRecording, liveRunPids } from '../dist/commands/aps-lanes.js';
 
 const bin = resolve(import.meta.dirname, '../dist/bin/mmbridge.js');
+const usageFixture = resolve(import.meta.dirname, '../../aps/test/fixtures/omp-usage.json');
 const SHA = 'a'.repeat(40);
 function fixture(t: TestContext) {
   const home = mkdtempSync(join(tmpdir(), 'aps-cli-'));
@@ -252,7 +254,7 @@ test('H01 fails closed on herdr server_not_running on stderr', (t) => {
 
 test('aps init/project add/agent new: persisted records, generated IDs, text output', (t) => {
   const f = fixture(t);
-  assert.equal(f.run(['init']).value.user_version, 2);
+  assert.equal(f.run(['init']).value.user_version, 3);
   const result = f.run(
     ['agent', 'new', '--name', 'New Worker', '--layer', 'L3', '--model', 'test', '--vendor', 'test'],
     0,
@@ -261,6 +263,108 @@ test('aps init/project add/agent new: persisted records, generated IDs, text out
   assert.match(result.stdout, /^new-worker-\d{14}/);
   f.run(['agent', 'new', '--name', 'bad', '--layer', 'L9', '--model', 'test', '--vendor', 'test'], 2);
   assert.match(f.run(['project', 'add', 'other', '--prefix', 'TS', '--name', 'duplicate'], 3).stderr, /APS-L02:/);
+});
+test('agent list: default excludes closed; status, project and layer filter', (t) => {
+  const f = fixture(t);
+  const listed = f.run([
+    'agent',
+    'new',
+    '--name',
+    'listed',
+    '--layer',
+    'L3',
+    '--model',
+    'flash',
+    '--vendor',
+    'test',
+    '--project',
+    'test',
+    '--herdr-pane',
+    'w9:p2',
+  ]).value.id as string;
+  const idler = f.run(['agent', 'new', '--name', 'idler', '--layer', 'L0', '--model', 'opus', '--vendor', 'test']).value
+    .id as string;
+  const gone = f.run([
+    'agent',
+    'new',
+    '--name',
+    'gone',
+    '--layer',
+    'L2',
+    '--model',
+    'haiku',
+    '--vendor',
+    'test',
+    '--project',
+    'test',
+  ]).value.id as string;
+  f.run(['close-session', gone, '--note', 'pane ended']);
+  const db = openApsDb(f.dbPath);
+  try {
+    db.prepare("UPDATE agents SET status='idle' WHERE id=?").run(idler);
+  } finally {
+    db.close();
+  }
+  const ids = (rows: { id: string }[]) => rows.map((row) => row.id);
+  const open = f.run(['agent', 'list']).value as {
+    id: string;
+    layer: string;
+    project: string | null;
+    status: string;
+    started_at: string;
+  }[];
+  assert.equal(ids(open).includes(gone), false);
+  assert.ok(ids(open).includes(listed));
+  assert.ok(ids(open).includes(idler));
+  assert.ok(open.every((row) => row.status !== 'closed'));
+  const cmp = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? -1 : b === null ? 1 : a < b ? -1 : 1);
+  for (let i = 1; i < open.length; i++) {
+    const prev = open[i - 1];
+    const row = open[i];
+    const order =
+      cmp(prev.layer, row.layer) ||
+      cmp(prev.project, row.project) ||
+      cmp(prev.started_at, row.started_at) ||
+      cmp(prev.id, row.id);
+    assert.ok(order <= 0, `${prev.id} before ${row.id}`);
+  }
+  const closed = f.run(['agent', 'list', '--status', 'closed']).value as {
+    id: string;
+    name: string;
+    status: string;
+    close_note: string;
+  }[];
+  assert.deepEqual(ids(closed), [gone]);
+  assert.equal(closed[0].status, 'closed');
+  assert.equal(closed[0].close_note, 'pane ended');
+  for (const key of [
+    'id',
+    'name',
+    'layer',
+    'model',
+    'vendor',
+    'project',
+    'herdr_pane',
+    'status',
+    'started_at',
+    'closed_at',
+    'close_note',
+  ])
+    assert.equal(key in closed[0], true, key);
+  assert.deepEqual(ids(f.run(['agent', 'list', '--project', 'test']).value), [listed]);
+  assert.deepEqual(ids(f.run(['agent', 'list', '--layer', 'L0']).value), [idler]);
+  assert.deepEqual(ids(f.run(['agent', 'list', '--status', 'all', '--project', 'test']).value), [gone, listed]);
+  const active = ids(f.run(['agent', 'list', '--status', 'active']).value);
+  assert.equal(active.includes(idler), false);
+  assert.equal(active.includes(gone), false);
+  assert.ok(active.includes(listed));
+  assert.equal(
+    f.run(['agent', 'list', '--project', 'test'], 0, false).stdout.trim(),
+    `${listed} L3 active flash test w9:p2`,
+  );
+  assert.equal(f.run(['agent', 'list', '--status', 'idle'], 0, false).stdout.trim(), `${idler} L0 idle opus - -`);
+  assert.match(f.run(['agent', 'list', '--status', 'nope'], 2).stderr, /--status must be/);
+  f.run(['agent', 'list', '--layer', 'L9'], 2);
 });
 test('card new/show/list/as-prompt: full acceptance and when-done payload', (t) => {
   const f = fixture(t);
@@ -370,6 +474,35 @@ test('review accept advances to merge_wait and persists independent reviewer', (
     ['inspecting', 'accepted', 'merge_wait'],
   );
   assert.equal(f.run(['card', 'show', id]).value.current.latest_review, 'accept');
+});
+test('review --partial records the first accept without advancing', (t) => {
+  const f = fixture(t);
+  const id = f.inspecting();
+  const partial = f.run(['review', id, '--verdict', 'accept', '--partial']).value;
+  assert.deepEqual(
+    partial.map((row: Record<string, unknown>) => row.to),
+    ['inspecting'],
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'inspecting');
+  const again = f.run(['review', id, '--verdict', 'accept', '--partial', '--by', f.vision]).value;
+  assert.deepEqual(again, []);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'inspecting');
+  const advanced = f.run(['review', id, '--verdict', 'accept', '--by', f.manager]).value;
+  assert.deepEqual(
+    advanced.map((row: Record<string, unknown>) => row.to),
+    ['accepted', 'merge_wait'],
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'merge_wait');
+});
+test('review --partial refuses revise and leaves the card unmoved', (t) => {
+  const f = fixture(t);
+  const id = f.inspecting();
+  const items = f.file('items.json', [{ severity: 'major', category: 'test', text: 'Missing test' }]);
+  assert.match(
+    f.run(['review', id, '--verdict', 'revise', '--partial', '--items', items], 2).stderr,
+    /partial requires verdict accept/,
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'closed_session');
 });
 test('review revise/reject stores findings and rework prompt', (t) => {
   const f = fixture(t);
@@ -574,7 +707,7 @@ test('TS guards H02/H04 and newer schema refuse without mutation', async (t) => 
   const newer = openApsDb(f.dbPath);
   newer.exec('PRAGMA user_version=99');
   newer.close();
-  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v2\)/);
+  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v3\)/);
 });
 test('missing actor and unreadable JSON are input errors', (t) => {
   const f = fixture(t);
@@ -702,8 +835,10 @@ function idleAudit(
   steps: { args: string[]; stdout: unknown; stderr?: string; exit?: number }[],
   extra: string[],
   status: number,
+  opts: { by?: string; parse?: boolean } = {},
 ) {
-  const binDir = join(f.home, `fake-bin-${extra.includes('--close-idle') ? 'close' : 'read'}`);
+  const label = opts.by === '' ? 'omit' : (opts.by ?? 'mgr').replace(/[^A-Za-z0-9._-]/g, '_');
+  const binDir = join(f.home, `fake-bin-${extra.includes('--close-idle') ? 'close' : 'read'}-${label}`);
   mkdirSync(binDir);
   copyFileSync(fakeHerdr, join(binDir, 'herdr'));
   chmodSync(join(binDir, 'herdr'), 0o755);
@@ -712,19 +847,20 @@ function idleAudit(
   writeFileSync(state, JSON.stringify({ steps, calls: [] }));
   const quota = join(f.home, 'quota.json');
   writeFileSync(quota, '{"reports":[]}\n');
-  const out = join(f.home, `audit-${extra.includes('--close-idle') ? 'close' : 'read'}.md`);
-  const result = spawnSync(
-    process.execPath,
-    [bin, 'aps', 'audit', '--db', f.dbPath, '--by', f.manager, '--quota-json', quota, '--out', out, '--json', ...extra],
-    {
-      cwd: f.home,
-      env: { ...f.env, PATH: `${binDir}:/usr/bin:/bin`, FAKE_HERDR_STATE: state },
-      encoding: 'utf8',
-      timeout: 30_000,
-    },
-  );
+  const out = join(f.home, `audit-${extra.includes('--close-idle') ? 'close' : 'read'}-${label}.md`);
+  const args = [bin, 'aps', 'audit', '--db', f.dbPath, '--quota-json', quota, '--out', out, '--json', ...extra];
+  if (opts.by !== '') args.splice(5, 0, '--by', opts.by ?? f.manager);
+  const env = { ...f.env, PATH: `${binDir}:/usr/bin:/bin`, FAKE_HERDR_STATE: state };
+  if (opts.by === '') env.APS_AGENT = undefined;
+  const result = spawnSync(process.execPath, args, {
+    cwd: f.home,
+    env,
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
   assert.equal(result.status, status, `${result.stdout}\n${result.stderr}`);
   const calls = JSON.parse(readFileSync(state, 'utf8')).calls as string[][];
+  if (opts.parse === false) return { result, calls, markdown: '', report: null };
   return { result, calls, markdown: readFileSync(out, 'utf8'), report: JSON.parse(result.stdout) };
 }
 
@@ -846,4 +982,384 @@ test('--close-idle does not close the session when the pane is still present', (
   assert.equal(after.prepare('SELECT close_note FROM agents WHERE id=?').get(f.worker)?.close_note, null);
   after.close();
   assert.notEqual(closed.result.status, 0);
+});
+
+test('--close-idle continues after one lane fails', (t) => {
+  const f = fixture(t);
+  const id = f.reported();
+  const paneA = 'w9:pA';
+  const paneB = 'w9:pB';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(paneA, f.worker);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(paneB, f.vision);
+  db.close();
+  const session = join(f.home, 'session.jsonl');
+  writeFileSync(session, '{}\n');
+  const old = new Date(Date.now() - 11 * 60 * 1000);
+  utimesSync(session, old, old);
+  const list = {
+    args: ['agent', 'list'],
+    stdout: {
+      result: {
+        agents: [paneA, paneB].map((pane) => ({
+          pane_id: pane,
+          agent: 'omp',
+          agent_status: 'idle',
+          cwd: f.home,
+          agent_session: { value: session },
+        })),
+      },
+    },
+  };
+  const present = { pane_id: paneA, terminal_id: 'term', tab_id: 'tab', workspace_id: 'ws' };
+  const closed = idleAudit(
+    f,
+    [
+      list,
+      { args: ['pane', 'close', paneA], stdout: { result: {} } },
+      { args: ['pane', 'get', paneA], stdout: { result: { pane: present } } },
+      { args: ['pane', 'close', paneB], stdout: { result: {} } },
+      {
+        args: ['pane', 'get', paneB],
+        stdout: '',
+        stderr: JSON.stringify({ error: { code: 'pane_not_found', message: `pane ${paneB} not found` } }),
+        exit: 1,
+      },
+    ],
+    ['--close-idle'],
+    1,
+  );
+  assert.equal(closed.report.closed[0].pane, paneA);
+  assert.match(closed.report.closed[0].result, /failed: APS-H01:/);
+  assert.equal(closed.report.closed[1].pane, paneB);
+  assert.equal(closed.report.closed[1].result, 'closed');
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'reported');
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.vision)?.status, 'closed');
+  after.close();
+});
+
+test('--close-idle rejects an unknown or closed --by before closing panes', (t) => {
+  const f = fixture(t);
+  const id = f.reported();
+  const pane = 'w9:pBy';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(pane, f.worker);
+  db.close();
+  const list = idlePane(f.home, pane);
+  const unknown = idleAudit(f, [list], ['--close-idle'], 2, { by: 'no-such-agent', parse: false });
+  assert.deepEqual(unknown.calls, [['agent', 'list']]);
+  assert.match(unknown.result.stderr, /agent no-such-agent not found/);
+  f.run(['close-session', f.manager, '--by', f.vision, '--note', 'manager ended']);
+  const closedBy = idleAudit(f, [list], ['--close-idle'], 2, { parse: false });
+  assert.deepEqual(closedBy.calls, [['agent', 'list']]);
+  assert.match(closedBy.result.stderr, /--by must name a live manager agent/);
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'reported');
+  after.close();
+});
+
+test('--close-idle does not close the acting --by agent', (t) => {
+  const f = fixture(t);
+  const id = f.reported();
+  const pane = 'w9:pSelf';
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run(pane, f.worker);
+  db.close();
+  const closed = idleAudit(f, [idlePane(f.home, pane)], ['--close-idle'], 4, { by: f.worker });
+  assert.deepEqual(closed.calls, [['agent', 'list']]);
+  assert.equal(closed.report.closed[0].result, 'skipped: acting --by agent');
+  const after = openApsDb(f.dbPath);
+  assert.equal(after.prepare('SELECT status FROM agents WHERE id=?').get(f.worker)?.status, 'active');
+  assert.equal(after.prepare('SELECT state FROM cards WHERE id=?').get(id)?.state, 'reported');
+  after.close();
+});
+
+test('--idle-min 0 and missing --by are input errors', (t) => {
+  const f = fixture(t);
+  const empty = { args: ['agent', 'list'], stdout: { result: { agents: [] } } };
+  const zero = idleAudit(f, [empty], ['--idle-min', '0'], 2, { parse: false });
+  assert.match(zero.result.stderr, /--idle-min must be an integer number of minutes >= 1/);
+  const missing = idleAudit(f, [empty], ['--close-idle'], 2, { by: '', parse: false });
+  assert.match(missing.result.stderr, /--by is required with --close-idle/);
+});
+
+test('review --recorded-by lets a live L1 record a closed reviewer accept', (t) => {
+  const f = fixture(t);
+  const reviewer = f.run(['agent', 'new', '--name', 'reviewer', '--layer', 'L1', '--model', 'opus', '--vendor', 'test'])
+    .value.id;
+  const id = f.inspecting();
+  f.run(['close-session', reviewer, '--note', 'historical reviewer']);
+  assert.match(
+    f.run(['review', id, '--by', reviewer, '--recorded-by', f.vision, '--verdict', 'accept'], 3).stderr,
+    /APS-V16:/,
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'closed_session');
+  const transitions = f.run(['review', id, '--by', reviewer, '--recorded-by', f.manager, '--verdict', 'accept']).value;
+  assert.deepEqual(
+    transitions.map((row: { to: string; by: string }) => ({ to: row.to, by: row.by })),
+    [
+      { to: 'inspecting', by: f.manager },
+      { to: 'accepted', by: f.manager },
+      { to: 'merge_wait', by: f.manager },
+    ],
+  );
+  const db = openApsDb(f.dbPath);
+  t.after(() => db.close());
+  assert.deepEqual(
+    { ...db.prepare('SELECT reviewer, recorded_by FROM reviews').get() },
+    {
+      reviewer,
+      recorded_by: f.manager,
+    },
+  );
+});
+test('review without --recorded-by still refuses a closed reviewer', (t) => {
+  const f = fixture(t);
+  const reviewer = f.run(['agent', 'new', '--name', 'reviewer', '--layer', 'L1', '--model', 'opus', '--vendor', 'test'])
+    .value.id;
+  const id = f.inspecting();
+  f.run(['close-session', reviewer, '--note', 'historical reviewer']);
+  const db = openApsDb(f.dbPath);
+  db.exec(
+    `INSERT INTO transitions(card_id,from_state,to_state,by_agent) VALUES('${id}','closed_session','inspecting','${f.manager}')`,
+  );
+  db.close();
+  assert.match(f.run(['review', id, '--by', reviewer, '--verdict', 'accept'], 3).stderr, /APS-V10:/);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'inspecting');
+});
+
+function herdrLane(id: string): AuditLane {
+  return {
+    id,
+    source: 'herdr',
+    harness: 'omp',
+    model: 'xai-oauth/grok-4.7',
+    tier: 'L3',
+    provider: 'xai-oauth',
+    status: 'working',
+    cwd: '/work',
+    title: 'manual',
+    cardKind: null,
+    cardKindSource: null,
+    lastOutputAt: null,
+    finished: false,
+    agentId: null,
+    recorded: null,
+  };
+}
+
+function unrecordedLanes(lanes: AuditLane[]): string[] {
+  return buildAudit({ now: Date.now(), lanes, quota: [], minL3Ratio: 0 })
+    .violations.filter((violation) => violation.code === 'UNRECORDED_LANE')
+    .map((violation) => violation.lane ?? '');
+}
+
+function installHerdr(home: string, agents: unknown[]): string {
+  const binDir = join(home, 'bin');
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(
+    join(binDir, 'herdr'),
+    [
+      '#!/bin/sh',
+      'if [ "$1" = agent ] && [ "$2" = list ]; then',
+      `  printf '%s\\n' '${JSON.stringify({ result: { agents } })}'`,
+      '  exit 0',
+      'fi',
+      'echo "unexpected herdr: $*" >&2',
+      'exit 99',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  return binDir;
+}
+
+function runAuditBin(
+  f: { home: string; env: NodeJS.ProcessEnv },
+  args: string[],
+  pathPrefix?: string,
+): { status: number | null; stdout: string; stderr: string } {
+  return spawnSync(process.execPath, [bin, 'audit', ...args, '--json'], {
+    cwd: f.home,
+    env: pathPrefix ? { ...f.env, PATH: `${pathPrefix}:${f.env.PATH ?? ''}` } : f.env,
+    encoding: 'utf8',
+  });
+}
+
+test('pane matched by agent herdr_pane has no UNRECORDED_LANE', (t) => {
+  const f = fixture(t);
+  const db = openApsDb(f.dbPath);
+  try {
+    db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run('w9:p1', f.worker);
+    db.prepare(
+      `UPDATE agents SET herdr_pane=?, status='closed', closed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+      closed_by=?, close_note='ended' WHERE id=?`,
+    ).run('w9:closed', f.manager, f.vision);
+    const lanes = [herdrLane('w9:p1'), herdrLane('w9:closed')];
+    const ledger = { ...herdrLane('run-1'), source: 'ledger' as const };
+    applyLedgerRecording([...lanes, ledger], db);
+    assert.equal(lanes[0].recorded, true);
+    assert.equal(lanes[1].recorded, false);
+    assert.equal(ledger.recorded, true);
+    assert.deepEqual(unrecordedLanes(lanes), ['w9:closed']);
+  } finally {
+    db.close();
+  }
+});
+
+test('pane matched by a live run pane_id has no UNRECORDED_LANE', (t) => {
+  const f = fixture(t);
+  const live = f.working();
+  const reported = f.working();
+  const failed = f.working();
+  const db = openApsDb(f.dbPath);
+  try {
+    const liveRun = createRun(db, {
+      id: 'run-live',
+      card_id: live,
+      attempt: 1,
+      agent_id: f.worker,
+      harness: 'omp',
+      model: 'xai-oauth/grok-4.7',
+      worktree: f.home,
+      branch: 'feature',
+      base_sha: SHA,
+      packet_dir: f.home,
+      created_by: f.manager,
+    });
+    addRunEvent(db, liveRun, 'launched', f.manager, { pane_id: 'w9:p3', pid: 4242 });
+    const reportedRun = createRun(db, {
+      id: 'run-reported',
+      card_id: reported,
+      attempt: 1,
+      agent_id: f.worker,
+      harness: 'omp',
+      model: 'xai-oauth/grok-4.7',
+      worktree: f.home,
+      branch: 'feature',
+      base_sha: SHA,
+      packet_dir: f.home,
+      created_by: f.manager,
+    });
+    addRunEvent(db, reportedRun, 'launched', f.manager, { pane_id: 'w9:rep', pid: 7 });
+    addRunEvent(db, reportedRun, 'reported', f.manager, {});
+    const failedRun = createRun(db, {
+      id: 'run-failed',
+      card_id: failed,
+      attempt: 1,
+      agent_id: f.worker,
+      harness: 'omp',
+      model: 'xai-oauth/grok-4.7',
+      worktree: f.home,
+      branch: 'feature',
+      base_sha: SHA,
+      packet_dir: f.home,
+      created_by: f.manager,
+    });
+    addRunEvent(db, failedRun, 'launched', f.manager, { pane_id: 'w9:dead', pid: 111 });
+    addRunEvent(db, failedRun, 'failed', f.manager, { reason: 'exit' });
+    const lanes = [herdrLane('w9:p3'), herdrLane('w9:rep'), herdrLane('w9:dead')];
+    applyLedgerRecording(lanes, db);
+    assert.equal(lanes[0].recorded, true);
+    assert.equal(lanes[1].recorded, true);
+    assert.equal(lanes[2].recorded, false);
+    assert.deepEqual(unrecordedLanes(lanes), ['w9:dead']);
+    assert.deepEqual(
+      liveRunPids(db).sort((a, b) => a - b),
+      [7, 4242],
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('unmatched working pane is UNRECORDED_LANE', (t) => {
+  const f = fixture(t);
+  const db = openApsDb(f.dbPath);
+  try {
+    const lanes = [herdrLane('w9:missing')];
+    applyLedgerRecording(lanes, db);
+    assert.equal(lanes[0].recorded, false);
+    assert.deepEqual(unrecordedLanes(lanes), ['w9:missing']);
+  } finally {
+    db.close();
+  }
+});
+
+test('ledger unavailable leaves recorded null and emits no UNRECORDED_LANE', (t) => {
+  const f = fixture(t);
+  const binDir = installHerdr(f.home, [
+    {
+      pane_id: 'w9:p9',
+      agent: 'omp',
+      agent_status: 'working',
+      cwd: '/tmp/lane',
+      terminal_title_stripped: 'manual',
+    },
+  ]);
+  const result = runAuditBin(f, ['--db', join(f.home, 'missing.db'), '--quota-json', usageFixture], binDir);
+  assert.notEqual(result.status, 1, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.lanes[0].id, 'w9:p9');
+  assert.equal(report.lanes[0].recorded, null);
+  assert.equal(
+    report.violations.some((violation: { code: string }) => violation.code === 'UNRECORDED_LANE'),
+    false,
+  );
+});
+
+test('audit records a herdr pane owned by a live agent', (t) => {
+  const f = fixture(t);
+  const db = openApsDb(f.dbPath);
+  db.prepare('UPDATE agents SET herdr_pane=? WHERE id=?').run('w9:p9', f.worker);
+  db.close();
+  const binDir = installHerdr(f.home, [
+    {
+      pane_id: 'w9:p9',
+      agent: 'omp',
+      agent_status: 'working',
+      cwd: '/tmp/lane',
+      terminal_title_stripped: 'manual',
+    },
+  ]);
+  const result = runAuditBin(f, ['--db', f.dbPath, '--quota-json', usageFixture], binDir);
+  assert.notEqual(result.status, 1, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.lanes[0].recorded, true);
+  assert.equal(
+    report.violations.some((violation: { code: string }) => violation.code === 'UNRECORDED_LANE'),
+    false,
+  );
+});
+
+test('audit --ps reports a bare omp and honours --ignore-pid', (t) => {
+  const f = fixture(t);
+  const binDir = join(f.home, 'bin');
+  mkdirSync(binDir);
+  writeFileSync(join(binDir, 'ps'), "#!/bin/sh\nprintf '%s\\n' '  41  1 omp --model x -p'\n", { mode: 0o755 });
+  const args = ['--db', f.dbPath, '--no-herdr', '--quota-json', usageFixture, '--ps'];
+  const result = runAuditBin(f, args, binDir);
+  assert.equal(result.status, 4, result.stderr);
+  const report = JSON.parse(result.stdout);
+  const processLanes = report.lanes.filter((lane: { source: string }) => lane.source === 'process');
+  assert.equal(processLanes.length, 1);
+  assert.equal(processLanes[0].id, 'pid:41');
+  assert.equal(processLanes[0].harness, 'omp');
+  assert.equal(processLanes[0].model, 'x');
+  assert.equal(processLanes[0].recorded, false);
+  assert.equal(processLanes[0].status, 'working');
+  assert.equal(
+    report.violations.some(
+      (violation: { code: string; lane: string }) =>
+        violation.code === 'UNRECORDED_LANE' && violation.lane === 'pid:41',
+    ),
+    true,
+  );
+  const ignored = runAuditBin(f, [...args, '--ignore-pid', '41'], binDir);
+  assert.equal(ignored.status, 0, ignored.stderr);
+  const ignoredReport = JSON.parse(ignored.stdout);
+  assert.equal(ignoredReport.lanes.filter((lane: { source: string }) => lane.source === 'process').length, 0);
 });

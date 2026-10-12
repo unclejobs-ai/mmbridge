@@ -45,7 +45,7 @@ The DDL is the contract; this is the map. All ledger tables are `STRICT`. `at` i
 | `cards` | ✓ | `size S|M|L`, `scope`, `body_md`, `attempt`, `source_ref` | spec frozen after `issued` (C09); `state`/`attempt` only via `transitions` (C08) |
 | `transitions` | ✓ | `from_state NULL` only for the auto-inserted `→issued` row | append-only |
 | `reports` | ✓ | `attempt`, `recorded_by` (proxy), `pr_url`, `body_md` | append-only |
-| `reviews` | ✓ | `attempt`, `on_behalf_of='owner'`, `mmbridge_session_id` (UUID CHECK), **`gate_json`** | append-only |
+| `reviews` | ✓ | `attempt`, `recorded_by` (proxy; NULL = reviewer), `on_behalf_of='owner'`, `mmbridge_session_id` (UUID CHECK), **`gate_json`** | append-only |
 | `vision_audits` | ✓ | `attempt`, `sha`, `items_json` | append-only |
 | `merges` | merge confirmation | `sha`, `merged_sha` or `applied_ref`, `target`, `verified_by`, `verify_command`, **`gate_json`** | append-only |
 | `owner_oks` | owner OK | `sha`, `recorded_by` (L0/L1), `quote`, `source_ref` | append-only |
@@ -90,12 +90,13 @@ stateDiagram-v2
 - A move is `INSERT INTO transitions(card_id, from_state, to_state, by_agent, note)`; `trg_transitions_apply` updates `cards.state` and adds 1 to `attempt` on every `→working`.
 - Kanban labels (`states.kanban_ko`): 발행 작업 완료보고 종료 검수 수정요청 수락 머지대기 완료 반려.
 - Reviews, vision audits, owner OKs and merges must name the current attempt's reported sha (V12, X03, O02, M02).
+- `aps review --verdict accept --partial` inserts the review and still moves `closed_session → inspecting`, but does not advance to `accepted` / `merge_wait`. `--partial` with any other verdict is refused. The last required reviewer records the non-partial accept, which advances as today.
 
 ## 5. Guards
 
 Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS guards in §5.2 require the CLI (§11). A SQL rejection reaches `node:sqlite` as an `Error` whose `message` is exactly the text in the table (`code: 'ERR_SQLITE_ERROR'`, extended code SQLITE_CONSTRAINT_TRIGGER). Inside one trigger the guards run in table order, so the first failing one wins. CHECK/NOT NULL failures use SQLite's own text (e.g. `CHECK constraint failed: review_gate`).
 
-### 5.1 SQL guards (84 codes, all executed — §7)
+### 5.1 SQL guards (89 codes, all executed — §7)
 
 | Code | Enforced at (trigger) | Exact message | Executed by |
 |---|---|---|---|
@@ -176,6 +177,7 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | V13 | reviews insert | `APS-V13: reviewer must be independent of the card assignee and reporters` | `guards-card.test.ts` › reviews: V10–V15 |
 | V14 | reviews insert | `APS-V14: items_json must be a JSON array of {severity,category,text,ref?} with known severity and category` | `guards-card.test.ts` › reviews: V10–V15 |
 | V15 | reviews insert | `APS-V15: revise and reject reviews need at least one item` | `guards-card.test.ts` › reviews: V10–V15 |
+| V16 | reviews insert | `APS-V16: proxy review must be recorded by a live L0 or L1 agent other than the reviewer, assignee and reporters` | `guards-ledger.test.ts` › reviews: V16 proxy recorder |
 | W01 | transitions insert | `APS-W01: working requires an assignee agent session that is not closed` | `guards-card.test.ts` › working: W01–W03 |
 | W02 | transitions insert | `APS-W02: size L cards cannot go to an L3 agent; split the card first` | `guards-card.test.ts` › working: W01–W03 |
 | W03 | transitions insert | `APS-W03: card already revised 3 times; L1 must redesign it (reject, then issue a new card with parent_card)` | `guards-card.test.ts` › working: W01–W03 |
@@ -258,7 +260,7 @@ Other shapes:
 
 ## 7. Self-check (executed)
 
-`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 88 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 and L02 cover all 15 original protected tables plus the 3 run tables; L02 also refuses replacement by the usage natural key. L03 covers insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
+`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 89 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 and L02 cover all 15 original protected tables plus the 3 run tables; L02 also refuses replacement by the usage natural key. L03 covers insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
 
 ```
 seed()                                                      -- project, agents, card SS-C-0001 (issued)
@@ -298,6 +300,7 @@ On success a state-changing command prints one line `<card> <from>→<to> by <ag
 | `aps init` | — | `openApsDb` (creates file, applies migrations); prints `user_version` | A |
 | `aps project add <id> --prefix SS --name …` | | insert `projects` | A |
 | `aps agent new --name … --layer L0..L3 --model … --vendor … [--project] [--herdr-pane]` | | insert `agents`; prints the new session id (`<slug(name)>-<yyyymmddHHMMss>`, matching the `agents.id` CHECK) | A |
+| `aps agent list [--status active|idle|closed|open|all] [--project <id>] [--layer L0|L1|L2|L3]` | | read `agents` (`id,name,layer,model,vendor,project,herdr_pane,status,started_at,closed_at,close_note`) ordered by `layer, project, started_at, id`; default `--status open` excludes `closed`; `--json` prints the array; plain: `<id> <layer> <status> <model> <project or -> <pane or ->` | A |
 | `aps card new --project --title --kind --size --scope --acceptance <file.json> --forbidden … --needs-owner 0|1 --needs-vision 0|1 --owner <agent> [--assignee] [--parent] [--body <file.md>] [--source-ref]` | acceptance per §6 | id = `printf('%s-C-%04d', prefix, next_seq)` read inside the transaction; insert `cards` (auto `→issued`); if the project dir is a git repo, append a context node (§9.2) | A |
 | `aps card show <id> [--as-prompt|--json]` | | read `cards` + `v_card_current` + history; `--as-prompt` template in §8.4 | A |
 | `aps card list [--project] [--state] [--assignee]` | | read `v_kanban` | A |
@@ -305,7 +308,7 @@ On success a state-changing command prints one line `<card> <from>→<to> by <ag
 | `aps return <card> --note …` | manager | `T(working→issued)` | A |
 | `aps report <card> --sha <40hex> --branch … --files <json|@file> --evidence <file.json> --status DONE|DONE_WITH_CONCERNS|BLOCKED [--risks …] [--pr …] [--body <file.md>] [--recorded-by <agent>]` | | insert `reports` (attempt = card attempt); unless BLOCKED, `T(working→reported)` | A |
 | `aps close-session <agent> --by <agent> --note … [--abandon]` | | H01; `UPDATE agents SET status='closed'…`; for each of the agent's cards in `reported`: `T(→closed_session)`; with cards still `working`: exit 2 unless `--abandon`, which applies `T(working→issued, note)` | A |
-| `aps review <card> --verdict accept|revise|reject [--items <file.json>] [--from-session <uuid>] [--owner]` | reviewer = `--by` | if state is `closed_session`: `T(→inspecting)` first. With `--from-session`: H04, H02, map findings to items (§9.1), compute gate (§9.1) into `gate_json`, add `card_links(handoff)` if the session has a handoff. Insert `reviews`; then accept: `T(→accepted)`, `T(→merge_wait)`; revise: `T(→revise)`; reject: `T(→rejected)`. In `accepted`/`merge_wait`, only revise moves the card | A |
+| `aps review <card> --verdict accept|revise|reject [--items <file.json>] [--from-session <uuid>] [--owner] [--partial] [--recorded-by <agent>]` | reviewer = `--by`; proxy = `--recorded-by` | if state is `closed_session`: `T(→inspecting)` first. With `--from-session`: H04, H02, map findings to items (§9.1), compute gate (§9.1) into `gate_json`, add `card_links(handoff)` if the session has a handoff. Insert `reviews` (`recorded_by` NULL = reviewer). State transitions use `--recorded-by` when set, otherwise `--by`. Then accept: `T(→accepted)`, `T(→merge_wait)` unless `--partial` (§4); revise: `T(→revise)`; reject: `T(→rejected)`. In `accepted`/`merge_wait`, only revise moves the card | A |
 | `aps vision <card> --shots <file.json> --verdict pass|fail [--items <file.json>] [--notes …]` | auditor = `--by` | insert `vision_audits`; on fail `T(→revise)` | E (table ready in A) |
 | `aps owner-ok <card> --quote "…" [--source-ref …]` | recorder = `--by` (L0/L1) | insert `owner_oks` for the current reported sha | A |
 | `aps merge <card> --merged-sha <sha> | --applied-ref <ref> --target … [--gate]` | verifier = `--by` | H03 (`git merge-base --is-ancestor <sha> <merged_sha>`), then H05 (`git rev-parse --verify <target>^{commit}` and `git merge-base --is-ancestor <merged_sha> <resolved target>`); store both checks in `verify_command`. Fast-forward (`merged_sha == sha`) is valid. `--applied-ref` remains unverified. `--gate` stores the gate result in `gate_json`; insert `merges` | A |
@@ -356,7 +359,7 @@ When the imported session has `handoffId`/`handoffPath`, insert `card_links(kind
 - Changing a guard: `DROP TRIGGER` + `CREATE TRIGGER` in a migration, plus the §5 row (coverage test enforces it). Changing the state machine: drop the L03 lock triggers on `state_edges`, edit rows, recreate the locks, in the same migration.
 - A newer `user_version` than the build knows → `APS-U01`, nothing is written.
 - Raw `DROP TRIGGER` or `writable_schema` can't be prevented, only detected (`aps doctor`).
-- Applied migration catalogue: `0001_aps.sql` (v1: cards and original guards); `0002_worker_runs.sql` (v2: worker_runs, run_events, run_usage, N01–N04, append-only/no-replace guards, v_run_current and v_run_cost).
+- Applied migration catalogue: `0001_aps.sql` (v1: cards and original guards); `0002_worker_runs.sql` (v2: worker_runs, run_events, run_usage, N01–N04, append-only/no-replace guards, v_run_current and v_run_cost); `0003_review_recorded_by.sql` (v3: additive `reviews.recorded_by`. NULL means the reviewer recorded the row and V10 still requires a live reviewer. A non-NULL proxy must be a live L0 or L1 other than the reviewer, assignee and reporters, compared by `agents.name` (V16); a closed reviewer is then allowed. `recordReview` and `aps review --recorded-by` use the proxy as the transition actor. Existing rows stay NULL. Other triggers and views are untouched).
 - Run writes join the caller's `commandTransaction`; `createRun` and `addUsage` also use short atomic transactions when called standalone. `createRun` records identity plus the first intent event. Runs with no events reserve the live slot too; `getLiveRun(db, card)` includes them with NULL status. Launch metadata remains visible after later events. Missing run/card/agent references fail closed even with foreign keys off (T00); closed agent sessions cannot create or advance runs (T05). `worker_runs` is WITHOUT ROWID to prevent rowid-based identity replacement.
 - Usage identity is `(run_id, source, source_ref, model, supersedes_id)`, with NULL models deduplicated too. `addUsage` returns the existing id only for identical evidence; differing payloads raise `ApsInputError`. To replace unknown evidence with actual evidence, supply `supersedes_id` naming that unknown row for the same run. The new row is appended, not updated; each unknown row can have only one actual successor. Both same-identity correction and recovery from `source=none` to a real source are supported. Raw replacement is refused by L02. Explicit event ids cannot move the latest-event cursor backwards (N03).
 - `v_run_cost` totals only unsuperseded evidence: input+output tokens, separate cache-read tokens, unknown evidence counts and effective usage rows. `usd_actual` is a lower bound, not a complete bill: it is 0.0 for unknown-only or uncollected runs. Consumers must inspect `unknown_rows` and `usage_rows`. Token counts cannot be negative, and `source=none` implies `basis=unknown`. Close evidence must be a non-empty string or an object.
@@ -368,7 +371,7 @@ Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message
 
 ### 10.3 Extension points
 
-- **B (TODO import):** open TODO items become `issued` cards (or `working` with an assignee) with `source_ref` = the TODO line. History goes to a `legacy_items` table in the next free migration number (0003+; 0002 is worker_runs), never as fake `done` cards (done guards can't be satisfied for them). Kanban column ↔ `states.kanban_ko` 1:1.
+- **B (TODO import):** open TODO items become `issued` cards (or `working` with an assignee) with `source_ref` = the TODO line. History goes to a `legacy_items` table in the next free migration number (0004+; 0002 is worker_runs, 0003 is `reviews.recorded_by`), never as fake `done` cards (done guards can't be satisfied for them). Kanban column ↔ `states.kanban_ko` 1:1.
 - **C (metrics):** WIP = non-terminal states except `issued`; review queue = `reported` + `closed_session`; rework rate = `→revise` / `→reported` per day (p-chart, UCL/LCL in TS); DPMO = `count(defects) × 1e6 / Σ acceptance count` over inspected attempts; cycle time = first `→working` to `→done`; flow efficiency = time in `working` / (`done` − `created_at`); pass rate by model = first review verdict per attempt joined to the reporting agent's `model`; quota from `quota_samples`.
 - **D (mmbridge + scc):** `reviews.mmbridge_session_id`/`gate_json`, `merges.gate_json`, the stale-review trigger (§9.1), `card_links(mmbridge_run|handoff|context_node)`, `pdca_runs`. Money/security changes need an Opus reviewer (APS §11): a migration adds a `cards.risk_class` and a trigger on accept reviews.
 - **E (vision):** X01–X08 and D04 are in place; E adds the viewer lane and `taste-ledger.md` refs in `items_json[].ref`.
@@ -563,18 +566,41 @@ Output, one line per card: `card worker result sha ac n/n rework N — note`.
 
 Read-only (`openApsDbReadOnly`) unless `--close-idle` is set: herdr lanes (model from the
 pane's omp session; Devin panes assume `devin/swe-2-max`), live ledger runs (v2 only; a
-run in a listed pane enriches that lane), open agents (`agents.herdr_pane` = pane id,
-status not `closed`), vision verdicts of the last 24 h, and quota. `buildAudit` reports
-`L3_RATIO` (< 60 % of working lanes), `MECH_ON_PREMIUM`, `L3_VISION_VERDICT`,
+run in a listed pane enriches that lane), vision verdicts of the last 24 h, and quota.
+A herdr pane is recorded when its id is `agents.herdr_pane` of a non-closed agent or
+`pane_id` of a live run (`v_run_current` status intent, launched, or reported). The same
+open-agent row supplies `agentId` (newest session when several share a pane). Ledger
+lanes are always recorded. If the ledger is missing, `recorded` stays null. `buildAudit`
+reports `L3_RATIO` (< 60 % of working lanes), `MECH_ON_PREMIUM`, `L3_VISION_VERDICT`,
 `EXHAUSTED_PROVIDER` (≤ 1 % left), `STALLED` (`--stall-min`, default 30),
-`FINISHED_OPEN`, and `IDLE_OPEN` (open agent, lane `idle` or `done`, no output for
-`--idle-min` minutes, default 10). `--out` writes the markdown atomically; `--json`
-prints the report. Exit 4 when violations exist, 1 when the audit itself failed.
+`FINISHED_OPEN`, `UNRECORDED_LANE` (`recorded` false and status working or idle; listed
+under `## Unrecorded lanes`), and `IDLE_OPEN` (open agent, lane `idle` or `done`, no
+output for `--idle-min` minutes, default 10, minimum 1). `--ps` also scans
+`ps -axo pid=,ppid=,command=` for `omp`, `grok`, `claude`, and `devin`. A process is
+skipped when any ancestor is `herdr`, when it or an ancestor is a live run pid, when
+its pid is in `--ignore-pid`, or when it is an ancestor of the audit process. Each
+remaining process is a working lane `pid:<n>` (`source: process`, `recorded: false`,
+model from that process's `--model`). `--out` writes the markdown atomically; `--json`
+prints the report. Exit 4 when violations exist, 1 when the audit itself failed,
+2 on input errors.
 
-`--close-idle --by <agent>` is opt-in write mode. Each `IDLE_OPEN` lane is skipped when
-that agent still has a `working` card (the report says why); otherwise `herdr pane close
-<pane>`, the existing pane-ended probe, then `close-session` in its own ledger transaction
-(`audit: idle >= <n>m, auto-closed`, not abandon). One lane failing does not stop the
-others. Any close failure exits 1. The markdown gains `## Auto-closed`. After merge,
-launchd `com.ss.aps-audit` will pass `--close-idle --by <foreman agent>`. MBP already runs
-the audit every 30 min into `~/ss-work/squads/Reports/aps-audit-latest.md`.
+`--close-idle --by <agent>` is opt-in write mode. `--by` is resolved once after the
+writer opens and before any pane is closed: it must name a live agent, and that agent
+is not auto-closed. Each other `IDLE_OPEN` lane is skipped when the agent has a
+`working` card, re-checked immediately before `herdr pane close` (the report says why).
+A card that becomes `working` during pane close or the pane-ended probe still loses
+the pane; `close-session` then refuses and the row is `failed` (session stays open).
+Otherwise `herdr pane close <pane>`, the existing pane-ended probe, then `close-session`
+in its own ledger transaction (`audit: idle >= <n>m, auto-closed`, not abandon). One
+lane failing does not stop the others. Any close failure exits 1. The markdown gains
+`## Auto-closed`. After merge, launchd `com.ss.aps-audit` will pass `--close-idle --by
+<foreman agent>`. MBP already runs the audit every 30 min into
+`~/ss-work/squads/Reports/aps-audit-latest.md`.
+
+### 12.6 `aps adopt`
+
+`mmbridge aps adopt <card> --by <manager> --agent <id> --worktree <abs> --branch <branch> [--base-sha <hex>] [--pid <n>] [--pane <id>] [--harness herdr|omp|devin|grok] [--kind omp|devin|grok] [--model <model>] [--session-ref <path>]` links a lane that is already running. Exit 2 unless `--pid` or `--pane` is set, the pid is alive (`kill -0`), the pane is present, `--worktree` is an absolute git checkout of `--branch`, and `--agent` is open.
+
+One transaction: an `issued` card is `startCard`'d for `--agent`; it must then be `working` with that assignee. A live run is `APS-N01`. Run id is `<card>-a<attempt>-adopt-<yyyymmddHHMMSS>`. Harness defaults to `herdr` when `--pane` is set, else `omp`; herdr kind defaults to `omp` and is stored only for herdr; model defaults to the agent model; `base_sha` is `--base-sha` or `git merge-base HEAD origin/main`, else `main`. `createRun` writes `intent`, then `launched` `{adopted:true,pid,pane_id,session_ref}`, and `<ledger dir>/dispatch/<run>/adopt.json` stores the same facts.
+
+Collect and foreman leave an adopted run `running` while its pid is alive or its pane is present, and never mark it `failed` in that state. Once both are gone, a report already recorded for the attempt takes the normal close path; otherwise the run event is `blocked` (card stays `working`) and the outcome is `blocked` with message `adopted lane ended without report; record aps report`.

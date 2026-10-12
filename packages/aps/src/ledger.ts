@@ -151,11 +151,16 @@ export function recordReview(
   by: string,
   values: Row,
   links: LedgerLink[] = [],
+  options?: { partial?: boolean },
 ): Transition[] {
+  if (options?.partial && values.verdict !== 'accept') {
+    throw new ApsInputError('partial requires verdict accept');
+  }
   return transaction(db, () => {
     const card = getCard(db, id);
+    const actor = String(values.recorded_by ?? by);
     const transitions: Transition[] = [];
-    if (card.state === 'closed_session') transitions.push(moveCard(db, id, 'inspecting', by));
+    if (card.state === 'closed_session') transitions.push(moveCard(db, id, 'inspecting', actor));
     insertRow(db, 'reviews', {
       card_id: id,
       attempt: card.attempt,
@@ -166,10 +171,10 @@ export function recordReview(
     });
     for (const link of links) addLink(db, id, by, link.kind, link.ref, link.detail);
     if (values.verdict === 'revise' || values.verdict === 'reject')
-      transitions.push(moveCard(db, id, values.verdict === 'revise' ? 'revise' : 'rejected', by));
-    else if (getCard(db, id).state === 'inspecting') {
-      transitions.push(moveCard(db, id, 'accepted', by));
-      transitions.push(moveCard(db, id, 'merge_wait', by));
+      transitions.push(moveCard(db, id, values.verdict === 'revise' ? 'revise' : 'rejected', actor));
+    else if (!options?.partial && getCard(db, id).state === 'inspecting') {
+      transitions.push(moveCard(db, id, 'accepted', actor));
+      transitions.push(moveCard(db, id, 'merge_wait', actor));
     }
     return transitions;
   });

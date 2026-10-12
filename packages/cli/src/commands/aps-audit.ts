@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { AuditLane, AuditReport, VisionVerdict } from '@mmbridge/aps';
+import { ApsInputError, type AuditLane, type AuditReport, type VisionVerdict } from '@mmbridge/aps';
 import { closePane, confirmPaneEnded } from './aps-herdr.js';
-import { attachOpenAgents, herdrLanes, ledgerLanes, recentVisionVerdicts } from './aps-lanes.js';
+import { applyLedgerRecording, herdrLanes, ledgerLanes, liveRunPids, recentVisionVerdicts } from './aps-lanes.js';
 import { probeQuota } from './aps-quota.js';
 import { exitWithError, importAps, importCore, jsonOutput } from './helpers.js';
 
@@ -19,6 +19,8 @@ export interface ApsAuditOptions {
   by?: string;
   /** Opt-in: close IDLE_OPEN sessions. Without this flag the audit stays read-only. */
   closeIdle?: boolean;
+  ps?: boolean;
+  ignorePid?: string;
 }
 
 /** Exit code when the audit ran but found violations (distinct from 1 = audit failed). */
@@ -61,8 +63,8 @@ async function closeIdleSessions(
   idleMin: number,
 ): Promise<{ rows: IdleCloseRow[]; failed: boolean }> {
   const aps = await importAps();
-  if (lanes.length === 0) return { rows: [], failed: false };
   if (!existsSync(dbPath)) {
+    if (lanes.length === 0) return { rows: [], failed: false };
     return {
       failed: true,
       rows: lanes.map((lane) => ({
@@ -76,24 +78,34 @@ async function closeIdleSessions(
   const rows: IdleCloseRow[] = [];
   let failed = false;
   try {
+    const manager = aps.getAgent(db, by);
+    if (manager.status === 'closed') throw new ApsInputError('--by must name a live manager agent');
+    const managerPane = typeof manager.herdr_pane === 'string' && manager.herdr_pane !== '' ? manager.herdr_pane : null;
     for (const lane of lanes) {
       const agent = lane.agentId;
       if (!agent) {
         rows.push({ agent: '', pane: lane.id, result: 'skipped: no open agent' });
         continue;
       }
-      const working = db
-        .prepare("SELECT id FROM cards WHERE assignee=? AND state='working' ORDER BY id")
-        .all(agent) as unknown as { id: string }[];
-      if (working.length > 0) {
-        rows.push({
-          agent,
-          pane: lane.id,
-          result: `skipped: working card ${working.map((card) => card.id).join(', ')}`,
-        });
+      if (agent === by || lane.id === managerPane) {
+        rows.push({ agent, pane: lane.id, result: 'skipped: acting --by agent' });
         continue;
       }
       try {
+        const working = db
+          .prepare("SELECT id FROM cards WHERE assignee=? AND state='working' ORDER BY id")
+          .all(agent) as unknown as { id: string }[];
+        if (working.length > 0) {
+          rows.push({
+            agent,
+            pane: lane.id,
+            result: `skipped: working card ${working.map((card) => card.id).join(', ')}`,
+          });
+          continue;
+        }
+        // Last check before pane close. A card that becomes working during herdr
+        // pane close or confirmPaneEnded still loses the pane; closeSession then
+        // refuses and this row is recorded as failed.
         await closePane(lane.id);
         await confirmPaneEnded(lane.id);
         aps.closeSession(db, agent, by, `audit: idle >= ${idleMin}m, auto-closed`, false);
@@ -113,8 +125,9 @@ async function closeIdleSessions(
   return { rows, failed };
 }
 
-/** Herdr lanes + live ledger runs + quota. Read-only unless `--close-idle` opens a writer. */
+/** Herdr lanes + live ledger runs + optional process scan + quota. Read-only unless `--close-idle`. */
 export async function runAudit(options: ApsAuditOptions, now = Date.now()): Promise<AuditRun> {
+  const ignorePids = parseIgnorePids(options.ignorePid);
   const aps = await importAps();
   const core = await importCore();
   const errors: string[] = [];
@@ -130,24 +143,35 @@ export async function runAudit(options: ApsAuditOptions, now = Date.now()): Prom
   const dbPath = aps.resolveApsDbPath({ flag: options.db, configPath: config.aps?.dbPath });
   let ledger: string | null = null;
   let visionVerdicts: VisionVerdict[] = [];
+  let runPids: number[] = [];
   if (existsSync(dbPath)) {
     const db = aps.openApsDbReadOnly(dbPath);
     try {
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
       if (version >= 2) lanes = [...lanes, ...(await ledgerLanes(db, lanes))];
       else errors.push(`ledger ${dbPath} is schema v${version}: run lanes need v2 (FAC-M12 cutover)`);
-      attachOpenAgents(db, lanes);
+      applyLedgerRecording(lanes, db);
+      if (version >= 2) runPids = liveRunPids(db);
       visionVerdicts = recentVisionVerdicts(db, now);
       ledger = `${dbPath} (v${version})`;
     } finally {
       db.close();
     }
   } else errors.push(`ledger not found at ${dbPath}`);
+  if (options.ps) {
+    try {
+      lanes = [...lanes, ...aps.lanesFromPs({ ps: await readPs(), runPids, ignorePids, selfPid: process.pid })];
+    } catch (error) {
+      errors.push(`ps: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const quota = await probeQuota(options.quotaJson, now);
   errors.push(...quota.errors);
   const stallMin = Number(options.stallMin ?? '30');
   const idleText = options.idleMin ?? '10';
-  if (!/^\d+$/.test(idleText)) throw new Error('--idle-min must be a non-negative integer number of minutes');
+  if (!/^[1-9]\d*$/.test(idleText)) {
+    throw new ApsInputError('--idle-min must be an integer number of minutes >= 1');
+  }
   const idleMin = Number(idleText);
   const report = aps.buildAudit({
     now,
@@ -160,8 +184,8 @@ export async function runAudit(options: ApsAuditOptions, now = Date.now()): Prom
   let closed: IdleCloseRow[] = [];
   let closeFailed = false;
   if (options.closeIdle) {
-    const by = options.by ?? process.env.APS_AGENT;
-    if (!by?.trim()) throw new Error('--by is required with --close-idle');
+    const by = (options.by ?? process.env.APS_AGENT)?.trim();
+    if (!by) throw new ApsInputError('--by is required with --close-idle');
     const outcome = await closeIdleSessions(dbPath, report.idleOpen, by, idleMin);
     closed = outcome.rows;
     closeFailed = outcome.failed;
@@ -189,7 +213,8 @@ export async function runApsAuditCommand(options: ApsAuditOptions): Promise<void
   try {
     run = await runAudit(options);
   } catch (error) {
-    exitWithError(error instanceof Error ? error.message : String(error), 1);
+    const message = error instanceof Error ? error.message : String(error);
+    exitWithError(message, error instanceof ApsInputError ? 2 : 1);
   }
   if (options.out) {
     const out = resolve(options.out);
@@ -206,4 +231,23 @@ export async function runApsAuditCommand(options: ApsAuditOptions): Promise<void
   } else process.stdout.write(run.markdown);
   if (run.closeFailed) process.exitCode = 1;
   else if (run.report.violations.length > 0) process.exitCode = AUDIT_VIOLATION_EXIT;
+}
+
+function parseIgnorePids(value: string | undefined): number[] {
+  if (value === undefined || value.trim() === '') return [];
+  const pids: number[] = [];
+  for (const part of value.split(',')) {
+    const token = part.trim();
+    if (token === '') continue;
+    if (!/^[1-9]\d*$/.test(token)) throw new Error(`--ignore-pid: invalid pid ${JSON.stringify(token)}`);
+    pids.push(Number(token));
+  }
+  return pids;
+}
+
+async function readPs(): Promise<string> {
+  const core = await importCore();
+  const result = await core.runCommand('ps', ['-axo', 'pid=,ppid=,command='], { timeoutMs: 15_000 });
+  if (!result.ok) throw new Error(`ps exited ${result.code}: ${result.stderr.trim() || result.stdout.trim()}`);
+  return result.stdout;
 }
