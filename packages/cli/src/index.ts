@@ -694,6 +694,7 @@ export async function main(): Promise<void> {
     ['--owner', 'On behalf of owner'],
     ['--category <category>', 'Imported findings category'],
     ['--partial', 'Record an accept without advancing to merge_wait'],
+    ['--recorded-by <agent>', 'Proxy recorder'],
   ]);
   addAps(apsCmd, 'vision <card>', 'vision', [
     ['--shots <file>', 'Screenshot JSON'],

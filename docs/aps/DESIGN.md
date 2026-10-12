@@ -45,7 +45,7 @@ The DDL is the contract; this is the map. All ledger tables are `STRICT`. `at` i
 | `cards` | ✓ | `size S|M|L`, `scope`, `body_md`, `attempt`, `source_ref` | spec frozen after `issued` (C09); `state`/`attempt` only via `transitions` (C08) |
 | `transitions` | ✓ | `from_state NULL` only for the auto-inserted `→issued` row | append-only |
 | `reports` | ✓ | `attempt`, `recorded_by` (proxy), `pr_url`, `body_md` | append-only |
-| `reviews` | ✓ | `attempt`, `on_behalf_of='owner'`, `mmbridge_session_id` (UUID CHECK), **`gate_json`** | append-only |
+| `reviews` | ✓ | `attempt`, `recorded_by` (proxy; NULL = reviewer), `on_behalf_of='owner'`, `mmbridge_session_id` (UUID CHECK), **`gate_json`** | append-only |
 | `vision_audits` | ✓ | `attempt`, `sha`, `items_json` | append-only |
 | `merges` | merge confirmation | `sha`, `merged_sha` or `applied_ref`, `target`, `verified_by`, `verify_command`, **`gate_json`** | append-only |
 | `owner_oks` | owner OK | `sha`, `recorded_by` (L0/L1), `quote`, `source_ref` | append-only |
@@ -96,7 +96,7 @@ stateDiagram-v2
 
 Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS guards in §5.2 require the CLI (§11). A SQL rejection reaches `node:sqlite` as an `Error` whose `message` is exactly the text in the table (`code: 'ERR_SQLITE_ERROR'`, extended code SQLITE_CONSTRAINT_TRIGGER). Inside one trigger the guards run in table order, so the first failing one wins. CHECK/NOT NULL failures use SQLite's own text (e.g. `CHECK constraint failed: review_gate`).
 
-### 5.1 SQL guards (84 codes, all executed — §7)
+### 5.1 SQL guards (89 codes, all executed — §7)
 
 | Code | Enforced at (trigger) | Exact message | Executed by |
 |---|---|---|---|
@@ -177,6 +177,7 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | V13 | reviews insert | `APS-V13: reviewer must be independent of the card assignee and reporters` | `guards-card.test.ts` › reviews: V10–V15 |
 | V14 | reviews insert | `APS-V14: items_json must be a JSON array of {severity,category,text,ref?} with known severity and category` | `guards-card.test.ts` › reviews: V10–V15 |
 | V15 | reviews insert | `APS-V15: revise and reject reviews need at least one item` | `guards-card.test.ts` › reviews: V10–V15 |
+| V16 | reviews insert | `APS-V16: proxy review must be recorded by a live L0 or L1 agent other than the reviewer, assignee and reporters` | `guards-ledger.test.ts` › reviews: V16 proxy recorder |
 | W01 | transitions insert | `APS-W01: working requires an assignee agent session that is not closed` | `guards-card.test.ts` › working: W01–W03 |
 | W02 | transitions insert | `APS-W02: size L cards cannot go to an L3 agent; split the card first` | `guards-card.test.ts` › working: W01–W03 |
 | W03 | transitions insert | `APS-W03: card already revised 3 times; L1 must redesign it (reject, then issue a new card with parent_card)` | `guards-card.test.ts` › working: W01–W03 |
@@ -259,7 +260,7 @@ Other shapes:
 
 ## 7. Self-check (executed)
 
-`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 88 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 and L02 cover all 15 original protected tables plus the 3 run tables; L02 also refuses replacement by the usage natural key. L03 covers insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
+`node --experimental-strip-types --test test/*.test.ts` in `packages/aps` on Node v22.23.3: the schema is loaded with `db.exec` through `openApsDb(':memory:')`, and **every one of the 89 SQL guard codes is fired by an executed statement and asserted by exact message**. L01 and L02 cover all 15 original protected tables plus the 3 run tables; L02 also refuses replacement by the usage natural key. L03 covers insert/update/delete of all 3 reference tables. The 6-line smoke (`smoke.test.ts`, first test):
 
 ```
 seed()                                                      -- project, agents, card SS-C-0001 (issued)
@@ -307,7 +308,7 @@ On success a state-changing command prints one line `<card> <from>→<to> by <ag
 | `aps return <card> --note …` | manager | `T(working→issued)` | A |
 | `aps report <card> --sha <40hex> --branch … --files <json|@file> --evidence <file.json> --status DONE|DONE_WITH_CONCERNS|BLOCKED [--risks …] [--pr …] [--body <file.md>] [--recorded-by <agent>]` | | insert `reports` (attempt = card attempt); unless BLOCKED, `T(working→reported)` | A |
 | `aps close-session <agent> --by <agent> --note … [--abandon]` | | H01; `UPDATE agents SET status='closed'…`; for each of the agent's cards in `reported`: `T(→closed_session)`; with cards still `working`: exit 2 unless `--abandon`, which applies `T(working→issued, note)` | A |
-| `aps review <card> --verdict accept|revise|reject [--items <file.json>] [--from-session <uuid>] [--owner] [--partial]` | reviewer = `--by` | if state is `closed_session`: `T(→inspecting)` first. With `--from-session`: H04, H02, map findings to items (§9.1), compute gate (§9.1) into `gate_json`, add `card_links(handoff)` if the session has a handoff. Insert `reviews`; then accept: `T(→accepted)`, `T(→merge_wait)` unless `--partial` (§4); revise: `T(→revise)`; reject: `T(→rejected)`. In `accepted`/`merge_wait`, only revise moves the card | A |
+| `aps review <card> --verdict accept|revise|reject [--items <file.json>] [--from-session <uuid>] [--owner] [--partial] [--recorded-by <agent>]` | reviewer = `--by`; proxy = `--recorded-by` | if state is `closed_session`: `T(→inspecting)` first. With `--from-session`: H04, H02, map findings to items (§9.1), compute gate (§9.1) into `gate_json`, add `card_links(handoff)` if the session has a handoff. Insert `reviews` (`recorded_by` NULL = reviewer). State transitions use `--recorded-by` when set, otherwise `--by`. Then accept: `T(→accepted)`, `T(→merge_wait)` unless `--partial` (§4); revise: `T(→revise)`; reject: `T(→rejected)`. In `accepted`/`merge_wait`, only revise moves the card | A |
 | `aps vision <card> --shots <file.json> --verdict pass|fail [--items <file.json>] [--notes …]` | auditor = `--by` | insert `vision_audits`; on fail `T(→revise)` | E (table ready in A) |
 | `aps owner-ok <card> --quote "…" [--source-ref …]` | recorder = `--by` (L0/L1) | insert `owner_oks` for the current reported sha | A |
 | `aps merge <card> --merged-sha <sha> | --applied-ref <ref> --target … [--gate]` | verifier = `--by` | H03 (`git merge-base --is-ancestor <sha> <merged_sha>`), then H05 (`git rev-parse --verify <target>^{commit}` and `git merge-base --is-ancestor <merged_sha> <resolved target>`); store both checks in `verify_command`. Fast-forward (`merged_sha == sha`) is valid. `--applied-ref` remains unverified. `--gate` stores the gate result in `gate_json`; insert `merges` | A |
@@ -358,7 +359,7 @@ When the imported session has `handoffId`/`handoffPath`, insert `card_links(kind
 - Changing a guard: `DROP TRIGGER` + `CREATE TRIGGER` in a migration, plus the §5 row (coverage test enforces it). Changing the state machine: drop the L03 lock triggers on `state_edges`, edit rows, recreate the locks, in the same migration.
 - A newer `user_version` than the build knows → `APS-U01`, nothing is written.
 - Raw `DROP TRIGGER` or `writable_schema` can't be prevented, only detected (`aps doctor`).
-- Applied migration catalogue: `0001_aps.sql` (v1: cards and original guards); `0002_worker_runs.sql` (v2: worker_runs, run_events, run_usage, N01–N04, append-only/no-replace guards, v_run_current and v_run_cost).
+- Applied migration catalogue: `0001_aps.sql` (v1: cards and original guards); `0002_worker_runs.sql` (v2: worker_runs, run_events, run_usage, N01–N04, append-only/no-replace guards, v_run_current and v_run_cost); `0003_review_recorded_by.sql` (v3: additive `reviews.recorded_by`. NULL means the reviewer recorded the row and V10 still requires a live reviewer. A non-NULL proxy must be a live L0 or L1 other than the reviewer, assignee and reporters, compared by `agents.name` (V16); a closed reviewer is then allowed. `recordReview` and `aps review --recorded-by` use the proxy as the transition actor. Existing rows stay NULL. Other triggers and views are untouched).
 - Run writes join the caller's `commandTransaction`; `createRun` and `addUsage` also use short atomic transactions when called standalone. `createRun` records identity plus the first intent event. Runs with no events reserve the live slot too; `getLiveRun(db, card)` includes them with NULL status. Launch metadata remains visible after later events. Missing run/card/agent references fail closed even with foreign keys off (T00); closed agent sessions cannot create or advance runs (T05). `worker_runs` is WITHOUT ROWID to prevent rowid-based identity replacement.
 - Usage identity is `(run_id, source, source_ref, model, supersedes_id)`, with NULL models deduplicated too. `addUsage` returns the existing id only for identical evidence; differing payloads raise `ApsInputError`. To replace unknown evidence with actual evidence, supply `supersedes_id` naming that unknown row for the same run. The new row is appended, not updated; each unknown row can have only one actual successor. Both same-identity correction and recovery from `source=none` to a real source are supported. Raw replacement is refused by L02. Explicit event ids cannot move the latest-event cursor backwards (N03).
 - `v_run_cost` totals only unsuperseded evidence: input+output tokens, separate cache-read tokens, unknown evidence counts and effective usage rows. `usd_actual` is a lower bound, not a complete bill: it is 0.0 for unknown-only or uncollected runs. Consumers must inspect `unknown_rows` and `usage_rows`. Token counts cannot be negative, and `source=none` implies `basis=unknown`. Close evidence must be a non-empty string or an object.
@@ -370,7 +371,7 @@ Done in A-01 (`packages/aps/test`): every SQL guard's rejection by exact message
 
 ### 10.3 Extension points
 
-- **B (TODO import):** open TODO items become `issued` cards (or `working` with an assignee) with `source_ref` = the TODO line. History goes to a `legacy_items` table in the next free migration number (0003+; 0002 is worker_runs), never as fake `done` cards (done guards can't be satisfied for them). Kanban column ↔ `states.kanban_ko` 1:1.
+- **B (TODO import):** open TODO items become `issued` cards (or `working` with an assignee) with `source_ref` = the TODO line. History goes to a `legacy_items` table in the next free migration number (0004+; 0002 is worker_runs, 0003 is `reviews.recorded_by`), never as fake `done` cards (done guards can't be satisfied for them). Kanban column ↔ `states.kanban_ko` 1:1.
 - **C (metrics):** WIP = non-terminal states except `issued`; review queue = `reported` + `closed_session`; rework rate = `→revise` / `→reported` per day (p-chart, UCL/LCL in TS); DPMO = `count(defects) × 1e6 / Σ acceptance count` over inspected attempts; cycle time = first `→working` to `→done`; flow efficiency = time in `working` / (`done` − `created_at`); pass rate by model = first review verdict per attempt joined to the reporting agent's `model`; quota from `quota_samples`.
 - **D (mmbridge + scc):** `reviews.mmbridge_session_id`/`gate_json`, `merges.gate_json`, the stale-review trigger (§9.1), `card_links(mmbridge_run|handoff|context_node)`, `pdca_runs`. Money/security changes need an Opus reviewer (APS §11): a migration adds a `cards.risk_class` and a trigger on accept reviews.
 - **E (vision):** X01–X08 and D04 are in place; E adds the viewer lane and `taste-ledger.md` refs in `items_json[].ref`.

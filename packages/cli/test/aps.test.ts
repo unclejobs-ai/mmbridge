@@ -242,7 +242,7 @@ test('H01 fails closed on herdr server_not_running on stderr', (t) => {
 
 test('aps init/project add/agent new: persisted records, generated IDs, text output', (t) => {
   const f = fixture(t);
-  assert.equal(f.run(['init']).value.user_version, 2);
+  assert.equal(f.run(['init']).value.user_version, 3);
   const result = f.run(
     ['agent', 'new', '--name', 'New Worker', '--layer', 'L3', '--model', 'test', '--vendor', 'test'],
     0,
@@ -695,7 +695,7 @@ test('TS guards H02/H04 and newer schema refuse without mutation', async (t) => 
   const newer = openApsDb(f.dbPath);
   newer.exec('PRAGMA user_version=99');
   newer.close();
-  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v2\)/);
+  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v3\)/);
 });
 test('missing actor and unreadable JSON are input errors', (t) => {
   const f = fixture(t);
@@ -814,4 +814,48 @@ test('context lineage survives missing compacted nodes without changing the tree
   assert.equal(after.lineage[0].label, '(compacted)');
   assert.equal(after.lineage[0].parentId, parentLink.ref);
   assert.equal(readFileSync(cache, 'utf8'), '');
+});
+test('review --recorded-by lets a live L1 record a closed reviewer accept', (t) => {
+  const f = fixture(t);
+  const reviewer = f.run(['agent', 'new', '--name', 'reviewer', '--layer', 'L1', '--model', 'opus', '--vendor', 'test'])
+    .value.id;
+  const id = f.inspecting();
+  f.run(['close-session', reviewer, '--note', 'historical reviewer']);
+  assert.match(
+    f.run(['review', id, '--by', reviewer, '--recorded-by', f.vision, '--verdict', 'accept'], 3).stderr,
+    /APS-V16:/,
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'closed_session');
+  const transitions = f.run(['review', id, '--by', reviewer, '--recorded-by', f.manager, '--verdict', 'accept']).value;
+  assert.deepEqual(
+    transitions.map((row: { to: string; by: string }) => ({ to: row.to, by: row.by })),
+    [
+      { to: 'inspecting', by: f.manager },
+      { to: 'accepted', by: f.manager },
+      { to: 'merge_wait', by: f.manager },
+    ],
+  );
+  const db = openApsDb(f.dbPath);
+  t.after(() => db.close());
+  assert.deepEqual(
+    { ...db.prepare('SELECT reviewer, recorded_by FROM reviews').get() },
+    {
+      reviewer,
+      recorded_by: f.manager,
+    },
+  );
+});
+test('review without --recorded-by still refuses a closed reviewer', (t) => {
+  const f = fixture(t);
+  const reviewer = f.run(['agent', 'new', '--name', 'reviewer', '--layer', 'L1', '--model', 'opus', '--vendor', 'test'])
+    .value.id;
+  const id = f.inspecting();
+  f.run(['close-session', reviewer, '--note', 'historical reviewer']);
+  const db = openApsDb(f.dbPath);
+  db.exec(
+    `INSERT INTO transitions(card_id,from_state,to_state,by_agent) VALUES('${id}','closed_session','inspecting','${f.manager}')`,
+  );
+  db.close();
+  assert.match(f.run(['review', id, '--by', reviewer, '--verdict', 'accept'], 3).stderr, /APS-V10:/);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'inspecting');
 });
