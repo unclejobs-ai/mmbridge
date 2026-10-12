@@ -6,7 +6,8 @@ import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
-import { addRunEvent, createRun, newAgent, openApsDb, startCard } from '@mmbridge/aps';
+import { addRunEvent, createRun, newAgent, openApsDb, recordReport, startCard } from '@mmbridge/aps';
+import { ledgerLanes } from '../dist/commands/aps-lanes.js';
 
 const bin = resolve(import.meta.dirname, '../dist/bin/mmbridge.js');
 const card = 'TS-C-0001';
@@ -201,6 +202,32 @@ function closeAgentFirst(db: DatabaseSync, agent: string) {
     "UPDATE agents SET status='closed',closed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),closed_by='mgr',close_note='closed before collect' WHERE id=?",
   ).run(agent);
   return agentRow(db, agent);
+}
+
+/** `aps report` by hand while the run stays launched: working→reported, one report row (the FINISHED_OPEN start). */
+function reportByHand(db: DatabaseSync, cardId: string, worker: string, values: Record<string, unknown>) {
+  recordReport(db, cardId, {
+    by_agent: worker,
+    recorded_by: 'mgr',
+    sha: String(values.sha),
+    branch: String(values.branch),
+    files_json: JSON.stringify(values.files),
+    evidence_json: JSON.stringify(values.evidence),
+    status: 'DONE',
+    risks: '',
+  });
+}
+
+/** Raw transitions (no moveCard auto-close), as a ledger written before runs closed with their card. */
+function moveRaw(db: DatabaseSync, cardId: string, path: string[], by = 'mgr', note = '') {
+  for (let i = 1; i < path.length; i++)
+    db.prepare('INSERT INTO transitions(card_id,from_state,to_state,by_agent,note) VALUES(?,?,?,?,?)').run(
+      cardId,
+      path[i - 1],
+      path[i],
+      by,
+      note,
+    );
 }
 
 test('collect DONE: reported→closed_session, pane closed by collect, evidence stored', (t) => {
@@ -556,4 +583,67 @@ test('foreman collects a finished child, passes its acceptance and hands it to i
   assert.match(result.stdout, new RegExp(`${card} worker inspecting \\S+ ac 1/1 rework 0`));
   assert.equal(f.runStatus(run), 'closed');
   assert.equal(f.cardState(card), 'inspecting');
+});
+
+test('--close-only: done card with a launched run and report.json → closed, no report row, agent untouched', async (t) => {
+  const f = fixture(t);
+  const { run, worker, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  const values = f.reportValues(run, card);
+  f.writeReport(packet, values);
+  reportByHand(f.db, card, worker, values);
+  const before = closeAgentFirst(f.db, worker);
+  moveRaw(f.db, card, ['reported', 'closed_session', 'inspecting']);
+  f.db.exec(`INSERT INTO agents(id,name,layer,model,vendor) VALUES('rev','reviewer','L1','test','test');
+    INSERT INTO reviews(card_id,attempt,reviewer,layer,sha,verdict,items_json)
+    VALUES('${card}',1,'rev','L1','${values.sha}','accept','[]');`);
+  moveRaw(f.db, card, ['inspecting', 'accepted', 'merge_wait']);
+  f.db.exec(`INSERT INTO merges(card_id,sha,merged_sha,target,verified_by,verify_command)
+    VALUES('${card}','${values.sha}','${'c'.repeat(40)}','origin/main','mgr','git merge-base --is-ancestor')`);
+  moveRaw(f.db, card, ['merge_wait', 'done']);
+  assert.equal(f.cardState(card), 'done');
+  assert.equal(f.runStatus(run), 'launched');
+  assert.deepEqual(
+    (await ledgerLanes(f.db, [])).map((lane) => [lane.id, lane.finished]),
+    [[run, true]],
+  );
+  assert.match(f.collect([card], 3).stderr, /APS-P01: reports can be recorded only while the card is working/);
+
+  const { value } = f.collect([card, '--close-only']);
+  assert.equal(value.outcome, 'closed');
+  assert.equal(value.code, 0);
+  assert.equal(f.runStatus(run), 'closed');
+  assert.deepEqual(f.runEvents(run), ['intent', 'launched', 'reported', 'closed']);
+  assert.deepEqual(await ledgerLanes(f.db, []), []);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports WHERE card_id=?').get(card)?.n, 1);
+  assert.equal(f.cardState(card), 'done');
+  assert.deepEqual(agentRow(f.db, worker), before);
+  const closed = JSON.parse(
+    String(f.db.prepare("SELECT detail_json FROM run_events WHERE run_id=? AND status='closed'").get(run)?.detail_json),
+  );
+  assert.equal(closed.evidence.report, join(packet, 'report.json'));
+  assert.equal(closed.evidence.sha, values.sha);
+  assert.equal(closed.evidence.card_state, 'done');
+  assert.equal(closed.evidence.agent, 'already_closed');
+  assert.equal(f.collect([card, '--close-only'], 2).value.message, 'no launched run');
+});
+
+test('--close-only refuses a working card (exit 2); past working it closes the run and the idle open agent', (t) => {
+  const f = fixture(t);
+  const { run, worker, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.writeReport(packet, f.reportValues(run, card));
+  const refused = f.collect([card, '--close-only'], 2);
+  assert.match(refused.value.message, /card TS-C-0001 is still working; collect it without --close-only/);
+  assert.deepEqual(f.runEvents(run), ['intent', 'launched']);
+  assert.equal(f.cardState(card), 'working');
+  assert.equal(f.agentStatus(run), 'active');
+
+  moveRaw(f.db, card, ['working', 'issued', 'rejected'], 'mgr', 'superseded');
+  const { value } = f.collect([card, '--close-only']);
+  assert.equal(value.outcome, 'closed');
+  assert.equal(value.evidence.agent, 'closed');
+  assert.equal(f.runStatus(run), 'closed');
+  assert.equal(f.cardState(card), 'rejected');
+  assert.equal(f.agentStatus(run), 'closed');
+  assert.equal(agentRow(f.db, worker)?.close_note, `collect --close-only ${run}`);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports').get()?.n, 0);
 });

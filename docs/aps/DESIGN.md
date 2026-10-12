@@ -480,7 +480,7 @@ released before launch.
 ### 12.2 `aps collect` (FAC-M08)
 
 `mmbridge aps collect <card>|--all --by <manager> [--wait <dur>] [--abandon]
-[--omp-session-dir <dir>] [--json]` resolves one live run per card. The
+[--close-only] [--omp-session-dir <dir>] [--json]` resolves one live run per card. The
 exported `collectRun(db, cardId, by, opts)` drives the same flow for managers
 and returns a `CollectOutcome` (`card`, `run`, `outcome`, `code`, `message`,
 `report?`, `evidence?`); it never calls `process.exit` — the CLI maps the
@@ -512,6 +512,31 @@ Likewise a worker agent that is already closed (APS-A02 makes that final) does
 not block `--abandon` or a BLOCKED close: the agent row is left untouched while
 its cards still move as `closeSession` would (working→issued with the same
 note, reported→closed_session) and the run event is written as usual.
+
+A card that already left `working` (`aps report` by hand, then review, merge,
+done, reject or revise) cannot take its run's report: `recordReport` hits
+APS-P01, so the run would stay `launched` and `aps audit` would list it as
+FINISHED_OPEN forever. `aps collect <card> --close-only` closes it explicitly.
+It refuses a `working` card (exit 2; collect it normally) and takes one card
+without `--all`, `--abandon` or `--wait`. It picks the card's latest
+`launched` run, requires its packet `report.json` to match the run's
+id/card/attempt, and appends `reported` then `closed` (N03 has no
+launched→closed step). The close evidence carries `close_only`, the
+`report.json` path, its status/sha/branch, the card state and what happened to
+the agent. A BLOCKED report ends at `blocked` instead. It inserts no report
+row, moves no card itself, probes no session and records no usage. An
+already-closed agent is left untouched. A still-open agent is closed through
+`closeSession` (H01 first when it has a herdr pane) only when it has no
+`working` cards. That close moves the agent's `reported` cards to
+`closed_session` as usual. No `launched` run gives exit 2 `no launched run`.
+
+Going forward the ledger keeps this from happening: `moveCard` into
+`merge_wait`, `done` or `rejected` appends `reported` + `closed` for every
+`launched` run of the card, by the transition's actor and in the same
+transaction. The close evidence has `auto_close: 'card_transition'`, the from/to
+states and the packet `report.json` path, or null when there is none. A
+refused transition rolls the events back with it. `reported` runs are left to
+the normal collect.
 
 Probe and close keys come from the launched event fields, not the harness
 name: `pane_id` runs the herdr pane probe/close (`pane_not_found` or a

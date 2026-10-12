@@ -646,6 +646,7 @@ export async function main(): Promise<void> {
       ['--all', 'Collect every launched or reported run'],
       ['--wait <dur>', 'Poll for report.json (e.g. 90s, 30m, 2h)'],
       ['--abandon', 'Abandon a run that ended without report.json'],
+      ['--close-only', 'Close the launched run of a card past working from report.json (no report row, card stays)'],
       ['--omp-session-dir <dir>', 'Resolve an ambiguous omp transcript dir'],
     ],
     async () => {
