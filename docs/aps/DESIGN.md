@@ -498,6 +498,21 @@ branch in the run worktree, with the branch equal to `worker_runs.branch`
 `reported`/`blocked` run event commit in one transaction, so a guard refusal
 leaves the run `launched` for a fixed report.
 
+A merged lane's worktree is often removed before collect. When
+`worker_runs.worktree` is missing or not a git checkout, H09 verifies in the
+`--project-dir` repo (default cwd) instead: the same `cat-file` and
+branch-equality checks, then
+`--is-ancestor` against `refs/heads/<branch>` or `refs/remotes/origin/<branch>`
+(whichever exist), and, when both are gone after the merge, against
+`origin/main` — the ledger records no per-card merge target. An H09 refusal
+names the repo it checked and the missing worktree; the `reported`/`blocked`
+event and the close evidence carry `commit: {repo, ref, fallback}`. A sha
+absent there still fails H09; an existing worktree is checked as before.
+Likewise a worker agent that is already closed (APS-A02 makes that final) does
+not block `--abandon` or a BLOCKED close: the agent row is left untouched while
+its cards still move as `closeSession` would (working→issued with the same
+note, reported→closed_session) and the run event is written as usual.
+
 Probe and close keys come from the launched event fields, not the harness
 name: `pane_id` runs the herdr pane probe/close (`pane_not_found` or a
 changed `terminal_id` proves the end; H06 refuses while `agent_status =

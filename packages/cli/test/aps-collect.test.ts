@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { addRunEvent, createRun, newAgent, openApsDb, startCard } from '@mmbridge/aps';
@@ -184,6 +185,24 @@ function liveSleep(t: TestContext) {
   return sleeper.pid as number;
 }
 
+function gitAt(env: NodeJS.ProcessEnv, repo: string, args: string[]) {
+  const result = spawnSync('git', ['-C', repo, ...args], { env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+function agentRow(db: DatabaseSync, agent: string) {
+  return db.prepare('SELECT status,closed_at,closed_by,close_note FROM agents WHERE id=?').get(agent);
+}
+
+/** Closes the worker agent behind collect's back while its card is still working (the FINISHED_OPEN shape). */
+function closeAgentFirst(db: DatabaseSync, agent: string) {
+  db.prepare(
+    "UPDATE agents SET status='closed',closed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),closed_by='mgr',close_note='closed before collect' WHERE id=?",
+  ).run(agent);
+  return agentRow(db, agent);
+}
+
 test('collect DONE: reported→closed_session, pane closed by collect, evidence stored', (t) => {
   const f = fixture(t);
   const session = join(f.home, 'session.jsonl');
@@ -339,6 +358,99 @@ test('BLOCKED report → card issued, run blocked→closed', (t) => {
   assert.equal(f.agentStatus(run), 'closed');
   assert.deepEqual(f.runEvents(run), ['intent', 'launched', 'blocked']);
   assert.equal(f.db.prepare('SELECT status FROM reports WHERE card_id=?').get(card)?.status, 'BLOCKED');
+});
+
+test('H09 fallback: run worktree gone → verify in --project-dir (branch, then origin/main after merge)', (t) => {
+  const f = fixture(t);
+  const project = join(f.home, 'project');
+  gitAt(f.env, f.home, ['clone', '-q', f.worktree, project]);
+  const first = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  const second = f.seedRun(card2, { pane_id: 'w1:p8', terminal_id: 'terminal-1' });
+  f.writeReport(first.packet, f.reportValues(first.run, card));
+  f.writeReport(second.packet, f.reportValues(second.run, card2));
+  rmSync(f.worktree, { recursive: true, force: true });
+
+  f.herdrState({ agentStatus: 'done' });
+  const local = f.collect([card, '--project-dir', project]);
+  assert.equal(local.value.outcome, 'reported');
+  assert.equal(local.value.message, `collect ${first.run}: closed_session`);
+  assert.deepEqual(local.value.evidence.commit, { repo: project, ref: 'refs/heads/worker', fallback: true });
+  assert.equal(f.cardState(card), 'closed_session');
+  assert.equal(f.runStatus(first.run), 'closed');
+
+  // The merged lane's branch is gone everywhere; origin/main carries the sha.
+  gitAt(f.env, project, ['checkout', '-q', '-b', 'main']);
+  gitAt(f.env, project, ['branch', '-q', '-D', 'worker']);
+  gitAt(f.env, project, ['update-ref', '-d', 'refs/remotes/origin/worker']);
+  gitAt(f.env, project, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  f.herdrState({ agentStatus: 'done' });
+  const merged = f.collect([card2, '--project-dir', project]);
+  assert.equal(merged.value.outcome, 'reported');
+  assert.deepEqual(merged.value.evidence.commit, { repo: project, ref: 'refs/remotes/origin/main', fallback: true });
+  assert.equal(f.cardState(card2), 'closed_session');
+  const reported = JSON.parse(
+    String(
+      f.db.prepare("SELECT detail_json FROM run_events WHERE run_id=? AND status='reported'").get(second.run)
+        ?.detail_json,
+    ),
+  );
+  assert.equal(reported.commit.repo, project);
+});
+
+test('H09 fallback: worktree gone and sha unknown to the project repo → still APS-H09', (t) => {
+  const f = fixture(t);
+  const project = join(f.home, 'project');
+  gitAt(f.env, f.home, ['clone', '-q', f.worktree, project]);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.herdrState({ agentStatus: 'done' });
+  f.git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-m', 'lost']);
+  const lost = f.git(['rev-parse', 'HEAD']);
+  f.writeReport(packet, f.reportValues(run, card));
+  rmSync(f.worktree, { recursive: true, force: true });
+  const refused = f.collect([card, '--project-dir', project], 3);
+  assert.ok(
+    refused.stderr.includes(
+      `APS-H09: reported sha ${lost} is not a commit on worker in ${project} (run worktree ${f.worktree} is missing)`,
+    ),
+    refused.stderr,
+  );
+  assert.equal(f.runStatus(run), 'launched');
+  assert.equal(f.cardState(card), 'working');
+});
+
+test('--abandon with the worker agent already closed: no APS-A02, agent row untouched', (t) => {
+  const f = fixture(t);
+  const { run, worker } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  const before = closeAgentFirst(f.db, worker);
+  f.herdrState({ closed: true });
+  const { value, stderr } = f.collect([card, '--abandon']);
+  assert.doesNotMatch(stderr, /APS-A02/);
+  assert.equal(value.outcome, 'abandoned');
+  assert.equal(f.runStatus(run), 'abandoned');
+  assert.deepEqual(f.runEvents(run), ['intent', 'launched', 'abandoned']);
+  assert.equal(f.cardState(card), 'issued');
+  assert.deepEqual(agentRow(f.db, worker), before);
+});
+
+test('BLOCKED report with the worker agent already closed: no APS-A02, agent row untouched', (t) => {
+  const f = fixture(t);
+  const { run, worker, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  const before = closeAgentFirst(f.db, worker);
+  f.herdrState({ agentStatus: 'done' });
+  f.writeReport(
+    packet,
+    f.reportValues(run, card, {
+      status: 'BLOCKED',
+      blocked: 'BLOCKED: missing API key; tried curl',
+      evidence: [{ ac: 'AC1', command: 'echo yes', output: 'yes', ok: false }],
+    }),
+  );
+  const { value, stderr } = f.collect([card]);
+  assert.doesNotMatch(stderr, /APS-A02/);
+  assert.equal(value.outcome, 'blocked');
+  assert.equal(f.cardState(card), 'issued');
+  assert.equal(f.runStatus(run), 'blocked');
+  assert.deepEqual(agentRow(f.db, worker), before);
 });
 
 test('P07 evidence not ok → exit 3, run stays launched', (t) => {
