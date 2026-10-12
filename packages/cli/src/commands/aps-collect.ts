@@ -30,6 +30,8 @@ export interface CollectRunOptions {
   waitMs?: number;
   pollMs?: number;
   ompSessionDir?: string;
+  /** Repository that verifies the reported sha when the run worktree is gone (default: cwd). */
+  projectDir?: string;
 }
 
 export interface CollectOutcome {
@@ -60,6 +62,14 @@ type Aps = Awaited<ReturnType<typeof importAps>>;
 
 const DEFAULT_POLL_MS = 5_000;
 const ADOPTED_NO_REPORT = 'adopted lane ended without report; record aps report';
+/** Merged lanes delete their branch; the card ledger records no merge target, so the remote default branch is it. */
+const MERGE_TARGET = 'origin/main';
+
+interface CommitCheck {
+  repo: string;
+  ref: string;
+  fallback: boolean;
+}
 
 /** Adopted lanes stay running while any recorded pid is alive or pane is present. */
 async function adoptedLaneRunning(detail: Record<string, unknown>): Promise<boolean> {
@@ -95,19 +105,47 @@ function readReport(path: string): WorkerReport {
   return report as unknown as WorkerReport;
 }
 
-async function verifyCommit(run: Row, report: WorkerReport): Promise<void> {
+async function verifyCommit(run: Row, report: WorkerReport, projectDir: string | undefined): Promise<CommitCheck> {
   const core = await importCore();
+  const git = (repo: string, args: string[]) => core.runCommand('git', ['-C', repo, ...args], { timeoutMs: 15_000 });
   const worktree = String(run.worktree);
-  const commit = await core.runCommand('git', ['-C', worktree, 'cat-file', '-e', `${report.sha}^{commit}`], {
-    timeoutMs: 15_000,
-  });
-  const ancestor = commit.ok
-    ? await core.runCommand('git', ['-C', worktree, 'merge-base', '--is-ancestor', report.sha, report.branch], {
-        timeoutMs: 15_000,
-      })
-    : null;
-  if (!commit.ok || !ancestor?.ok || report.branch !== String(run.branch))
-    throw new Error(`APS-H09: reported sha ${report.sha} is not a commit on ${report.branch} in ${worktree}`);
+  const fallback = !existsSync(worktree) || !(await git(worktree, ['rev-parse', '--git-dir'])).ok;
+  const repo = fallback ? resolve(projectDir ?? process.cwd()) : worktree;
+  const refused = () =>
+    new Error(
+      `APS-H09: reported sha ${report.sha} is not a commit on ${report.branch} in ${repo}${fallback ? ` (run worktree ${worktree} is missing)` : ''}`,
+    );
+  if (report.branch !== String(run.branch)) throw refused();
+  if (!(await git(repo, ['cat-file', '-e', `${report.sha}^{commit}`])).ok) throw refused();
+  // The project repo may hold the branch locally, only on origin, or not at all once the merged lane was deleted.
+  let refs = [report.branch];
+  if (fallback) {
+    refs = [];
+    for (const ref of [`refs/heads/${report.branch}`, `refs/remotes/origin/${report.branch}`])
+      if ((await git(repo, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])).ok) refs.push(ref);
+    if (refs.length === 0) refs.push(`refs/remotes/${MERGE_TARGET}`);
+  }
+  for (const ref of refs)
+    if ((await git(repo, ['merge-base', '--is-ancestor', report.sha, ref])).ok) return { repo, ref, fallback };
+  throw refused();
+}
+
+/**
+ * `closeSession`, except an agent row that is already closed stays untouched (APS-A02: closed is final);
+ * its cards still move the same way: working→issued under abandon, reported→closed_session.
+ */
+function closeRunSession(aps: Aps, db: DatabaseSync, agentId: string, by: string, note: string, abandon: boolean) {
+  if (aps.getAgent(db, agentId).status !== 'closed') {
+    aps.closeSession(db, agentId, by, note, abandon);
+    return;
+  }
+  const cards = db
+    .prepare("SELECT id,state FROM cards WHERE assignee=? AND state IN ('working','reported') ORDER BY id")
+    .all(agentId);
+  if (!abandon && cards.some((card) => card.state === 'working'))
+    throw new ApsInputError(`agent ${agentId} has working cards; use --abandon to return them`);
+  for (const card of cards)
+    aps.moveCard(db, String(card.id), card.state === 'working' ? 'issued' : 'closed_session', by, note);
 }
 
 function transcriptPath(run: Row, launch: LaunchInfo, opts: CollectRunOptions): { file?: string; ambiguous: boolean } {
@@ -201,18 +239,23 @@ async function collectLiveRun(
       .get(cardId, Number(run.attempt));
     if (stored) {
       const reportStatus = String(stored.status);
-      await verifyCommit(run, { sha: String(stored.sha), branch: String(stored.branch) } as WorkerReport);
+      const commit = await verifyCommit(
+        run,
+        { sha: String(stored.sha), branch: String(stored.branch) } as WorkerReport,
+        opts.projectDir,
+      );
       await aps.commandTransaction(db, async () => {
         aps.addRunEvent(db, runId, reportStatus === 'BLOCKED' ? 'blocked' : 'reported', by, {
           adopted: true,
           report: 'ledger',
+          commit,
         });
       });
-      const evidence = await sessionClose(run, launch, opts);
+      const evidence = { ...(await sessionClose(run, launch, opts)), commit };
       const summary = summarize(evidence);
       const abandon = reportStatus === 'BLOCKED';
       await aps.commandTransaction(db, async () => {
-        aps.closeSession(db, String(run.agent_id), by, `collect ${runId}: ${summary}`, abandon);
+        closeRunSession(aps, db, String(run.agent_id), by, `collect ${runId}: ${summary}`, abandon);
         if (!abandon) aps.addRunEvent(db, runId, 'closed', by, { evidence });
       });
       await recordUsage(aps, db, run, launch, opts);
@@ -235,6 +278,7 @@ async function collectLiveRun(
   }
   let reportStatus: string;
   let report: unknown;
+  let commit: CommitCheck | undefined;
 
   if (status === 'launched') {
     if (!existsSync(reportPath)) {
@@ -246,7 +290,7 @@ async function collectLiveRun(
           if (opts.abandon) {
             await aps.commandTransaction(db, async () => {
               aps.addRunEvent(db, runId, 'abandoned', by, { evidence });
-              aps.closeSession(db, String(run.agent_id), by, `collect ${runId}: ${summary}`, true);
+              closeRunSession(aps, db, String(run.agent_id), by, `collect ${runId}: ${summary}`, true);
             });
             return {
               card: cardId,
@@ -275,7 +319,7 @@ async function collectLiveRun(
     const worker = readReport(reportPath);
     if (worker.run !== runId || worker.card !== cardId || worker.attempt !== Number(run.attempt))
       throw new ApsInputError(`report.json does not match live run ${runId}`);
-    await verifyCommit(run, worker);
+    commit = await verifyCommit(run, worker, opts.projectDir);
     reportStatus = worker.status;
     report = worker;
     await aps.commandTransaction(db, async () => {
@@ -294,7 +338,10 @@ async function collectLiveRun(
       });
       aps.addLink(db, cardId, by, 'handoff', join(packet, 'report.md'));
       if (typeof worker.pr === 'string' && worker.pr) aps.addLink(db, cardId, by, 'pr', worker.pr);
-      aps.addRunEvent(db, runId, worker.status === 'BLOCKED' ? 'blocked' : 'reported', by, { report: reportPath });
+      aps.addRunEvent(db, runId, worker.status === 'BLOCKED' ? 'blocked' : 'reported', by, {
+        report: reportPath,
+        commit,
+      });
     });
   } else {
     const stored = db
@@ -304,11 +351,11 @@ async function collectLiveRun(
     report = stored;
   }
 
-  const evidence = await sessionClose(run, launch, opts);
+  const evidence = { ...(await sessionClose(run, launch, opts)), ...(commit ? { commit } : {}) };
   const summary = summarize(evidence);
   const abandon = reportStatus === 'BLOCKED';
   await aps.commandTransaction(db, async () => {
-    aps.closeSession(db, String(run.agent_id), by, `collect ${runId}: ${summary}`, abandon);
+    closeRunSession(aps, db, String(run.agent_id), by, `collect ${runId}: ${summary}`, abandon);
     if (!abandon) aps.addRunEvent(db, runId, 'closed', by, { evidence });
   });
   await recordUsage(aps, db, run, launch, opts);
@@ -359,7 +406,8 @@ export async function runApsCollectCommand(
     const cardId = options.all ? undefined : required(id, 'card');
     const waitMs = options.wait === undefined ? undefined : parseDuration(options.wait, 'wait');
     const core = await importCore();
-    const config = await core.loadConfig(resolve(options.projectDir ?? process.cwd()));
+    const projectDir = resolve(options.projectDir ?? process.cwd());
+    const config = await core.loadConfig(projectDir);
     db = aps.openApsDb(aps.resolveApsDbPath({ flag: options.db, configPath: config.aps?.dbPath }));
     const ledger = db;
     aps.doctor(ledger);
@@ -368,6 +416,7 @@ export async function runApsCollectCommand(
       abandon: Boolean(options.abandon),
       waitMs,
       ompSessionDir: options.ompSessionDir,
+      projectDir,
     };
     if (options.all) {
       const rows = db
