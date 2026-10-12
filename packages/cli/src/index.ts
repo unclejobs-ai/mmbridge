@@ -677,6 +677,8 @@ export async function main(): Promise<void> {
     ['--quota-json <file>', 'omp/codexbar usage JSON instead of a live probe'],
     ['--no-herdr', 'Skip herdr lanes'],
     ['--stall-min <minutes>', 'Working lane without output this long is stalled (default 30)'],
+    ['--ps', 'Also scan omp/grok/claude/devin processes with no herdr pane'],
+    ['--ignore-pid <pids>', 'Comma-separated pids to skip in the --ps scan'],
   ];
   const auditLoader = async () => {
     const { runApsAuditCommand } = await import('./commands/aps-audit.js');
