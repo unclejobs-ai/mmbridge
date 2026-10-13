@@ -49,6 +49,8 @@ The DDL is the contract; this is the map. All ledger tables are `STRICT`. `at` i
 | `vision_audits` | ✓ | `attempt`, `sha`, `items_json` | append-only |
 | `merges` | merge confirmation | `sha`, `merged_sha` or `applied_ref`, `target`, `verified_by`, `verify_command`, **`gate_json`** | append-only |
 | `owner_oks` | owner OK | `sha`, `recorded_by` (L0/L1), `quote`, `source_ref` | append-only |
+| `owner_directives` | plain owner intake (v4) | unique `in_id`, verbatim `quote`, initial class/dest/note, source/recorder/time, nullable card FK | append-only except one NULL→card link |
+| `owner_directive_triage` | triage history (v4) | directive FK, class/dest/note, unique event source, recorder/time | append-only; latest values in `v_owner_directives` |
 | `defects` | ✓ | `attempt`, `severity`, `ref`, `review_id`/`vision_audit_id`, `recorded_by` | append-only; revise reviews and failed vision audits insert one row per item automatically |
 | `feedback` | ✓ | `responded_by`, `escalated_at` | response written once (K01); escalation never cleared (K04) |
 | `briefings` | ✓ | — | append-only |
@@ -129,8 +131,8 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | K02 | feedback update | `APS-K02: partial or reject responses need a reason` | `guards-ledger.test.ts` › feedback: K00–K04 |
 | K03 | feedback update | `APS-K03: feedback from/to/kind/card/body/created_at are immutable` | `guards-ledger.test.ts` › feedback: K00–K04 |
 | K04 | feedback update | `APS-K04: escalation cannot be cleared` | `guards-ledger.test.ts` › feedback: K00–K04 |
-| L01 | 31 triggers (update+delete) on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits, worker_runs, run_events, run_usage | `APS-L01: ledger rows are append-only` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table; `guards-runs.test.ts` › run tables are append-only |
-| L02 | insert on: agents, briefings, card_links, cards, defects, feedback, merges, owner_oks, pdca_runs, projects, quota_samples, reports, reviews, transitions, vision_audits, worker_runs, run_events, run_usage | `APS-L02: ledger rows cannot be replaced` | `guards-ledger.test.ts` › append-only and no-replace: L01, L02 on every table; `guards-runs.test.ts` › run tables are append-only |
+| L01 | update/delete on ledger tables, including owner_directives (one-time linking exception) and owner_directive_triage | `APS-L01: ledger rows are append-only` | `guards-ledger.test.ts` › append-only and no-replace; `guards-runs.test.ts` › run tables; `directives.test.ts` › one-time linking and triage immutability |
+| L02 | insert on ledger tables, including owner_directives and owner_directive_triage | `APS-L02: ledger rows cannot be replaced` | `guards-ledger.test.ts` › append-only and no-replace; `guards-runs.test.ts` › run tables; `directives.test.ts` › duplicate/replace intake and triage |
 | L03 | insert, update, delete on: defect_categories, state_edges, states | `APS-L03: reference tables change only via migrations` | `guards-ledger.test.ts` › reference tables: L03 on insert, update and delete |
 | M01 | merges insert | `APS-M01: merge confirmation needs state accepted or merge_wait` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
 | M02 | merges insert | `APS-M02: merge sha must be the reported sha and carry an accept review` | `guards-card.test.ts` › merges and owner OKs: M01–M03, O01–O04 |
@@ -644,3 +646,95 @@ lane failing does not stop the others. Any close failure exits 1. The markdown g
 One transaction: an `issued` card is `startCard`'d for `--agent`; it must then be `working` with that assignee. A live run is `APS-N01`. Run id is `<card>-a<attempt>-adopt-<yyyymmddHHMMSS>`. Harness defaults to `herdr` when `--pane` is set, else `omp`; herdr kind defaults to `omp` and is stored only for herdr; model defaults to the agent model; `base_sha` is `--base-sha` or `git merge-base HEAD origin/main`, else `main`. `createRun` writes `intent`, then `launched` `{adopted:true,pid,pane_id,session_ref}`, and `<ledger dir>/dispatch/<run>/adopt.json` stores the same facts.
 
 Collect and foreman leave an adopted run `running` while its pid is alive or its pane is present, and never mark it `failed` in that state. Once both are gone, a report already recorded for the attempt takes the normal close path; otherwise the run event is `blocked` (card stays `working`) and the outcome is `blocked` with message `adopted lane ended without report; record aps report`.
+
+## 13. Owner directives and omp inventory (migration 0004)
+
+`packages/aps/sql/0004_owner_directives.sql` adds STRICT `owner_directives` and
+`owner_directive_triage`. `owner_oks` remains a card/SHA-bound approval; a plain
+owner instruction belongs in `owner_directives`, without requiring any card state.
+
+`owner_directives` stores `id`, unique `in_id`, verbatim non-empty `quote`, initial
+`class`, `dest`, `note`, `source_ref`, FK `recorded_by`, original intake `at`, and
+nullable FK `card_id`. Every field is immutable, except exactly one linking update
+of `card_id` from NULL to an existing card. Changing any other field in that update,
+unlinking, relinking, DELETE, no-op UPDATE, and INSERT OR REPLACE are rejected.
+L01/L02 and fail-closed T00 guards apply even when a raw connection disables FKs.
+
+Triage never overwrites intake. Each triage appends class/dest/note to the STRICT
+history table with unique event `source_ref`, registered recorder and timestamp.
+`v_owner_directives` exposes the latest class/dest/note, falling back to intake.
+This resolves the approved immutable-intake/update-triage requirement without
+opening an UPDATE exception beyond the single card link.
+
+### Intake durability and recovery
+
+The maintained CLI source is `packages/aps/scripts/ssops.mjs`; install it as
+`~/.agents/skills/ss-roadmap-ops/scripts/ssops.mjs`. `inbox add` preserves whitespace
+and multiline quotes. Under the existing INBOX lock, it writes the markdown temp
+file, appends and fsyncs immutable JSONL events in `INBOX.aps-outbox.jsonl`, renames
+INBOX, then mirrors to APS. `triage` uses the same flow. An unavailable DB/SSH bridge
+prints WARNING APS but does not undo the markdown or outbox or fail owner intake.
+The outbox is retained, never truncated. A later mutation or `ssops inbox backfill`
+replays it idempotently, including intermediate triages made while APS was down.
+An IN-id/quote conflict fails visibly; neither original nor pending quote is erased.
+
+`ssops inbox backfill` imports every parsed INBOX entry, including historical
+non-numeric IN suffixes and legacy class strings, then prints DB/INBOX counts.
+Intake uniqueness and history event refs make repeat runs idempotent. Each event
+has its own BEGIN IMMEDIATE transaction; all connections enable foreign keys and
+busy_timeout=5000. Do not hand-edit INBOX; use triage so a return to an earlier
+classification still creates a new history event.
+
+The MBP INBOX is canonical. `SS_WORK/tools/ssops-aps.json` configures `runner`,
+optional SSH `host`, and `db`. Both hosts point to the MBP ledger; Air uses SSH and
+MBP uses a local runner. Defaults use `SS_WORK/tools/aps-directives/dist/ssops-bridge.js`
+and `SS_WORK/aps/aps.db`. `SSOPS_APS_RUNNER`, `SSOPS_APS_HOST`, and MMBRIDGE_APS_DB
+(or APS_DB) override those values. Remote paths are absolute and configuration
+only; owner text travels as stdin JSON, never shell interpolation.
+
+### omp-sync
+
+Run `node ~/.agents/skills/ss-roadmap-ops/scripts/ssops.mjs omp-sync --file /tmp/air-workers.txt`
+or pipe lines into `ssops omp-sync`. Each non-comment line is
+`name|project|title|status|pr|sha`; project must already exist. Empty PR/SHA and
+abbreviated SHAs are retained as inventory facts, not invented full SHAs.
+
+Upsert a live agent session by worker name/project and one card by
+project/source_ref (source_ref is exactly the omp agent name). Repeated snapshots
+do not duplicate identities, cards, links, reports or transitions. Changed title,
+status, PR and SHA are retained as append-only `card_links(kind='other')` snapshots;
+PR also gets a PR link. Never edit a frozen card specification to force an update.
+
+These are **inventory-registration cards**, not certificates of the worker's code.
+Their explicit acceptance is recording the supplied snapshot. issued stays issued;
+running/working/active/idle/blocked starts issued→working (idle sets agent idle).
+reported/completed/done/closed/inspecting/accepted/merge_wait can advance
+working→reported only with a full SHA, using a truthful inventory report. A new
+revise snapshot starts working and warns: no independent revise review is invented.
+issued→rejected is allowed with the supplied rejection noted.
+Downstream states remain guarded: no session closure, independent review, owner OK
+or merge is synthesized. Requests beyond known evidence print a warning and retain
+the requested status in the snapshot. Existing later-state cards never jump
+backwards. Unknown project/input fails, and that worker's transaction rolls back.
+
+### Safe shared-ledger cutover
+
+Back up before any change and again immediately before live migration. Every
+installed APS writer must have migration 0004 in its SQL catalogue before setting
+user_version=4, otherwise the old max-v3 loader rejects the shared ledger.
+Only a clean/upstream-synchronized main may receive the reviewed migration commit.
+Run existing APS tests and both smoke scripts before and after application. Smoke
+SQL intentionally exits 1 for C08/T02 and R02/S01/V01/D02/D05; the final guard card
+must still be done. If post-application checks fail, suspend APS writers, restore
+the immediate pre-application backup with SQLite `.restore`, and revert only the
+cutover commit before resuming writers. Never delete a live WAL to restore data.
+
+Regression coverage: directives.test.ts exercises STRICT constraints, all update/
+delete/replace paths, one-time linking, FK-off guards, verbatim intake, triage
+history/effective view, backfill and replay idempotency, unavailable-DB durability,
+non-numeric IN ids, and omp upsert/allowed-edge/no-fabricated-approval behavior.
+
+`doctor()` checks only trigger definitions from migrations at or below the DB's
+actual user_version. An intentionally historical v1/v2 ledger must not be rejected
+for missing v4-only triggers. This version filter still detects any missing trigger
+that belongs to the applied catalogue; regression coverage includes both cases.

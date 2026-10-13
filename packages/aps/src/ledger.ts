@@ -220,7 +220,9 @@ export function recordVision(db: DatabaseSync, id: string, by: string, values: R
 }
 export function doctor(db: DatabaseSync): { integrity: string[]; foreignKeys: Row[]; missingTriggers: string[] } {
   const expected = new Set<string>();
+  const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
   for (const migration of listMigrations()) {
+    if (migration.version > version) break;
     const sql = readFileSync(join(APS_SQL_DIR, migration.file), 'utf8');
     for (const match of sql.matchAll(/\b(CREATE|DROP)\s+TRIGGER\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?([a-z0-9_]+)/gi)) {
       if (match[1].toUpperCase() === 'CREATE') expected.add(match[2]);

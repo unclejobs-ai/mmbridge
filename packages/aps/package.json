@@ -9,9 +9,13 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./directives": {
+      "import": "./dist/directives.js",
+      "types": "./dist/directives.d.ts"
     }
   },
-  "files": ["dist", "sql"],
+  "files": ["dist", "sql", "scripts"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --experimental-strip-types --test test/*.test.ts",

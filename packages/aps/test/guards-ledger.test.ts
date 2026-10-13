@@ -280,7 +280,7 @@ test('closed reviewer + live L1 proxy accept moves closed_session through inspec
   );
 });
 
-test('migrates a v2 ledger with rows to v3 without data loss', (t) => {
+test('migrates a v2 ledger with rows to the latest schema without data loss', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'aps-review-migrate-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   copyFileSync(join(APS_SQL_DIR, '0001_aps.sql'), join(dir, '0001_aps.sql'));
@@ -302,7 +302,7 @@ test('migrates a v2 ledger with rows to v3 without data loss', (t) => {
   v2.close();
   const migrated = openApsDb(file);
   t.after(() => migrated.close());
-  assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 3);
+  assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 4);
   for (const table of rows) {
     const after = migrated.prepare(`SELECT * FROM ${table.name}`).all();
     if (table.name !== 'reviews') {
