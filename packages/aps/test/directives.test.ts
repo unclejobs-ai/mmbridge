@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -195,4 +195,84 @@ test('doctor checks the applied catalogue on old v1/v2 ledgers and still detects
     db.exec('DROP TRIGGER trg_owner_directives_upd');
     assert.throws(() => doctor(db), /trg_owner_directives_upd/);
   } finally { db?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Air canonical relay retains disconnected commands and replays client keys without duplicate IN IDs', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aps-air-relay-'));
+  const client = join(root, 'air');
+  const canonical = join(root, 'mbp');
+  const cli = fileURLToPath(new URL('../scripts/ssops.mjs', import.meta.url));
+  const runner = fileURLToPath(new URL('../dist/ssops-bridge.js', import.meta.url));
+  const dbPath = join(canonical, 'aps.db');
+  mkdirSync(join(client, 'tools'), { recursive: true });
+  mkdirSync(canonical);
+  writeFileSync(join(client,'tools','ssops-aps.json'), JSON.stringify({ runner, db: dbPath, forwardInbox: true, inboxRoot: canonical }));
+  const run = (args: string[], offline = false, db = dbPath) => spawnSync(process.execPath, [cli, ...args], {
+    env: { ...process.env, SS_WORK: client, SSOPS_APS_RUNNER: offline ? join(root,'disconnected.js') : runner, SSOPS_APS_HOST: '', MMBRIDGE_APS_DB: db }, encoding: 'utf8',
+  });
+  try {
+    // Existing MBP IN ids are absent from Air's stale local replica.
+    writeFileSync(join(canonical,'INBOX.md'), '# INBOX\n\n### IN-20261013-01 · 2026-10-13 09:00 KST · triaged\n> existing canonical directive\n- class: info\n- to: none\n- note: —\n');
+    const quote = '  오프라인 원문\n둘째 줄  \n';
+    const queued = run(['inbox','add','--text',quote,'--at','2026-10-13 10:00 KST'], true);
+    assert.equal(queued.status, 0, queued.stderr);
+    assert.match(queued.stderr, /WARNING APS/);
+    const clientId = queued.stdout.trim();
+    assert.match(clientId, /^IN-20261013-AIR-/);
+    assert.match(readFileSync(join(client,'INBOX.md'),'utf8'), /오프라인 원문/);
+    const triage = run(['inbox','triage',clientId,'--class','now','--to','TODO relay','--note','offline triage'], true);
+    assert.equal(triage.status, 0, triage.stderr);
+    assert.match(readFileSync(join(client,'INBOX.md'),'utf8'), /class: now/);
+    const queue = readFileSync(join(client,'INBOX.aps-commands.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(queue.length, 2);
+    assert.notEqual(queue[0].ref, queue[1].ref);
+    // The server commits, but Air never receives its reply: retry must still reuse those IN ids.
+    const deliveredWithoutReply = spawnSync(process.execPath, [cli,'inbox','replay'], {
+      env: { ...process.env, SS_WORK: canonical, SSOPS_APS_RUNNER: runner, SSOPS_APS_HOST: '', MMBRIDGE_APS_DB: dbPath },
+      input: JSON.stringify(queue), encoding: 'utf8',
+    });
+    assert.equal(deliveredWithoutReply.status, 0, deliveredWithoutReply.stderr);
+    const recovered = run(['inbox','backfill']);
+    assert.equal(recovered.status, 0, recovered.stderr);
+    assert.match(recovered.stdout, /owner_directives 2 \/ INBOX 2/);
+    let db = openApsDb(dbPath);
+    let before;
+    try {
+      const row = db.prepare('SELECT * FROM v_owner_directives WHERE quote=?').get(quote)!;
+      assert.equal(row.in_id, 'IN-20261013-02');
+      assert.equal(row.class, 'now');
+      assert.equal(row.dest, 'TODO relay');
+      assert.equal(row.note, 'offline triage');
+      assert.equal(row.at, '2026-10-13 10:00 KST');
+      before = db.prepare('SELECT count(*) n FROM owner_directive_triage').get()?.n;
+    } finally { db.close(); }
+    // Lost responses and repeated delivery use the same immutable client keys.
+    const repeated = run(['inbox','backfill']);
+    assert.equal(repeated.status, 0, repeated.stderr);
+    db = openApsDb(dbPath);
+    try {
+      assert.equal(db.prepare('SELECT count(*) n FROM owner_directives').get()?.n, 2);
+      assert.equal(db.prepare('SELECT count(*) n FROM owner_directive_triage').get()?.n, before);
+    } finally { db.close(); }
+    assert.equal(readFileSync(join(canonical,'INBOX.md'),'utf8').match(/^### IN-/gm)?.length, 2);
+    // Database unavailable is not transport unavailable: MBP markdown still accepts it.
+    const unavailableDb = join(canonical, 'db-unavailable');
+    mkdirSync(unavailableDb);
+    const accepted = run(['inbox','add','--text','DB down still records canonically','--at','2026-10-13 10:01 KST'], false, unavailableDb);
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.equal(accepted.stdout.trim(), 'IN-20261013-03');
+    assert.match(accepted.stderr, /WARNING APS/);
+    assert.match(readFileSync(join(canonical,'INBOX.md'),'utf8'), /DB down still records canonically/);
+    const restored = run(['inbox','backfill']);
+    assert.equal(restored.status, 0, restored.stderr);
+    assert.match(restored.stdout, /owner_directives 3 \/ INBOX 3/);
+    // A canonical-only entry can be triaged without ever allocating a competing Air IN id.
+    const canonicalTriage = run(['inbox','triage','IN-20261013-01','--class','decision','--to','HANDOFF decision']);
+    assert.equal(canonicalTriage.status, 0, canonicalTriage.stderr);
+    db = openApsDb(dbPath);
+    try {
+      assert.equal(db.prepare("SELECT class FROM v_owner_directives WHERE in_id='IN-20261013-01'").get()?.class, 'decision');
+      assert.equal(db.prepare('SELECT count(*) n FROM owner_directives').get()?.n, 3);
+    } finally { db.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

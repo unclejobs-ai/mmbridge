@@ -13,6 +13,7 @@ const AUDIT_MODULE = pathToFileURL(join(ROOT, 'tools', 'ssops-audit.mjs')).href;
 const INBOX = join(ROOT, 'INBOX.md');
 const OUTBOX = join(ROOT, 'INBOX.aps-outbox.jsonl');
 const APS_CONFIG = join(ROOT, 'tools', 'ssops-aps.json');
+const COMMAND_OUTBOX = join(ROOT, 'INBOX.aps-commands.jsonl');
 const TODO = join(ROOT, 'TODO.md');
 const ROADMAP = join(ROOT, 'ROADMAP.md');
 const DEFAULT_HANDOFF = join(ROOT, 'squads', 'MAIN-HANDOFF.md');
@@ -147,12 +148,10 @@ function syncInbox(data, strict = false, backfill = false) {
 }
 
 function inboxBackfill() {
-  acquireLock();
-  try {
-    const data = readEntries();
+  mutateInbox((data) => {
     const result = syncInbox(data, true, true);
     if (result) console.log(`owner_directives ${result.total} / INBOX ${data.entries.length}; inserted ${result.inserted}; triaged ${result.triaged}`);
-  } finally { releaseLock(); }
+  }, [], false);
 }
 
 function ompSync(opt) {
@@ -164,54 +163,161 @@ function ompSync(opt) {
   }
 }
 
-function mutateInbox(fn) {
+function inboxReplay(requests) {
+  const appended = [];
+  const receipts = mutateInbox((data) => {
+    const journal = existsSync(OUTBOX) ? readFileSync(OUTBOX, 'utf8').split('\n').filter(Boolean).map(JSON.parse) : [];
+    const known = new Map(journal.map((event) => [event.ref, event]));
+    const aliases = new Map(journal.filter((event) => event.client_id).map((event) => [event.client_id, event.entry.id]));
+    const receipts = [];
+    for (const request of requests) {
+      if (!request.ref || !Array.isArray(request.args) || request.args[0] !== 'inbox') throw new Error('invalid intake replay request');
+      let event = known.get(request.ref);
+      if (!event) {
+        const { pos, opt } = parseArgs(request.args.slice(2));
+        if (aliases.has(pos[0])) pos[0] = aliases.get(pos[0]);
+        if (request.args[1] === 'triage' && !data.entries.some((entry) => entry.id === pos[0])) {
+          receipts.push({ ref: request.ref, error: `inbox triage: ${pos[0]} not found; request retained on client` });
+          continue;
+        }
+        let entry;
+        if (request.args[1] === 'add') entry = applyInboxAdd(data, opt);
+        else if (request.args[1] === 'triage') entry = applyInboxTriage(data, pos, opt);
+        else throw new Error('only add/triage may be replayed');
+        event = { ref: request.ref, entry: { ...entry }, client_id: request.client_id };
+        appended.push(event);
+        known.set(event.ref, event);
+        if (event.client_id) aliases.set(event.client_id, event.entry.id);
+      }
+      receipts.push({ ref: request.ref, client_id: event.client_id, entry: { ...(data.entries.find((entry) => entry.id === event.entry.id) || event.entry) } });
+    }
+    return receipts;
+  }, appended);
+  console.log(JSON.stringify(receipts));
+}
+
+function forwardInbox() {
+  const config = existsSync(APS_CONFIG) ? JSON.parse(readFileSync(APS_CONFIG, 'utf8')) : {};
+  if (!config.forwardInbox) return false;
+  let current;
+  if (sub === 'add' || sub === 'triage') {
+    const { pos, opt } = parseArgs(rest);
+    const ref = `air:${randomUUID()}`;
+    current = { ref, args: process.argv.slice(2), client_id: sub === 'add' ? `IN-${kst().day}-AIR-${ref.slice(4)}` : undefined };
+    const stamp = opt.at || kst().stamp;
+    if (sub === 'add' && !opt.at) current.args.push('--at', stamp);
+    if (sub === 'add' && (typeof opt.text !== 'string' || !opt.text.trim())) die('inbox add: --text is required');
+    if (sub === 'triage' && (!pos[0] || !CLASSES[opt.class] || (!opt.to && opt.class !== 'info'))) die('inbox triage: valid id, --class and --to required');
+    mutateInbox((data) => {
+      const fd = openSync(COMMAND_OUTBOX, 'a');
+      try { appendFileSync(fd, JSON.stringify(current) + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
+      if (sub === 'add') data.entries.push({ id: current.client_id, at: stamp, status: 'untriaged', quote: opt.text, cls: '', to: '', note: '' });
+      else {
+        const entry = data.entries.find((entry) => entry.id === pos[0]);
+        if (entry) Object.assign(entry, { status: 'triaged', cls: opt.class, to: opt.to || 'none', note: typeof opt.note === 'string' ? opt.note : entry.note });
+      }
+    }, [], false);
+  }
+  try {
+    const requests = existsSync(COMMAND_OUTBOX) ? readFileSync(COMMAND_OUTBOX, 'utf8').split('\n').filter(Boolean).map(JSON.parse) : [];
+    let receipts = [];
+    if (requests.length) {
+      const replay = apsRequest({ action: 'inbox-command', args: ['inbox','replay'], requests, inboxRoot: config.inboxRoot });
+      if (replay.status !== 0) throw new Error(replay.stderr || 'canonical inbox replay failed');
+      if (replay.stderr) process.stderr.write(replay.stderr);
+      receipts = JSON.parse(replay.stdout);
+      mutateInbox((data) => {
+        for (const receipt of receipts) {
+          if (!receipt.entry) continue;
+          if (receipt.client_id) data.entries = data.entries.filter((entry) => entry.id !== receipt.client_id || entry.id === receipt.entry.id);
+          const existing = data.entries.find((entry) => entry.id === receipt.entry.id);
+          if (existing) Object.assign(existing, receipt.entry);
+          else data.entries.push(receipt.entry);
+        }
+      }, [], false);
+    }
+    if (current) {
+      const receipt = receipts.find((receipt) => receipt.ref === current.ref);
+      if (!receipt) throw new Error('canonical inbox did not acknowledge client dedupe key');
+      if (receipt.error) throw new Error(receipt.error);
+      console.log(sub === 'add' ? receipt.entry.id : `${receipt.entry.id} → ${receipt.entry.cls}: ${receipt.entry.to}`);
+    } else {
+      const result = apsRequest({ action: 'inbox-command', args: process.argv.slice(2), inboxRoot: config.inboxRoot });
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
+      process.exitCode = result.status;
+    }
+  } catch (error) {
+    console.error(`WARNING APS: ${error.message}; durable ${COMMAND_OUTBOX} retains intake. Retry any ssops inbox command to replay the same dedupe keys.`);
+    if (current) console.log(current.client_id || current.args[2]);
+    else process.exitCode = 1;
+  }
+  return true;
+}
+
+function mutateInbox(fn, suppliedEvents = null, mirror = true) {
   acquireLock();
   try {
     const data = readEntries();
+    // Reconcile a journalled mutation whose process died before the markdown rename.
+    if (existsSync(OUTBOX)) {
+      for (const event of readFileSync(OUTBOX, 'utf8').split('\n').filter(Boolean).map(JSON.parse)) {
+        const entry = data.entries.find((entry) => entry.id === event.entry.id);
+        if (entry && entry.quote !== event.entry.quote) throw new Error(`INBOX quote conflict ${entry.id}`);
+        if (entry) Object.assign(entry, event.entry);
+        else data.entries.push({ ...event.entry });
+      }
+    }
     const before = new Map(data.entries.map((entry) => [entry.id, JSON.stringify(entry)]));
     const out = fn(data);
     const tmp = `${INBOX}.${process.pid}.tmp`;
     writeFileSync(tmp, render(data));
-    const events = data.entries.filter((entry) => before.get(entry.id) !== JSON.stringify(entry)).map((entry) => ({ ref: `${INBOX}#event:${randomUUID()}`, entry }));
+    const events = suppliedEvents ?? data.entries.filter((entry) => before.get(entry.id) !== JSON.stringify(entry)).map((entry) => ({ ref: `${INBOX}#event:${randomUUID()}`, entry }));
     // Durable append precedes rename: even interruption between the two cannot lose the quote/triage.
     const fd = openSync(OUTBOX, 'a');
     try { appendFileSync(fd, events.map((event) => JSON.stringify(event) + '\n').join('')); fsyncSync(fd); }
     finally { closeSync(fd); }
     renameSync(tmp, INBOX);
-    syncInbox(data);
+    if (mirror) syncInbox(data);
     return out;
   } finally {
     releaseLock();
   }
 }
 
-function inboxAdd(opt) {
+function applyInboxAdd(data, opt) {
   const text = typeof opt.text === 'string' ? opt.text : '';
   if (!text.trim()) die('inbox add: --text "<verbatim owner message>" is required');
   const { day, stamp } = opt.at ? { day: String(opt.at).slice(0, 10).replaceAll('-', ''), stamp: String(opt.at) } : kst();
-  const id = mutateInbox((data) => {
-    const prefix = `IN-${day}-`;
-    const max = data.entries.filter((e) => e.id.startsWith(prefix) && /^\d+$/.test(e.id.slice(prefix.length))).reduce((m, e) => Math.max(m, Number(e.id.slice(prefix.length))), 0);
-    const next = `${prefix}${String(max + 1).padStart(2, '0')}`;
-    data.entries.push({ id: next, at: stamp, status: 'untriaged', quote: text, cls: '', to: '', note: '' });
-    return next;
-  });
+  const prefix = `IN-${day}-`;
+  const max = data.entries.filter((e) => e.id.startsWith(prefix) && /^\d+$/.test(e.id.slice(prefix.length))).reduce((m, e) => Math.max(m, Number(e.id.slice(prefix.length))), 0);
+  const entry = { id: `${prefix}${String(max + 1).padStart(2, '0')}`, at: stamp, status: 'untriaged', quote: text, cls: '', to: '', note: '' };
+  data.entries.push(entry);
+  return entry;
+}
+
+function inboxAdd(opt) {
+  const id = mutateInbox((data) => applyInboxAdd(data, opt).id);
   console.log(id);
 }
 
-function inboxTriage(pos, opt) {
+function applyInboxTriage(data, pos, opt) {
   const id = pos[0];
   if (!id) die('inbox triage: <id> required');
   const cls = opt.class;
   if (!CLASSES[cls]) die(`inbox triage: --class must be one of ${Object.keys(CLASSES).join(', ')}`);
   const to = typeof opt.to === 'string' ? opt.to.trim() : '';
   if (!to && cls !== 'info') die('inbox triage: --to "<destination>" required (file§section, TODO line, PR, plans/<slug>.md)');
-  const dest = mutateInbox((data) => {
-    const e = data.entries.find((x) => x.id === id);
-    if (!e) die(`inbox triage: ${id} not found`);
-    Object.assign(e, { status: 'triaged', cls, to: to || 'none', note: typeof opt.note === 'string' ? opt.note : e.note });
-    return e.to;
-  });
+  const e = data.entries.find((x) => x.id === id);
+  if (!e) die(`inbox triage: ${id} not found`);
+  Object.assign(e, { status: 'triaged', cls, to: to || 'none', note: typeof opt.note === 'string' ? opt.note : e.note });
+  return e;
+}
+
+function inboxTriage(pos, opt) {
+  const dest = mutateInbox((data) => applyInboxTriage(data, pos, opt).to);
+  const id = pos[0];
+  const cls = opt.class;
   console.log(`${id} → ${cls}: ${dest}`);
 }
 
@@ -309,12 +415,15 @@ function intercomWatch() {
 }
 
 const [cmd, sub, ...rest] = process.argv.slice(2);
-if (cmd === 'inbox') {
+if (cmd === 'inbox' && forwardInbox()) {
+  // Canonical MBP handled the command, or its client-keyed durable queue retained it.
+} else if (cmd === 'inbox') {
   const { pos, opt } = parseArgs(rest);
   if (sub === 'add') inboxAdd(opt);
   else if (sub === 'triage') inboxTriage(pos, opt);
   else if (sub === 'list') inboxList(opt);
   else if (sub === 'backfill') inboxBackfill();
+  else if (sub === 'replay') inboxReplay(JSON.parse(readFileSync(0, 'utf8')));
   else die('usage: ssops inbox add|triage|list|backfill');
 } else if (cmd === 'audit') {
   try {

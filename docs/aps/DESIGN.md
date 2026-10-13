@@ -738,3 +738,24 @@ non-numeric IN ids, and omp upsert/allowed-edge/no-fabricated-approval behavior.
 actual user_version. An intentionally historical v1/v2 ledger must not be rejected
 for missing v4-only triggers. This version filter still detects any missing trigger
 that belongs to the applied catalogue; regression coverage includes both cases.
+
+### Air canonical INBOX relay
+
+Air sets `forwardInbox: true` and `inboxRoot: "/Users/suminlee/ss-work"` alongside
+the MBP host/runner/db in ssops-aps.json. Every `ssops inbox` command goes to the
+canonical MBP CLI; Air's old local INBOX is a replica, never an IN-id allocator.
+Before sending add/triage, Air appends and fsyncs a command with a client-generated
+UUID dedupe key to `INBOX.aps-commands.jsonl`. If SSH fails, add's verbatim quote and
+triage remain durable locally; a provisional IN-<day>-AIR-<UUID> identifies offline
+adds. The original intake time is preserved when connectivity returns.
+
+Retry `ssops inbox backfill` (or any inbox command) to replay all retained commands.
+The MBP allocates canonical IN ids under its existing lock, binds the client's
+dedupe key and provisional id in its immutable outbox, and maps an offline triage
+to that canonical id. A lost reply or replay of the same command never creates a
+second IN id. Air replaces only its provisional replica entry with the receipt.
+Neither outbox is truncated. The bridge dispatches markdown operations before
+opening SQLite, so a DB outage still commits canonical INBOX and warns; APS recovers
+from its outbox later. A missing triage id is reported and retained without blocking
+unrelated valid commands. Journalled updates interrupted before markdown rename
+are reconciled on the next mutation/backfill.
