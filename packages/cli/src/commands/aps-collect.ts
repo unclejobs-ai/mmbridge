@@ -279,7 +279,7 @@ async function collectLiveRun(
       return { card: cardId, run: runId, outcome: 'blocked', code: 0, message: ADOPTED_NO_REPORT };
     }
   }
-  let reportStatus: string;
+  let reportStatus = 'DONE';
   let report: unknown;
   let commit: CommitCheck | undefined;
 
@@ -319,33 +319,64 @@ async function collectLiveRun(
         if (existsSync(reportPath)) break;
       }
     }
-    const worker = readReport(reportPath);
-    if (worker.run !== runId || worker.card !== cardId || worker.attempt !== Number(run.attempt))
-      throw new ApsInputError(`report.json does not match live run ${runId}`);
-    commit = await verifyCommit(run, worker, opts.projectDir);
-    reportStatus = worker.status;
-    report = worker;
-    await aps.commandTransaction(db, async () => {
-      aps.recordReport(db, cardId, {
-        by_agent: String(run.agent_id),
-        recorded_by: by,
-        sha: worker.sha,
-        branch: worker.branch,
-        pr_url: worker.pr ?? null,
-        files_json: JSON.stringify(worker.files ?? null),
-        evidence_json: JSON.stringify(worker.evidence ?? null),
-        risks:
-          typeof worker.risks === 'string' ? worker.risks : typeof worker.blocked === 'string' ? worker.blocked : '',
-        status: worker.status,
-        body_md: readOptional(join(packet, 'report.md')),
+    // A report the ledger refuses (P05–P08, R02/R03, H09) must not wedge the lane: with --abandon and a
+    // proven session end the run is abandoned and the card returns to issued (issue #15 recovery path).
+    try {
+      const worker = readReport(reportPath);
+      if (worker.run !== runId || worker.card !== cardId || worker.attempt !== Number(run.attempt))
+        throw new ApsInputError(`report.json does not match live run ${runId}`);
+      if (worker.status === 'DONE_WITH_CONCERNS' && (typeof worker.risks !== 'string' || !worker.risks.trim()))
+        throw new ApsInputError(
+          `APS-P08: DONE_WITH_CONCERNS requires non-empty risks — add "risks" to ${reportPath} describing every ok:false item, then re-run collect (or pass --abandon once the session ended)`,
+        );
+      commit = await verifyCommit(run, worker, opts.projectDir);
+      reportStatus = worker.status;
+      report = worker;
+      const evidenceJson = aps.stripUnknownEvidence(db, cardId, JSON.stringify(worker.evidence ?? null));
+      if (evidenceJson.dropped.length > 0)
+        process.stderr.write(
+          `[mmbridge] collect ${runId}: warning: evidence references acceptance ids not on card ${cardId} (${evidenceJson.dropped.join(', ')}); recorded without them\n`,
+        );
+      await aps.commandTransaction(db, async () => {
+        aps.recordReport(db, cardId, {
+          by_agent: String(run.agent_id),
+          recorded_by: by,
+          sha: worker.sha,
+          branch: worker.branch,
+          pr_url: worker.pr ?? null,
+          files_json: JSON.stringify(worker.files ?? null),
+          evidence_json: evidenceJson.json,
+          risks:
+            typeof worker.risks === 'string' ? worker.risks : typeof worker.blocked === 'string' ? worker.blocked : '',
+          status: worker.status,
+          body_md: readOptional(join(packet, 'report.md')),
+        });
+        aps.addLink(db, cardId, by, 'handoff', join(packet, 'report.md'));
+        if (typeof worker.pr === 'string' && worker.pr) aps.addLink(db, cardId, by, 'pr', worker.pr);
+        aps.addRunEvent(db, runId, worker.status === 'BLOCKED' ? 'blocked' : 'reported', by, {
+          report: reportPath,
+          commit,
+        });
       });
-      aps.addLink(db, cardId, by, 'handoff', join(packet, 'report.md'));
-      if (typeof worker.pr === 'string' && worker.pr) aps.addLink(db, cardId, by, 'pr', worker.pr);
-      aps.addRunEvent(db, runId, worker.status === 'BLOCKED' ? 'blocked' : 'reported', by, {
-        report: reportPath,
-        commit,
+    } catch (error) {
+      if (!opts.abandon) throw error;
+      const ended = await sessionEnded(run, launch, opts);
+      if (!ended) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      const summary = summarize(ended);
+      await aps.commandTransaction(db, async () => {
+        aps.addRunEvent(db, runId, 'abandoned', by, { evidence: ended, report_rejected: message });
+        closeRunSession(aps, db, String(run.agent_id), by, `collect ${runId}: ${summary}`, true);
       });
-    });
+      return {
+        card: cardId,
+        run: runId,
+        outcome: 'abandoned',
+        code: 0,
+        message: `collect ${runId}: abandoned (${summary}; report rejected: ${message})`,
+        evidence: ended,
+      };
+    }
   } else {
     const stored = db
       .prepare('SELECT status FROM reports WHERE card_id=? AND attempt=? ORDER BY id DESC LIMIT 1')
@@ -430,6 +461,26 @@ async function closeOnlyRun(aps: Aps, db: DatabaseSync, cardId: string, by: stri
   };
 }
 
+/**
+ * `no live run` alone hid the real state (issue #15: closed_session cards with a lane report were
+ * indistinguishable from a typo). Say where the card is and what the next command is.
+ */
+function noLiveRunMessage(aps: Aps, db: DatabaseSync, cardId: string): string {
+  const card = aps.getCard(db, cardId);
+  const state = String(card.state);
+  const base = `no live run; card ${cardId} is ${state}`;
+  if (state === 'working')
+    return `${base} without a live dispatched run — record the lane's report with aps report (or aps dispatch it)`;
+  const reported = db
+    .prepare('SELECT 1 FROM reports WHERE card_id=? AND attempt=? LIMIT 1')
+    .get(cardId, Number(card.attempt));
+  if (state === 'reported')
+    return `${base} without a live dispatched run (manual lane) — close the session: mmbridge aps close-session ${card.assignee ?? '<assignee>'} --note '<why the pane is gone>'`;
+  if (reported)
+    return `${base} with its attempt-${card.attempt} report already recorded; nothing to collect (next: mmbridge aps review ${cardId})`;
+  return `${base} without a recorded report; nothing to collect`;
+}
+
 export async function collectRun(
   db: DatabaseSync,
   cardId: string,
@@ -441,7 +492,8 @@ export async function collectRun(
   try {
     if (opts.closeOnly) return await closeOnlyRun(aps, db, cardId, by);
     run = aps.getLiveRun(db, cardId);
-    if (!run) return { card: cardId, run: null, outcome: 'pending', code: 2, message: 'no live run' };
+    if (!run)
+      return { card: cardId, run: null, outcome: 'pending', code: 2, message: noLiveRunMessage(aps, db, cardId) };
     return await collectLiveRun(aps, db, run, by, opts);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

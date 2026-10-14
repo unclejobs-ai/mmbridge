@@ -131,6 +131,46 @@ export function recordReport(db: DatabaseSync, id: string, values: Row): { id: n
       : [moveCard(db, id, 'reported', String(values.recorded_by ?? values.by_agent))];
   });
 }
+
+/**
+ * Drops evidence items whose `ac` is not an acceptance id of the card. The CLI records the rest and
+ * warns (issue #15: an extra AC id beyond the card acceptance should not fail the whole report);
+ * raw SQL keeps APS-P06 as the backstop. Malformed input is returned untouched for P05 to judge.
+ */
+export function stripUnknownEvidence(
+  db: DatabaseSync,
+  id: string,
+  evidenceJson: string,
+): { json: string; dropped: string[] } {
+  let evidence: unknown;
+  try {
+    evidence = JSON.parse(evidenceJson);
+  } catch {
+    return { json: evidenceJson, dropped: [] };
+  }
+  if (!Array.isArray(evidence)) return { json: evidenceJson, dropped: [] };
+  const card = getCard(db, id);
+  let acceptance: unknown;
+  try {
+    acceptance = JSON.parse(String(card.acceptance_json));
+  } catch {
+    return { json: evidenceJson, dropped: [] };
+  }
+  const ids = new Set<string>();
+  if (Array.isArray(acceptance))
+    for (const item of acceptance) {
+      if (item && typeof item === 'object' && 'id' in item && typeof item.id === 'string') ids.add(item.id);
+    }
+  const dropped: string[] = [];
+  const kept = evidence.filter((item) => {
+    const ac = item && typeof item === 'object' && 'ac' in item ? item.ac : undefined;
+    if (typeof ac !== 'string' || ids.has(ac)) return true;
+    dropped.push(ac);
+    return false;
+  });
+  return { json: JSON.stringify(kept), dropped };
+}
+
 export function closeSession(db: DatabaseSync, id: string, by: string, note: string, abandon: boolean): Transition[] {
   return transaction(db, () => {
     const cards = db

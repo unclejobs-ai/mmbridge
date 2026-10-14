@@ -83,9 +83,9 @@ export function addUsage(db: DatabaseSync, values: RunUsageInput): number {
     };
     const existing = db
       .prepare(
-        'SELECT * FROM run_usage WHERE run_id=? AND source=? AND source_ref=? AND model IS ? AND supersedes_id IS ?',
+        'SELECT * FROM run_usage WHERE run_id=? AND source=? AND source_ref=? AND provider IS ? AND model IS ? AND supersedes_id IS ?',
       )
-      .get(values.run_id, values.source, values.source_ref, evidence.model, evidence.supersedes_id);
+      .get(values.run_id, values.source, values.source_ref, evidence.provider, evidence.model, evidence.supersedes_id);
     if (existing) {
       if (Object.entries(evidence).some(([key, value]) => existing[key] !== value)) {
         throw new ApsInputError('usage identity has conflicting evidence; supersede unknown evidence explicitly');

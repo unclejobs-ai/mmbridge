@@ -254,7 +254,7 @@ test('H01 fails closed on herdr server_not_running on stderr', (t) => {
 
 test('aps init/project add/agent new: persisted records, generated IDs, text output', (t) => {
   const f = fixture(t);
-  assert.equal(f.run(['init']).value.user_version, 3);
+  assert.equal(f.run(['init']).value.user_version, 5);
   const result = f.run(
     ['agent', 'new', '--name', 'New Worker', '--layer', 'L3', '--model', 'test', '--vendor', 'test'],
     0,
@@ -456,6 +456,111 @@ test('report success, BLOCKED insert, input exit 2 and evidence rejection exit 3
   f.run(['report', id, '--sha', 'bad'], 2);
   assert.equal(f.report(id).value[0].to, 'reported');
 });
+
+test('report: P08 pre-check names --risks; review-only ACs accept empty evidence; extra ac ids warn not fail', (t) => {
+  const f = fixture(t);
+  const id = f.working();
+  assert.match(
+    f.run(
+      [
+        'report',
+        id,
+        '--by',
+        f.worker,
+        '--sha',
+        SHA,
+        '--branch',
+        'feature',
+        '--files',
+        '[]',
+        '--evidence',
+        f.evidence,
+        '--status',
+        'DONE_WITH_CONCERNS',
+      ],
+      3,
+    ).stderr,
+    /APS-P08: DONE_WITH_CONCERNS requires non-empty risks — pass --risks/,
+  );
+  assert.equal(f.run(['card', 'show', id]).value.state, 'working');
+
+  const reviewOnly = f.file('review-only.json', [{ id: 'AC1', text: 'Judged by review', reviewOnly: true }]);
+  const roCard = f.run([
+    'card',
+    'new',
+    '--project',
+    'test',
+    '--title',
+    'Review-only',
+    '--kind',
+    'design',
+    '--size',
+    'S',
+    '--scope',
+    'CLI',
+    '--acceptance',
+    reviewOnly,
+    '--forbidden',
+    'paid calls',
+    '--owner',
+    f.manager,
+    '--assignee',
+    f.worker,
+  ]).value[0].card;
+  f.run(['start', roCard, '--assignee', f.worker]);
+  const empty = f.file('empty-evidence.json', []);
+  assert.equal(
+    f.run([
+      'report',
+      roCard,
+      '--by',
+      f.worker,
+      '--sha',
+      SHA,
+      '--branch',
+      'feature',
+      '--files',
+      '[]',
+      '--evidence',
+      empty,
+      '--status',
+      'DONE',
+    ]).value[0].to,
+    'reported',
+  );
+
+  const extra = f.file('extra-evidence.json', [
+    { ac: 'AC1', command: 'echo yes', output: 'yes', ok: true },
+    { ac: 'AC9', command: 'echo extra', output: 'extra', ok: true },
+  ]);
+  const warned = f.run([
+    'report',
+    id,
+    '--by',
+    f.worker,
+    '--sha',
+    SHA,
+    '--branch',
+    'feature',
+    '--files',
+    '[]',
+    '--evidence',
+    extra,
+    '--status',
+    'DONE',
+  ]);
+  assert.equal(warned.value[0].to, 'reported');
+  assert.match(warned.stderr, /warning: evidence references acceptance ids not on card \S+ \(AC9\)/);
+  const db = openApsDb(f.dbPath);
+  t.after(() => db.close());
+  const stored = JSON.parse(
+    String(db.prepare('SELECT evidence_json FROM reports WHERE card_id=?').get(id)?.evidence_json),
+  ) as { ac: string }[];
+  assert.deepEqual(
+    stored.map((row) => row.ac),
+    ['AC1'],
+  );
+});
 test('close-session closes reported cards; refuses working then abandons with note', (t) => {
   const f = fixture(t);
   const id = f.working();
@@ -571,6 +676,21 @@ test('vision/owner-ok/merge/done: complete protected lifecycle', (t) => {
   f.run(['vision', id, '--by', f.vision, '--verdict', 'pass', '--shots', shots]);
   assert.match(f.run(['done', id], 3).stderr, /APS-D05:/);
   f.run(['owner-ok', id, '--quote', 'Approved']);
+  assert.equal(f.run(['done', id]).value[0].to, 'done');
+});
+
+test('merge card lookup is scoped by project (config aps.project or --project; issue #15)', (t) => {
+  const f = fixture(t);
+  const id = f.accepted();
+  const mergeArgs = ['merge', id, '--applied-ref', 'verified-ledger-change', '--target', 'test'];
+  assert.match(
+    f.run([...mergeArgs, '--project', 'other'], 2).stderr,
+    new RegExp(`card ${id} belongs to project test, not other`),
+  );
+  writeFileSync(join(f.home, '.mmbridge.config.json'), JSON.stringify({ aps: { project: 'other' } }));
+  assert.match(f.run(mergeArgs, 2).stderr, new RegExp(`card ${id} belongs to project test, not other`));
+  writeFileSync(join(f.home, '.mmbridge.config.json'), JSON.stringify({ aps: { project: 'test' } }));
+  f.run(mergeArgs);
   assert.equal(f.run(['done', id]).value[0].to, 'done');
 });
 test('vision fail moves to revise and records defects', (t) => {
@@ -707,7 +827,7 @@ test('TS guards H02/H04 and newer schema refuse without mutation', async (t) => 
   const newer = openApsDb(f.dbPath);
   newer.exec('PRAGMA user_version=99');
   newer.close();
-  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v3\)/);
+  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v5\)/);
 });
 test('missing actor and unreadable JSON are input errors', (t) => {
   const f = fixture(t);

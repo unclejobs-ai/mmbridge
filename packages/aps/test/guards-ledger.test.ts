@@ -285,6 +285,7 @@ test('migrates a v2 ledger with rows to v3 without data loss', (t) => {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   copyFileSync(join(APS_SQL_DIR, '0001_aps.sql'), join(dir, '0001_aps.sql'));
   copyFileSync(join(APS_SQL_DIR, '0002_worker_runs.sql'), join(dir, '0002_worker_runs.sql'));
+  // Later migrations (0004+) recreate other triggers; keep this test about v3 only.
   const v2 = seed({ sqlDir: dir });
   toInspecting(v2);
   review(v2, 'accept');
@@ -300,7 +301,8 @@ test('migrates a v2 ledger with rows to v3 without data loss', (t) => {
   const file = join(dir, 'ledger.db');
   v2.prepare('VACUUM INTO ?').run(file);
   v2.close();
-  const migrated = openApsDb(file);
+  copyFileSync(join(APS_SQL_DIR, '0003_review_recorded_by.sql'), join(dir, '0003_review_recorded_by.sql'));
+  const migrated = openApsDb(file, dir);
   t.after(() => migrated.close());
   assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 3);
   for (const table of rows) {
