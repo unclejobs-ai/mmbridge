@@ -11,6 +11,26 @@ interface TurnResult {
   outputTokens: number;
 }
 
+/** Resolve the effective API key and whether it must be used as an OAuth token. Pure. */
+export function resolveAgentAuthKey(
+  explicitKey: string | undefined,
+  envKey: string | undefined,
+): { key: string; isOAuthToken: boolean } {
+  const key = explicitKey ?? envKey ?? '';
+  const isOAuthToken = key.startsWith('sk-ant-oat') || key.startsWith('eyJ');
+  return { key, isOAuthToken };
+}
+
+/** Safely parse accumulated streaming tool-input JSON. Empty or malformed input yields `{}`. Pure. */
+export function parseToolInputJson(rawJson: string): unknown {
+  if (rawJson.length === 0) return {};
+  try {
+    return JSON.parse(rawJson) as unknown;
+  } catch {
+    return {};
+  }
+}
+
 export class AgentLoop {
   private readonly config: AgentConfig;
   private readonly client: Anthropic;
@@ -21,8 +41,7 @@ export class AgentLoop {
 
   constructor(config: AgentConfig) {
     this.config = config;
-    const key = config.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
-    const isOAuthToken = key.startsWith('sk-ant-oat') || key.startsWith('eyJ');
+    const { key, isOAuthToken } = resolveAgentAuthKey(config.apiKey, process.env.ANTHROPIC_API_KEY);
     if (isOAuthToken) {
       this.client = new Anthropic({
         authToken: key,
@@ -213,11 +232,7 @@ export class AgentLoop {
     for (const [, rawJson] of toolInputBuffers) {
       const toolCall = toolCalls[toolCallIdx];
       if (toolCall) {
-        try {
-          toolCall.input = rawJson.length > 0 ? (JSON.parse(rawJson) as unknown) : {};
-        } catch {
-          toolCall.input = {};
-        }
+        toolCall.input = parseToolInputJson(rawJson);
         toolCallIdx++;
       }
     }
