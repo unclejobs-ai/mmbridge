@@ -7,6 +7,10 @@ test('redactContent: redacts OpenAI API key (sk-...)', () => {
   const content = 'const key = "sk-abcdefghij1234567890abcd";';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('sk-abcdefghij'));
+<<<<<<< HEAD
+=======
+  assert.equal(redacted, 'const [REDACTED_SECRET];');
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
   assert.ok(stats.includes('OpenAI API key'));
 });
 
@@ -14,6 +18,10 @@ test('redactContent: redacts sk- key with underscores and dashes', () => {
   const content = 'API_KEY=sk-proj_abc-def_123456789012345';
   const { redacted } = redactContent(content);
   assert.ok(!redacted.includes('sk-proj_abc'));
+<<<<<<< HEAD
+=======
+  assert.equal(redacted, '[REDACTED_SECRET]');
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
 });
 
 // GCP API key
@@ -21,6 +29,10 @@ test('redactContent: redacts GCP API key (AIza...)', () => {
   const content = 'GOOGLE_KEY="AIzaSyAbcdefghijklmnopqrstuvwxyz1234567"';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('AIzaSy'));
+<<<<<<< HEAD
+=======
+  assert.equal(redacted, '[REDACTED_SECRET]');
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
   assert.ok(stats.includes('GCP API key'));
 });
 
@@ -28,6 +40,10 @@ test('redactContent: redacts GitHub PAT (ghp_...)', () => {
   const content = 'token: ghp_abcdefghijklmnopqrstuvwxyz12345678901';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('ghp_'));
+<<<<<<< HEAD
+=======
+  assert.equal(redacted, '[REDACTED_SECRET]');
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
   assert.ok(stats.includes('GitHub PAT'));
 });
 
@@ -35,6 +51,10 @@ test('redactContent: redacts GitHub app token (ghs_...)', () => {
   const content = 'GH_APP_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz12345678901';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('ghs_'));
+<<<<<<< HEAD
+=======
+  assert.equal(redacted, '[REDACTED_SECRET]');
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
   assert.ok(stats.includes('GitHub app token'));
 });
 
@@ -42,6 +62,10 @@ test('redactContent: redacts Polar access token (polar_at_...)', () => {
   const content = 'POLAR_TOKEN=polar_at_abcdefghijklmnopqrstuv12345';
   const { redacted, stats } = redactContent(content);
   assert.ok(!redacted.includes('polar_at_'));
+<<<<<<< HEAD
+=======
+  assert.equal(redacted, '[REDACTED_SECRET]');
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
   assert.ok(stats.includes('Polar access token'));
 });
 

@@ -18,7 +18,11 @@ const REDACTION_RULES: Array<{ pattern: RegExp; replacement: string; label: stri
   { pattern: /whsk_[A-Za-z0-9_-]{20,}/g, replacement: '[REDACTED_WEBHOOK_SECRET]', label: 'Webhook secret' },
   {
     pattern:
+<<<<<<< HEAD
       /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?!(?:or|ors|ority|ored|oring|ori[sz]ation|ori[sz]e[ds]?|enticat[a-z]*|izer|izers|ization|board|boards|_?count|_?failures?|_?errors?|_?total|_?type|_?url|_?file|_?path|_?name|_?tokens?)(?![A-Za-z0-9]))[A-Za-z0-9_]{0,32}(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"(?!\[REDACTED_)(?:[^"\\]|\\.)*"|'(?!\[REDACTED_)[^']*'|(?! \[REDACTED_)\S+)/gi,
+=======
+      /(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?!(?:or|ors|ority|ored|oring|ori[sz]ation|ori[sz]e[ds]?|enticat[a-z]*|izer|izers|ization|board|boards|_?count|_?failures?|_?errors?|_?total|_?type|_?url|_?file|_?path|_?name)(?![A-Za-z0-9]))[A-Za-z0-9_]{0,32}(?![A-Za-z0-9_])["']?\s*[:=]\s*(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S+)/gi,
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
     replacement: '[REDACTED_SECRET]',
     label: 'secret assignment',
   },

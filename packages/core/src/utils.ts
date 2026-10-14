@@ -103,11 +103,19 @@ export async function runCommand(
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stdout += text;
+<<<<<<< HEAD
+=======
+      if (onStdoutCb) onStdoutCb(text);
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
       stderr += text;
+<<<<<<< HEAD
+=======
+      if (onStderrCb) onStderrCb(text);
+>>>>>>> 5d41547 (fix(aps): drop global capture cap and use fail-safe secret suffix rule)
     });
 
     child.on('error', (error: Error) => {
