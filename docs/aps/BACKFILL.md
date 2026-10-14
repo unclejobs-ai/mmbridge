@@ -46,7 +46,7 @@ mmbridge aps report <card> --by <worker> --recorded-by <you> \
 [{ "ac": "AC1", "command": "<exact command>", "output": "<non-empty result>", "ok": true }]
 ```
 
-- DONE and DONE_WITH_CONCERNS must cover every acceptance id that is not marked `"reviewOnly": true` (APS-R03). An id not on the card is dropped with a warning by the CLI; only raw SQL still refuses it (APS-P06). A card whose every AC is `reviewOnly` may report `[]`.
+- DONE and DONE_WITH_CONCERNS must cover every acceptance id that is not marked `"reviewOnly": true` (APS-R03). An id not on the card is dropped with a warning by the CLI unless its evidence has `ok:false`, which still refuses the report with APS-P06 instead of hiding a failing check. Raw SQL refuses all unknown ids. Collect preserves dropped ids in the run event detail (`dropped_ac`) and JSON outcome (`droppedAc`). A card whose every AC is `reviewOnly` may report `[]`.
 - `command` and `output` must be non-empty text (APS-P05). Paste the real result. `""` is refused.
 - `ok` is a JSON boolean. DONE requires every item `true` (APS-P07). Any `false` needs `DONE_WITH_CONCERNS` and non-empty `--risks` (APS-P08; the CLI error names `--risks` — concerns without described risks are not recordable).
 - `--sha` is the commit the worker produced (40 or 64 hex; the CLI lowercases it). Do not substitute a later HEAD.

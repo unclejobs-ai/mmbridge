@@ -252,7 +252,7 @@ Enforced in SQL (C03/C04, P04–P08/R02/R03, V14, X05–X07, CHECK `review_gate`
 
 Other shapes:
 - `files_json`: `["path", …]`, non-empty strings (P04).
-- Evidence the CLI records (`aps report`, `aps collect`): items whose `ac` is not an acceptance id of the card are dropped with a stderr warning instead of failing the report (issue #15); P06 stays the raw-SQL backstop. `aps report --status DONE_WITH_CONCERNS` and collect both pre-check P08 with a message naming `--risks` / the packet `report.json` to fix.
+- Evidence the CLI records (`aps report`, `aps collect`): items whose `ac` is not an acceptance id of the card are dropped with a stderr warning unless any unknown item has `ok:false`; failing unknown items stay in the evidence so P06 refuses the report rather than hiding a failure from P07. P06 also stays the raw-SQL backstop. Collect records dropped ids as `dropped_ac` in the `reported`/`blocked` run event detail and as `droppedAc` in its JSON outcome. `aps report --status DONE_WITH_CONCERNS` and collect both pre-check P08 with a message naming `--risks` / the packet `report.json` to fix.
 - `items_json` (reviews, vision): `[{ "severity": "blocker|major|minor|nit", "category": <defect_categories.code>, "text": "…", "ref": "file:line?" }]`. revise/reject reviews and failed vision audits need ≥ 1 item (V15, X08).
 - `screenshots_json`: `[{ "theme": "light|dark", "viewport": "mobile|desktop", "path": "…" }` or the same with `"na_reason"` instead of `"path"`]. A pass covers all 4 combinations (X06).
 - `gate_json` (reviews, merges): `{ "status": "pass|warn", "warnings": [{ "code", "message", "nextCommand" }], "baseRef": "…|null", "diffDigest": "…|null" }`. On `reviews` it requires `mmbridge_session_id`.
@@ -307,12 +307,12 @@ On success a state-changing command prints one line `<card> <from>→<to> by <ag
 | `aps card list [--project] [--state] [--assignee]` | | read `v_kanban` | A |
 | `aps start <card> --assignee <agent>` | | if `assignee` differs: `UPDATE cards SET assignee` (allowed while issued/revise); `T(→working)` by the assignee | A |
 | `aps return <card> --note …` | manager | `T(working→issued)` | A |
-| `aps report <card> --sha <40hex> --branch … --files <json|@file> --evidence <file.json> --status DONE|DONE_WITH_CONCERNS|BLOCKED [--risks …] [--pr …] [--body <file.md>] [--recorded-by <agent>]` | | insert `reports` (attempt = card attempt); unless BLOCKED, `T(working→reported)`. Evidence items whose `ac` is not on the card are dropped with a stderr warning (P06 stays the raw-SQL backstop); DONE_WITH_CONCERNS without `--risks` is pre-checked with a message naming the flag; a card whose every AC is reviewOnly accepts an empty evidence array (0004) | A |
+| `aps report <card> --sha <40hex> --branch … --files <json|@file> --evidence <file.json> --status DONE|DONE_WITH_CONCERNS|BLOCKED [--risks …] [--pr …] [--body <file.md>] [--recorded-by <agent>]` | | insert `reports` (attempt = card attempt); unless BLOCKED, `T(working→reported)`. Evidence items whose `ac` is not on the card are dropped with a stderr warning unless `ok:false`, which still fails P06 (also the raw-SQL backstop); DONE_WITH_CONCERNS without `--risks` is pre-checked with a message naming the flag; a card whose every AC is reviewOnly accepts an empty evidence array (0004) | A |
 | `aps close-session <agent> --by <agent> --note … [--abandon]` | | H01; `UPDATE agents SET status='closed'…`; for each of the agent's cards in `reported`: `T(→closed_session)`; with cards still `working`: exit 2 unless `--abandon`, which applies `T(working→issued, note)` | A |
 | `aps review <card> --verdict accept|revise|reject [--items <file.json>] [--from-session <uuid>] [--owner] [--partial] [--recorded-by <agent>]` | reviewer = `--by`; proxy = `--recorded-by` | if state is `closed_session`: `T(→inspecting)` first. With `--from-session`: H04, H02, map findings to items (§9.1), compute gate (§9.1) into `gate_json`, add `card_links(handoff)` if the session has a handoff. Insert `reviews` (`recorded_by` NULL = reviewer). State transitions use `--recorded-by` when set, otherwise `--by`. Then accept: `T(→accepted)`, `T(→merge_wait)` unless `--partial` (§4); revise: `T(→revise)`; reject: `T(→rejected)`. In `accepted`/`merge_wait`, only revise moves the card | A |
 | `aps vision <card> --shots <file.json> --verdict pass|fail [--items <file.json>] [--notes …]` | auditor = `--by` | insert `vision_audits`; on fail `T(→revise)` | E (table ready in A) |
 | `aps owner-ok <card> --quote "…" [--source-ref …]` | recorder = `--by` (L0/L1) | insert `owner_oks` for the current reported sha | A |
-| `aps merge <card> --merged-sha <sha> | --applied-ref <ref> --target … [--gate] [--project <id>]` | verifier = `--by` | Card lookup is scoped by project (issue #15: a shared ledger + a cross-repo cwd produced a stray merge row): the card must belong to `--project` or the workspace's config `aps.project`, else exit 2. Then H03 (`git merge-base --is-ancestor <sha> <merged_sha>`), H05 (`git rev-parse --verify <target>^{commit}` and `git merge-base --is-ancestor <merged_sha> <resolved target>`); store both checks in `verify_command`. Fast-forward (`merged_sha == sha`) is valid. `--applied-ref` remains unverified. `--gate` stores the gate result in `gate_json`; insert `merges` | A |
+| `aps merge <card> --merged-sha <sha> | --applied-ref <ref> --target … [--gate] [--project <id>]` | verifier = `--by` | When `--project` or the workspace's config `aps.project` is set, the card must belong to that project, else exit 2. Without either setting, lookup remains unscoped and emits a stderr warning with both ways to enable scoping. Then H03 (`git merge-base --is-ancestor <sha> <merged_sha>`), H05 (`git rev-parse --verify <target>^{commit}` and `git merge-base --is-ancestor <merged_sha> <resolved target>`); store both checks in `verify_command`. Fast-forward (`merged_sha == sha`) is valid. `--applied-ref` remains unverified. `--gate` stores the gate result in `gate_json`; insert `merges` | A |
 | `aps done <card>` | | `T(merge_wait→done)` | A |
 | `aps reject <card> --note …` | | `T(→rejected)` from issued/revise (inspecting needs a reject review) | A |
 | `aps defect add <card> --source ci|revert|owner --category … --severity … --text … [--ref]` | | insert `defects` (opportunity = acceptance count) | C |
@@ -484,7 +484,7 @@ released before launch.
 [--close-only] [--omp-session-dir <dir>] [--json]` resolves one live run per card. The
 exported `collectRun(db, cardId, by, opts)` drives the same flow for managers
 and returns a `CollectOutcome` (`card`, `run`, `outcome`, `code`, `message`,
-`report?`, `evidence?`); it never calls `process.exit` — the CLI maps the
+`report?`, `evidence?`, `droppedAc?`); it never calls `process.exit` — the CLI maps the
 outcome to emit/exit codes.
 
 While `report.json` is absent the recorded session is probed but never
@@ -531,18 +531,19 @@ already-closed agent is left untouched. A still-open agent is closed through
 `working` cards. That close moves the agent's `reported` cards to
 `closed_session` as usual. No `launched` run gives exit 2 `no launched run`.
 
-**Wedged lanes (issue #15).** A `launched` run whose packet `report.json` exists but cannot be
-recorded (P05–P08/R02/R03, or H09) used to wedge the card forever: collect exits 3 with the run
-still `launched` and the card `working`, `--close-only` refuses a working card, and `--abandon`
-only engaged when `report.json` was absent. Now `--abandon` also engages when recording the
-present report fails and the session end is proven: the run gets `abandoned` (close evidence keeps
-`report_rejected: <message>`), the card returns to `issued`, and the packet files stay for
-forensics. Fixing the report (e.g. adding `risks` to `report.json`) and re-running collect remains
-the first choice; collect's P08 pre-check names the file to fix. Evidence items whose `ac` is not
-on the card are dropped with a warning instead of failing the report (P06 stays the raw-SQL
-backstop). With no live run at all, collect exits 2 naming the card's state and the next command
-(`closed_session` → `aps review`; a `reported` manual lane → `aps close-session`) instead of a
-bare `no live run`.
+**Wedged lanes (issue #15).** With a proven session end, `--abandon` can recover a present
+report only after a deterministic refusal: APS-P05–P08, R02/R03, or invalid/mismatched
+`report.json`. The run gets `abandoned` (close evidence keeps `report_rejected: <message>`),
+the card returns to `issued`, and the packet files stay for forensics. Git/environmental
+failures, including H09, timeouts and report-file read errors, are returned without
+abandoning, including during `--all --abandon`; other ledger failures also remain errors.
+Fixing the report (e.g. adding `risks` to `report.json`) and re-running collect remains the
+first choice; collect's P08 pre-check names the file to fix. Unknown acceptance ids are
+dropped with a warning only when they do not have `ok:false`; a failing unknown item
+still causes P06. Dropped ids are retained in run event detail (`dropped_ac`) and JSON
+outcomes (`droppedAc`). With no live run at all, collect exits 2 naming the card's state
+and the next command (`closed_session` → `aps review`; a `reported` manual lane →
+`aps close-session`) instead of a bare `no live run`.
 
 Going forward the ledger keeps this from happening: `moveCard` into
 `merge_wait`, `done` or `rejected` appends `reported` + `closed` for every

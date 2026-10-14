@@ -565,6 +565,52 @@ test('--abandon recovers a wedged lane whose report cannot be recorded (issue #1
   assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports').get()?.n, 0);
 });
 
+test('--all --abandon rethrows environmental failures (H09) without abandoning (review)', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.herdrState({ closed: true });
+  f.writeReport(packet, f.reportValues(run, card));
+  // A valid report survives loss of its worktree when the fallback cwd cannot verify its commit.
+  rmSync(f.worktree, { recursive: true, force: true });
+  const result = f.collect(['--all', '--abandon'], 3);
+  assert.equal(result.value[0].code, 3);
+  assert.match(result.value[0].message, /APS-H09/);
+  assert.equal(f.runStatus(run), 'launched');
+  assert.equal(f.cardState(card), 'working');
+  assert.deepEqual(f.runEvents(run), ['intent', 'launched']);
+  assert.equal(f.agentStatus(run), 'active');
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports').get()?.n, 0);
+});
+
+test('--all --abandon preserves runs on report filesystem errors', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.herdrState({ closed: true });
+  mkdirSync(join(packet, 'report.json'));
+  const result = f.collect(['--all', '--abandon'], 1);
+  assert.match(result.value[0].message, /EISDIR/);
+  assert.equal(f.runStatus(run), 'launched');
+  assert.equal(f.cardState(card), 'working');
+  assert.deepEqual(f.runEvents(run), ['intent', 'launched']);
+});
+
+for (const invalid of ['syntax', 'shape', 'mismatch'] as const) {
+  test(`--abandon recovers an ended lane with a ${invalid} report refusal`, (t) => {
+    const f = fixture(t);
+    const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+    f.herdrState({ closed: true });
+    writeFileSync(
+      join(packet, 'report.json'),
+      invalid === 'syntax' ? '{' : JSON.stringify(invalid === 'shape' ? [] : f.reportValues(run, card2)),
+    );
+    const result = f.collect([card, '--abandon']);
+    assert.equal(result.value.outcome, 'abandoned');
+    assert.match(result.value.message, /report rejected:/);
+    assert.equal(f.cardState(card), 'issued');
+    assert.deepEqual(f.runEvents(run), ['intent', 'launched', 'abandoned']);
+  });
+}
+
 test('collect drops evidence for unknown ac ids with a warning instead of failing (issue #15)', (t) => {
   const f = fixture(t);
   const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
@@ -580,6 +626,7 @@ test('collect drops evidence for unknown ac ids with a warning instead of failin
   );
   const collected = f.collect([card]);
   assert.equal(collected.value.outcome, 'reported');
+  assert.deepEqual(collected.value.droppedAc, ['AC7']);
   assert.match(collected.stderr, /warning: evidence references acceptance ids not on card TS-C-0001 \(AC7\)/);
   const stored = JSON.parse(
     String(f.db.prepare('SELECT evidence_json FROM reports WHERE card_id=?').get(card)?.evidence_json),
@@ -588,7 +635,36 @@ test('collect drops evidence for unknown ac ids with a warning instead of failin
     stored.map((row) => row.ac),
     ['AC1'],
   );
+  assert.deepEqual(
+    JSON.parse(
+      String(
+        f.db.prepare("SELECT detail_json FROM run_events WHERE run_id=? AND status='reported'").get(run)?.detail_json,
+      ),
+    ),
+    { report: join(packet, 'report.json'), commit: collected.value.evidence.commit, dropped_ac: ['AC7'] },
+  );
   assert.equal(f.cardState(card), 'closed_session');
+});
+
+test('an unknown ac marked ok:false is not dropped: P06 refuses the report (review)', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.herdrState({ agentStatus: 'done' });
+  f.writeReport(
+    packet,
+    f.reportValues(run, card, {
+      evidence: [
+        { ac: 'AC1', command: 'echo yes', output: 'yes', ok: true },
+        { ac: 'AC7', command: 'echo extra', output: 'extra', ok: false },
+      ],
+    }),
+  );
+  const refused = f.collect([card], 3);
+  assert.match(refused.stderr, /APS-P06/);
+  assert.match(refused.stderr, /evidence marks unknown acceptance id\(s\) AC7 as ok:false/);
+  assert.equal(f.runStatus(run), 'launched');
+  assert.equal(f.cardState(card), 'working');
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports').get()?.n, 0);
 });
 
 test('usage: one model under two providers records two rows, no conflict (issue #15)', (t) => {

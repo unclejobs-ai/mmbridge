@@ -166,7 +166,11 @@ export async function runApsCommand(
             'APS-P08: DONE_WITH_CONCERNS requires non-empty risks — pass --risks "<what remains uncertain>" (every ok:false evidence item needs it)',
           );
         const evidence = aps.stripUnknownEvidence(db, cardId, jsonFile(options.evidence, 'evidence'));
-        if (evidence.dropped.length > 0)
+        if (evidence.refused.length > 0)
+          process.stderr.write(
+            `[mmbridge] evidence marks unknown acceptance id(s) ${evidence.refused.join(', ')} as ok:false; not dropping them — add them to the card acceptance or resolve the failure\n`,
+          );
+        else if (evidence.dropped.length > 0)
           process.stderr.write(
             `[mmbridge] warning: evidence references acceptance ids not on card ${cardId} (${evidence.dropped.join(', ')}); recorded without them\n`,
           );
@@ -290,16 +294,20 @@ export async function runApsCommand(
         // (issue #15: SANG-C-0012 caught a stray cross-repo merge row).
         const core = await importCore();
         const scope = options.project ?? (await core.loadConfig(projectDir)).aps?.project;
-        if (scope && String(card.project) !== scope)
-          throw new InputError(
-            `card ${cardId} belongs to project ${card.project}, not ${scope}; run aps merge from ${card.project}'s workspace or pass --project ${card.project} deliberately`,
+        if (scope) {
+          if (String(card.project) !== scope)
+            throw new InputError(
+              `card ${cardId} belongs to project ${card.project}, not ${scope}; run aps merge from ${card.project}'s workspace or pass --project ${card.project} deliberately`,
+            );
+        } else
+          process.stderr.write(
+            '[mmbridge] warning: aps merge card lookup is not scoped by project (set aps.project in .mmbridge.config.json or pass --project); a wrong card id can record a stray cross-repo merge row\n',
           );
         const target = required(options.target, 'target');
         let verify: string;
         let merged: string | null = null;
         if (options.mergedSha) {
           merged = sha(options.mergedSha, 'merged-sha');
-          const core = await importCore();
           const result = await core.runCommand('git', ['merge-base', '--is-ancestor', String(card.sha), merged], {
             cwd: projectDir,
           });

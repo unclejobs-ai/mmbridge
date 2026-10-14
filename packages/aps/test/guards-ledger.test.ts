@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { APS_SQL_DIR, ApsInputError, doctor, openApsDb, recordReview } from '../dist/index.js';
+import { APS_SQL_DIR, ApsInputError, addUsage, doctor, openApsDb, recordReview } from '../dist/index.js';
 import {
   CARD,
   ITEM,
@@ -330,4 +330,66 @@ test('migrates a v2 ledger with rows to v3 without data loss', (t) => {
   );
   assert.deepEqual(doctor(migrated), { integrity: ['ok'], foreignKeys: [], missingTriggers: [] });
   assert.equal(migrated.prepare('SELECT state FROM cards WHERE id=?').get(CARD)?.state, 'inspecting');
+});
+
+test('migrates a v3 ledger with rows to v5 without data loss; 0004/0005 take effect', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aps-v3-v5-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const file of ['0001_aps.sql', '0002_worker_runs.sql', '0003_review_recorded_by.sql'] as const)
+    copyFileSync(join(APS_SQL_DIR, file), join(dir, file));
+  const v3 = seed({ sqlDir: dir });
+  move(v3, 'issued', 'working', 'w1');
+  v3.exec(`INSERT INTO worker_runs(id,card_id,attempt,agent_id,harness,kind,model,worktree,branch,base_sha,packet_dir,created_by)
+    VALUES('run-1','${CARD}',1,'w1','herdr','omp','test-model','/w','fac/test','${SHA}','/packet','mgr');
+    INSERT INTO run_events(run_id,status,by_agent) VALUES('run-1','intent','mgr');
+    INSERT INTO run_events(run_id,status,by_agent) VALUES('run-1','launched','mgr');
+    INSERT INTO run_usage(run_id,source,source_ref,basis,provider,model,input_tokens,output_tokens,cost_usd)
+    VALUES('run-1','omp-jsonl','s.jsonl','actual','p1','test-model',10,5,0.25);`);
+  report(v3);
+  move(v3, 'working', 'reported', 'w1');
+  closeAgent(v3, 'w1');
+  move(v3, 'reported', 'closed_session', 'mgr');
+  move(v3, 'closed_session', 'inspecting', 'mgr');
+  review(v3, 'accept');
+  const tables = v3.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
+  const rows = tables.map((table) => ({
+    name: String(table.name),
+    rows: v3.prepare(`SELECT * FROM ${table.name}`).all(),
+  }));
+  const schema = v3
+    .prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all();
+  assert.equal(v3.prepare('PRAGMA user_version').get()?.user_version, 3);
+  const file = join(dir, 'ledger.db');
+  v3.prepare('VACUUM INTO ?').run(file);
+  v3.close();
+  const migrated = openApsDb(file);
+  t.after(() => migrated.close());
+  assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 5);
+  for (const table of rows) assert.deepEqual(migrated.prepare(`SELECT * FROM ${table.name}`).all(), table.rows);
+  // 0004/0005 recreate these objects; every other schema object is untouched.
+  for (const object of schema) {
+    const name = String(object.name);
+    if (['trg_cards_ins', 'trg_reports_ins', 'trg_run_usage_ins', 'idx_run_usage_identity'].includes(name)) continue;
+    assert.deepEqual(migrated.prepare('SELECT type,name,sql FROM sqlite_master WHERE name=?').get(name), object);
+  }
+  assert.deepEqual(doctor(migrated), { integrity: ['ok'], foreignKeys: [], missingTriggers: [] });
+  assert.equal(migrated.prepare('SELECT state FROM cards WHERE id=?').get(CARD)?.state, 'inspecting');
+  // 0004: a reviewOnly acceptance item is accepted and excused from mech command/expect.
+  migrated.exec(`INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner,assignee)
+    VALUES('SS-C-0002','ss','review-only','mech','S','scope','[{"id":"AC1","text":"judged by review","reviewOnly":true}]','none',0,0,'mgr','w1');`);
+  // 0005: same model under a second provider is new evidence, not a conflict.
+  const second = addUsage(migrated, {
+    run_id: 'run-1',
+    source: 'omp-jsonl',
+    source_ref: 's.jsonl',
+    basis: 'actual',
+    provider: 'p2',
+    model: 'test-model',
+    input_tokens: 1,
+    output_tokens: 1,
+    cost_usd: 0.5,
+  });
+  assert.ok(Number.isInteger(second));
+  assert.equal(migrated.prepare('SELECT count(*) AS n FROM run_usage').get()?.n, 2);
 });

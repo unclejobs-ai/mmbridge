@@ -560,6 +560,37 @@ test('report: P08 pre-check names --risks; review-only ACs accept empty evidence
     stored.map((row) => row.ac),
     ['AC1'],
   );
+
+  // An unknown ac marked ok:false is never silently dropped: P06 refuses the report.
+  const failed = f.working();
+  const failing = f.file('failing-evidence.json', [
+    { ac: 'AC1', command: 'echo yes', output: 'yes', ok: true },
+    { ac: 'AC9', command: 'echo extra', output: 'extra', ok: false },
+  ]);
+  const refused = f.run(
+    [
+      'report',
+      failed,
+      '--by',
+      f.worker,
+      '--sha',
+      SHA,
+      '--branch',
+      'feature',
+      '--files',
+      '[]',
+      '--evidence',
+      failing,
+      '--status',
+      'DONE_WITH_CONCERNS',
+      '--risks',
+      'extra check failing',
+    ],
+    3,
+  );
+  assert.match(refused.stderr, /APS-P06/);
+  assert.match(refused.stderr, /evidence marks unknown acceptance id\(s\) AC9 as ok:false/);
+  assert.equal(f.run(['card', 'show', failed]).value.state, 'working');
 });
 test('close-session closes reported cards; refuses working then abandons with note', (t) => {
   const f = fixture(t);
@@ -691,6 +722,9 @@ test('merge card lookup is scoped by project (config aps.project or --project; i
   assert.match(f.run(mergeArgs, 2).stderr, new RegExp(`card ${id} belongs to project test, not other`));
   writeFileSync(join(f.home, '.mmbridge.config.json'), JSON.stringify({ aps: { project: 'test' } }));
   f.run(mergeArgs);
+  rmSync(join(f.home, '.mmbridge.config.json'));
+  const unscoped = f.run(mergeArgs); // unscoped lookup still records, but warns
+  assert.match(unscoped.stderr, /warning: aps merge card lookup is not scoped by project/);
   assert.equal(f.run(['done', id]).value[0].to, 'done');
 });
 test('vision fail moves to revise and records defects', (t) => {
@@ -861,6 +895,7 @@ test('missing actor and unreadable JSON are input errors', (t) => {
 });
 test('git merge H03/H05 rejections, fast-forward target and pre-merge gate', (t) => {
   const f = fixture(t);
+  writeFileSync(join(f.home, '.mmbridge.config.json'), JSON.stringify({ aps: { project: 'test' } }));
   const git = (args: string[]) => {
     const result = spawnSync('git', args, { cwd: f.home, env: f.env, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
