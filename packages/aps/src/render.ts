@@ -6,6 +6,7 @@ interface Acceptance {
   text: string;
   command?: string;
   expect?: string;
+  reviewOnly?: boolean;
 }
 export function renderCardPrompt(db: DatabaseSync, id: string): string {
   const card = getCard(db, id);
@@ -43,7 +44,7 @@ export function renderCardPrompt(db: DatabaseSync, id: string): string {
   );
   for (const ac of acceptance)
     lines.push(
-      `- ${ac.id}: ${ac.text}${ac.command ? `\n  Command: ${ac.command}` : ''}${ac.expect ? `\n  Expect: ${ac.expect}` : ''}`,
+      `- ${ac.id}: ${ac.text}${ac.reviewOnly ? ' (review-only: judged by the review, no report evidence required)' : ''}${ac.command ? `\n  Command: ${ac.command}` : ''}${ac.expect ? `\n  Expect: ${ac.expect}` : ''}`,
     );
   lines.push(
     `\n## Forbidden\n${card.forbidden}`,
@@ -52,7 +53,9 @@ export function renderCardPrompt(db: DatabaseSync, id: string): string {
     `2. Save this evidence template as ${id}-evidence.json, replacing output and ok with actual results:`,
     '```json',
     JSON.stringify(
-      acceptance.map((ac) => ({ ac: ac.id, command: ac.command ?? '', output: '', ok: false })),
+      acceptance
+        .filter((ac) => !ac.reviewOnly)
+        .map((ac) => ({ ac: ac.id, command: ac.command ?? '', output: '', ok: false })),
       null,
       2,
     ),

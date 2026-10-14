@@ -339,7 +339,6 @@ test('usage conflicts are explicit and unknown evidence can be superseded append
     { output_tokens: 1 },
     { cache_read_tokens: 1 },
     { cache_write_tokens: 1 },
-    { provider: 'changed' },
   ])
     assert.throws(() => addUsage(db, { ...replacement, ...payload }), ApsInputError);
   assert.equal(db.prepare('SELECT basis FROM run_usage WHERE id=?').get(unknownId)?.basis, 'unknown');
@@ -366,6 +365,45 @@ test('usage conflicts are explicit and unknown evidence can be superseded append
   const uncollected = addUsage(db, { ...unknown, source: 'none', source_ref: RUN });
   addUsage(db, { ...actual, source_ref: 'recovered', supersedes_id: uncollected });
   assert.equal(db.prepare('SELECT unknown_rows FROM v_run_cost').get()?.unknown_rows, 0);
+});
+
+test('usage identity includes the provider (0005): one model under two providers no longer conflicts', async (t) => {
+  const db = await workingRun();
+  t.after(() => db.close());
+  const base = {
+    run_id: RUN,
+    source: 'omp-jsonl' as const,
+    source_ref: 'session.jsonl',
+    basis: 'actual' as const,
+    model: 'test-model',
+    input_tokens: 10,
+    output_tokens: 5,
+    cost_usd: 0.25,
+  };
+  // parseOmpUsage aggregates per provider+model: a transcript can repeat a model under a real
+  // provider and 'unknown' (message.provider absent). All three rows must coexist.
+  const nullProvider = addUsage(db, base);
+  const zai = addUsage(db, { ...base, provider: 'zai' });
+  const unknownProvider = addUsage(db, { ...base, provider: 'unknown', input_tokens: 7 });
+  assert.notEqual(nullProvider, zai);
+  assert.notEqual(zai, unknownProvider);
+  assert.equal(addUsage(db, { ...base, provider: 'zai' }), zai);
+  assert.throws(() => addUsage(db, { ...base, provider: 'zai', input_tokens: 99 }), ApsInputError);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM run_usage').get()?.n, 3);
+  assert.deepEqual(
+    { ...db.prepare('SELECT usd_actual,io_tokens,usage_rows FROM v_run_cost').get() },
+    {
+      usd_actual: 0.75,
+      io_tokens: 42,
+      usage_rows: 3,
+    },
+  );
+  rejects(
+    db,
+    'L02',
+    `INSERT INTO run_usage(run_id,source,source_ref,provider,model,basis,cost_usd)
+    VALUES('${RUN}','omp-jsonl','session.jsonl','zai','test-model','actual',9)`,
+  );
 });
 
 test('run API rolls back identity, events and usage with the caller transaction', async (t) => {

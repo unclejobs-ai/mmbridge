@@ -1,4 +1,5 @@
 // One executed rejection per card-lifecycle guard. Each case builds the state where every earlier guard passes.
+import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   AC2,
@@ -124,6 +125,41 @@ test('reports: R01–R03, P01–P08', () => {
   const oneFailed = EVIDENCE2.replace('"ok":true}]', '"ok":false}]');
   rejects(db, 'P07', reportSql({ evidence: oneFailed }));
   rejects(db, 'P08', reportSql({ evidence: oneFailed, status: 'DONE_WITH_CONCERNS' }));
+});
+
+test('review-only acceptance (0004): C03/C04 exemptions and empty evidence for review-only ACs', () => {
+  const db = seed();
+  const reportOn = (card: string, evidence: string, status = 'DONE', risks = '') =>
+    `INSERT INTO reports(card_id,attempt,by_agent,sha,branch,files_json,evidence_json,status,risks)
+     VALUES('${card}',1,'w1','${SHA}','feat/x','["a.ts"]','${evidence}','${status}','${risks}')`;
+  rejects(db, 'C03', newCard({ acceptance: '[{"id":"AC1","text":"x","reviewOnly":"yes"}]' }));
+  // A mech card may carry reviewOnly items without command/expect: the review judges them.
+  db.exec(
+    `INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner,assignee)
+     VALUES('SS-C-0002','ss','all review-only','mech','S','scope','[{"id":"AC1","text":"judged by review","reviewOnly":true}]','none',0,0,'mgr','w1'),
+           ('SS-C-0003','ss','mixed','mech','S','scope','[{"id":"AC1","text":"provable","command":"pnpm test","expect":"exit 0"},{"id":"AC2","text":"judged by review","reviewOnly":true}]','none',0,0,'mgr','w1');`,
+  );
+  db.exec(tr('issued', 'working', 'w1', '', 'SS-C-0002'));
+  db.exec(reportOn('SS-C-0002', '[]'));
+  db.exec(tr('working', 'reported', 'w1', '', 'SS-C-0002'));
+  db.exec(tr('issued', 'working', 'w1', '', 'SS-C-0003'));
+  rejects(db, 'R02', reportOn('SS-C-0003', '[]'));
+  rejects(db, 'R03', reportOn('SS-C-0003', '[{"ac":"AC2","command":"c","output":"o","ok":true}]'));
+  // Covering only the provable AC satisfies R02/R03; evidence naming a reviewOnly id is allowed too.
+  db.exec(
+    reportOn(
+      'SS-C-0003',
+      '[{"ac":"AC1","command":"pnpm test","output":"ok","ok":true},{"ac":"AC2","command":"review","output":"ok","ok":true}]',
+    ),
+  );
+  db.exec(tr('working', 'reported', 'w1', '', 'SS-C-0003'));
+  assert.deepEqual(
+    db
+      .prepare("SELECT id FROM cards WHERE state='reported' ORDER BY id")
+      .all()
+      .map((row) => row.id),
+    ['SS-C-0002', 'SS-C-0003'],
+  );
 });
 
 test('session close: S01', () => {

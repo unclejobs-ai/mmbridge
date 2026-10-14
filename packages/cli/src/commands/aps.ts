@@ -160,14 +160,28 @@ export async function runApsCommand(
         } catch {
           throw new InputError('--files must be JSON or @file');
         }
+        const status = choice(options.status, 'status', ['DONE', 'DONE_WITH_CONCERNS', 'BLOCKED']);
+        if (status === 'DONE_WITH_CONCERNS' && !(options.risks ?? '').trim())
+          throw new InputError(
+            'APS-P08: DONE_WITH_CONCERNS requires non-empty risks — pass --risks "<what remains uncertain>" (every ok:false evidence item needs it)',
+          );
+        const evidence = aps.stripUnknownEvidence(db, cardId, jsonFile(options.evidence, 'evidence'));
+        if (evidence.refused.length > 0)
+          process.stderr.write(
+            `[mmbridge] evidence marks unknown acceptance id(s) ${evidence.refused.join(', ')} as ok:false; not dropping them — add them to the card acceptance or resolve the failure\n`,
+          );
+        else if (evidence.dropped.length > 0)
+          process.stderr.write(
+            `[mmbridge] warning: evidence references acceptance ids not on card ${cardId} (${evidence.dropped.join(', ')}); recorded without them\n`,
+          );
         return aps.recordReport(db, cardId, {
           by_agent: by,
           recorded_by: options.recordedBy ?? null,
           sha: sha(options.sha, 'sha'),
           branch: required(options.branch, 'branch'),
           files_json: files,
-          evidence_json: jsonFile(options.evidence, 'evidence'),
-          status: choice(options.status, 'status', ['DONE', 'DONE_WITH_CONCERNS', 'BLOCKED']),
+          evidence_json: evidence.json,
+          status,
           risks: options.risks ?? '',
           pr_url: options.pr ?? null,
           body_md: options.body ? fileText(options.body) : '',
@@ -276,12 +290,24 @@ export async function runApsCommand(
         if (Boolean(options.mergedSha) === Boolean(options.appliedRef))
           throw new InputError('specify exactly one of --merged-sha or --applied-ref');
         const card = aps.getCard(db, cardId);
+        // One ledger serves every project; a merge must land on a card of THIS workspace's project
+        // (issue #15: SANG-C-0012 caught a stray cross-repo merge row).
+        const core = await importCore();
+        const scope = options.project ?? (await core.loadConfig(projectDir)).aps?.project;
+        if (scope) {
+          if (String(card.project) !== scope)
+            throw new InputError(
+              `card ${cardId} belongs to project ${card.project}, not ${scope}; run aps merge from ${card.project}'s workspace or pass --project ${card.project} deliberately`,
+            );
+        } else
+          process.stderr.write(
+            '[mmbridge] warning: aps merge card lookup is not scoped by project (set aps.project in .mmbridge.config.json or pass --project); a wrong card id can record a stray cross-repo merge row\n',
+          );
         const target = required(options.target, 'target');
         let verify: string;
         let merged: string | null = null;
         if (options.mergedSha) {
           merged = sha(options.mergedSha, 'merged-sha');
-          const core = await importCore();
           const result = await core.runCommand('git', ['merge-base', '--is-ancestor', String(card.sha), merged], {
             cwd: projectDir,
           });

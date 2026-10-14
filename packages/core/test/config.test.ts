@@ -181,6 +181,25 @@ test('loadConfig: throws on invalid bridge config shape', async () => {
   }
 });
 
+test('loadConfig: throws on invalid aps config shape (dbPath blank or non-string, project blank)', async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
+  try {
+    for (const aps of [{ dbPath: '' }, { dbPath: '   ' }, { dbPath: 5 }, { project: '  ' }]) {
+      await fs.writeFile(path.join(tmpDir, '.mmbridge.config.json'), JSON.stringify({ aps }), 'utf8');
+      await assert.rejects(() => loadConfig(tmpDir), /Invalid mmbridge config/);
+    }
+    await fs.writeFile(
+      path.join(tmpDir, '.mmbridge.config.json'),
+      JSON.stringify({ aps: { dbPath: '/tmp/aps.db', project: 'xmas' } }),
+      'utf8',
+    );
+    const config = await loadConfig(tmpDir);
+    assert.deepEqual(config.aps, { dbPath: '/tmp/aps.db', project: 'xmas' });
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test('saveConfig: writes a new .mmbridge.config.json when none exists', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mmbridge-cfg-test-'));
   try {

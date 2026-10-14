@@ -516,6 +516,213 @@ test('re-run after partial failure is idempotent (no duplicate report/usage rows
   assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports').get()?.n, 1);
 });
 
+test('P08 pre-check names the packet report.json to fix (issue #15)', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.writeReport(packet, f.reportValues(run, card, { status: 'DONE_WITH_CONCERNS' }));
+  const refused = f.collect([card], 3);
+  assert.match(
+    refused.stderr,
+    new RegExp(`APS-P08: DONE_WITH_CONCERNS requires non-empty risks — add "risks" to .*${run}/report\\.json`),
+  );
+  assert.equal(f.runStatus(run), 'launched');
+  assert.equal(f.cardState(card), 'working');
+  f.herdrState({ agentStatus: 'done' });
+  f.writeReport(packet, f.reportValues(run, card, { status: 'DONE_WITH_CONCERNS', risks: 'flaky on cold start' }));
+  const fixed = f.collect([card]);
+  assert.equal(fixed.value.outcome, 'reported');
+  assert.equal(f.cardState(card), 'closed_session');
+});
+
+test('--abandon recovers a wedged lane whose report cannot be recorded (issue #15)', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.writeReport(
+    packet,
+    f.reportValues(run, card, { evidence: [{ ac: 'AC1', command: 'echo yes', output: 'yes', ok: false }] }),
+  );
+  assert.match(f.collect([card], 3).stderr, /APS-P07/);
+  assert.equal(f.cardState(card), 'working');
+  assert.equal(f.runStatus(run), 'launched');
+  // --abandon needs a proven session end; a present pane still refuses with the original error.
+  assert.match(f.collect([card, '--abandon'], 3).stderr, /APS-P07/);
+  assert.equal(f.runStatus(run), 'launched');
+  f.herdrState({ closed: true });
+  const abandoned = f.collect([card, '--abandon']);
+  assert.equal(abandoned.value.outcome, 'abandoned');
+  assert.equal(abandoned.value.code, 0);
+  assert.match(abandoned.value.message, /report rejected: APS-P07/);
+  assert.equal(f.cardState(card), 'issued');
+  assert.equal(f.runStatus(run), 'abandoned');
+  assert.deepEqual(f.runEvents(run), ['intent', 'launched', 'abandoned']);
+  assert.equal(f.agentStatus(run), 'closed');
+  const detail = JSON.parse(
+    String(
+      f.db.prepare("SELECT detail_json FROM run_events WHERE run_id=? AND status='abandoned'").get(run)?.detail_json,
+    ),
+  );
+  assert.match(String(detail.report_rejected), /APS-P07/);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports').get()?.n, 0);
+});
+
+test('--all --abandon rethrows environmental failures (H09) without abandoning (review)', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.herdrState({ closed: true });
+  f.writeReport(packet, f.reportValues(run, card));
+  // A valid report survives loss of its worktree when the fallback cwd cannot verify its commit.
+  rmSync(f.worktree, { recursive: true, force: true });
+  const result = f.collect(['--all', '--abandon'], 3);
+  assert.equal(result.value[0].code, 3);
+  assert.match(result.value[0].message, /APS-H09/);
+  assert.equal(f.runStatus(run), 'launched');
+  assert.equal(f.cardState(card), 'working');
+  assert.deepEqual(f.runEvents(run), ['intent', 'launched']);
+  assert.equal(f.agentStatus(run), 'active');
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports').get()?.n, 0);
+});
+
+test('--all --abandon preserves runs on report filesystem errors', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.herdrState({ closed: true });
+  mkdirSync(join(packet, 'report.json'));
+  const result = f.collect(['--all', '--abandon'], 1);
+  assert.match(result.value[0].message, /EISDIR/);
+  assert.equal(f.runStatus(run), 'launched');
+  assert.equal(f.cardState(card), 'working');
+  assert.deepEqual(f.runEvents(run), ['intent', 'launched']);
+});
+
+for (const invalid of ['syntax', 'shape', 'mismatch'] as const) {
+  test(`--abandon recovers an ended lane with a ${invalid} report refusal`, (t) => {
+    const f = fixture(t);
+    const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+    f.herdrState({ closed: true });
+    writeFileSync(
+      join(packet, 'report.json'),
+      invalid === 'syntax' ? '{' : JSON.stringify(invalid === 'shape' ? [] : f.reportValues(run, card2)),
+    );
+    const result = f.collect([card, '--abandon']);
+    assert.equal(result.value.outcome, 'abandoned');
+    assert.match(result.value.message, /report rejected:/);
+    assert.equal(f.cardState(card), 'issued');
+    assert.deepEqual(f.runEvents(run), ['intent', 'launched', 'abandoned']);
+  });
+}
+
+test('collect drops evidence for unknown ac ids with a warning instead of failing (issue #15)', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.herdrState({ agentStatus: 'done' });
+  f.writeReport(
+    packet,
+    f.reportValues(run, card, {
+      evidence: [
+        { ac: 'AC1', command: 'echo yes', output: 'yes', ok: true },
+        { ac: 'AC7', command: 'echo extra', output: 'extra', ok: true },
+      ],
+    }),
+  );
+  const collected = f.collect([card]);
+  assert.equal(collected.value.outcome, 'reported');
+  assert.deepEqual(collected.value.droppedAc, ['AC7']);
+  assert.match(collected.stderr, /warning: evidence references acceptance ids not on card TS-C-0001 \(AC7\)/);
+  const stored = JSON.parse(
+    String(f.db.prepare('SELECT evidence_json FROM reports WHERE card_id=?').get(card)?.evidence_json),
+  ) as { ac: string }[];
+  assert.deepEqual(
+    stored.map((row) => row.ac),
+    ['AC1'],
+  );
+  assert.deepEqual(
+    JSON.parse(
+      String(
+        f.db.prepare("SELECT detail_json FROM run_events WHERE run_id=? AND status='reported'").get(run)?.detail_json,
+      ),
+    ),
+    { report: join(packet, 'report.json'), commit: collected.value.evidence.commit, dropped_ac: ['AC7'] },
+  );
+  assert.equal(f.cardState(card), 'closed_session');
+});
+
+test('an unknown ac marked ok:false is not dropped: P06 refuses the report (review)', (t) => {
+  const f = fixture(t);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });
+  f.herdrState({ agentStatus: 'done' });
+  f.writeReport(
+    packet,
+    f.reportValues(run, card, {
+      evidence: [
+        { ac: 'AC1', command: 'echo yes', output: 'yes', ok: true },
+        { ac: 'AC7', command: 'echo extra', output: 'extra', ok: false },
+      ],
+    }),
+  );
+  const refused = f.collect([card], 3);
+  assert.match(refused.stderr, /APS-P06/);
+  assert.match(refused.stderr, /evidence marks unknown acceptance id\(s\) AC7 as ok:false/);
+  assert.equal(f.runStatus(run), 'launched');
+  assert.equal(f.cardState(card), 'working');
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM reports').get()?.n, 0);
+});
+
+test('usage: one model under two providers records two rows, no conflict (issue #15)', (t) => {
+  const f = fixture(t);
+  const session = join(f.home, 'session.jsonl');
+  const line = (provider?: string) => ({
+    type: 'message',
+    message: {
+      ...(provider ? { provider } : {}),
+      model: 'test/model',
+      usage: { input: 10, output: 5, cacheRead: 1, cacheWrite: 2, totalTokens: 18, cost: { total: 0.0123 } },
+    },
+  });
+  writeFileSync(session, `${JSON.stringify(line('test'))}\n${JSON.stringify(line())}\n`);
+  const { run, packet } = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1', session_ref: session });
+  f.herdrState({ agentStatus: 'done' });
+  f.writeReport(packet, f.reportValues(run, card));
+  const collected = f.collect([card]);
+  assert.equal(collected.value.code, 0);
+  assert.equal(f.runStatus(run), 'closed');
+  assert.deepEqual(
+    f.db
+      .prepare('SELECT provider FROM run_usage WHERE run_id=? ORDER BY provider')
+      .all(run)
+      .map((row) => row.provider),
+    ['test', 'unknown'],
+  );
+});
+
+test('collect with no live run explains the card state and the next command (issue #15)', (t) => {
+  const f = fixture(t);
+  const worker = newAgent(f.db, { name: 'manual', layer: 'L3', model: 'test', vendor: 'test', project: 'test' });
+  startCard(f.db, card, worker);
+  reportByHand(f.db, card, worker, {
+    sha: f.git(['rev-parse', 'HEAD']),
+    branch: 'worker',
+    files: ['src/x.ts'],
+    evidence: [{ ac: 'AC1', command: 'echo yes', output: 'yes', ok: true }],
+  });
+  closeAgentFirst(f.db, worker);
+  moveRaw(f.db, card, ['reported', 'closed_session']);
+  const refused = f.collect([card], 2);
+  assert.match(
+    refused.value.message,
+    new RegExp(
+      `no live run; card ${card} is closed_session with its attempt-1 report already recorded; nothing to collect \\(next: mmbridge aps review ${card}\\)`,
+    ),
+  );
+
+  const worker2 = newAgent(f.db, { name: 'manual2', layer: 'L3', model: 'test', vendor: 'test', project: 'test' });
+  startCard(f.db, card2, worker2);
+  const working = f.collect([card2], 2);
+  assert.match(
+    working.value.message,
+    new RegExp(`no live run; card ${card2} is working without a live dispatched run`),
+  );
+});
+
 test('--all continues after one failure', (t) => {
   const f = fixture(t);
   const first = f.seedRun(card, { pane_id: 'w1:p9', terminal_id: 'terminal-1' });

@@ -738,6 +738,7 @@ export async function main(): Promise<void> {
     ['--target <target>', 'Merge/apply target'],
     ['--gate', 'Record gate'],
     ['--base-ref <ref>', 'Gate base ref'],
+    ['--project <id>', 'Require the card to belong to this project (default: config aps.project)'],
   ]);
   addAps(apsCmd, 'todo-render', 'todo-render', [
     ['--out <path>', 'Atomically write markdown'],
