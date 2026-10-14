@@ -8,8 +8,8 @@ import {
   limitBytes,
   nowIso,
   projectSlug,
+  runCommand,
 } from '../dist/utils.js';
-
 // projectSlug
 test('projectSlug: converts path separators to dashes', () => {
   const slug = projectSlug('/home/user/my-project');
@@ -231,4 +231,17 @@ test('nowIso: returns current time approximately', () => {
   const ts = new Date(iso).getTime();
   assert.ok(ts >= before);
   assert.ok(ts <= after);
+});
+
+test('runCommand: onStdout and onStderr callbacks receive chunks', async () => {
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  await runCommand(process.execPath, ['-e', 'console.log("out"); console.error("err");'], {
+    onStdout: (t) => stdoutChunks.push(t),
+    onStderr: (t) => stderrChunks.push(t),
+  });
+  assert.ok(stdoutChunks.length > 0);
+  assert.ok(stderrChunks.length > 0);
+  assert.ok(stdoutChunks.some((c) => c.includes('out')));
+  assert.ok(stderrChunks.some((c) => c.includes('err')));
 });

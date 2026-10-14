@@ -1353,7 +1353,7 @@ if (result.code !== 0) process.exit(result.code || 1);
   assert.fail(`trapped grandchild ${pid} still alive after close-path SIGKILL`);
 });
 
-test('CAP-1: changed-path list over 1 MiB still matches when filter so required gate runs and fails', (t) => {
+test('CAP-1b: changed-path list over 1 MiB (src/a.ts only matching; >1M non-matching zpad names sort after) still matches when filter so required gate runs and fails', (t) => {
   const f = fixture(t);
   const g: Gate = {
     id: 'change.cap-changed',
@@ -1367,10 +1367,13 @@ test('CAP-1: changed-path list over 1 MiB still matches when filter so required 
   const base = f.commit();
   mkdirSync(join(f.root, 'src'), { recursive: true });
   writeFileSync(join(f.root, 'src/a.ts'), 'mod');
-  const NUM = 5300;
+  // >1 MiB of non-matching names that sort after src/a.ts in git diff --name-only output
+  mkdirSync(join(f.root, 'zpad'), { recursive: true });
+  const longName = 'z'.repeat(200);
+  const NUM = 6000; // ~1.2 MiB of names
   for (let i = 0; i < NUM; i++) {
-    const long = 'x'.repeat(170) + i.toString().padStart(4, '0');
-    writeFileSync(join(f.root, `src/f${long}.ts`), '1');
+    const name = `zpad/${longName}${i.toString().padStart(4, '0')}.txt`;
+    writeFileSync(join(f.root, name), '1');
   }
   f.git(['add', '.']);
   f.git(['commit', '--quiet', '-m', 'large cp']);
@@ -1380,7 +1383,7 @@ test('CAP-1: changed-path list over 1 MiB still matches when filter so required 
   assert.doesNotMatch(res.value.gates[0].message || '', /No matching changed paths|skipped/);
 });
 
-test('CAP-1: count-lines metric over 1 MiB of output counts true value so ratchet fails and --update-baseline refused', (t) => {
+test('CAP-1b: count-lines over 1 MiB, baseline 45000 (between truncated/true), verdict fail, --update-baseline refused and baseline byte-identical', (t) => {
   const f = fixture(t);
   const NUM_LINES = 50000;
   const g: Gate = {
@@ -1398,7 +1401,7 @@ test('CAP-1: count-lines metric over 1 MiB of output counts true value so ratche
     metrics: [{ id: 'lines', direction: 'lower', source: { kind: 'count-lines' } }],
   };
   f.config([g]);
-  f.baseline(40000, 'change.cap-lines', 'lines');
+  f.baseline(45000, 'change.cap-lines', 'lines');
   const base = f.commit();
   const res = f.run(['--base-ref', base], 1);
   assert.equal(res.value.verdict, 'fail');

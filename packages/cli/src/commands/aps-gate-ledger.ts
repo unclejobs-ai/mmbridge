@@ -16,7 +16,7 @@ export const GATE_TOKEN_RULES = [
     // Fail-safe: bounded {0,32} trailing segment after keyword + negative-lookahead list of safe continuations (gi).
     // Replaces closed suffix list; redacts PASSWORD2= etc while leaving author, auth_failures, tokenizer, keyboard, key_count=4 unredacted.
     pattern:
-      '(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?!(?:or|ors|ority|ored|oring|ori[sz]ation|ori[sz]e[ds]?|enticat[a-z]*|izer|izers|ization|board|boards|_?count|_?failures?|_?errors?|_?total|_?type|_?url|_?file|_?path|_?name|_?tokens?)(?![A-Za-z0-9]))[A-Za-z0-9_]{0,32}(?![A-Za-z0-9_])["\']?\\s*[:=]\\s*(?!\\[REDACTED_)(?:"(?:[^"\\\\]|\\\\.)*"|\'[^\']*\'|\\S+)',
+      '(?<![A-Za-z0-9_])[A-Za-z0-9_]{0,128}(?:key|secret|token|passw(?:or)?d|pwd|credential|auth)(?!(?:or|ors|ority|ored|oring|ori[sz]ation|ori[sz]e[ds]?|enticat[a-z]*|izer|izers|ization|board|boards|_?count|_?failures?|_?errors?|_?total|_?type|_?url|_?file|_?path|_?name)(?![A-Za-z0-9]))[A-Za-z0-9_]{0,32}(?![A-Za-z0-9_])["\']?\\s*[:=]\\s*(?:"(?:[^"\\\\]|\\\\.)*"|\'[^\']*\'|\\S+)',
     replacement: '[REDACTED_SECRET]',
     label: 'secret assignment',
     flags: 'gi',
