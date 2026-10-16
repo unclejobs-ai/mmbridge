@@ -28,7 +28,8 @@ Put these lines in the task's `assignment` (or `task`) text, one line each:
 ```text
 APS-CARD: <card id>          required; tasks without it are ignored
 APS-LANE: <lane name>        optional; default = the task id. The lane name is the agent identity:
-                             an open agent with that name in the card's project is reused.
+                             an idle open agent with that name in the card's project is reused; a lane
+                             whose agent still holds a working/reported card is refused (busy).
 APS-WORKTREE: /abs/worktree  optional; the lane's own git worktree (default = the omp session cwd)
 ```
 
@@ -39,7 +40,7 @@ mmbridge aps lane start <card> --omp-id <task id> --lane <name> --json \
   --omp-session-dir <parent session dir> [--worktree <dir>] [--db $APS_HOOK_DB]
 ```
 
-`lane start` starts the card, writes the worker run (`harness=omp`, `launched` with `{omp_id, session_ref, lane}`), and writes the dispatch packet. The JSON result in the log names the packet.
+`lane start` finds the task transcript `<task id>.jsonl` under the parent session dir (nested task-of-task transcripts included), starts the card, writes the worker run (`harness=omp`, `launched` with `{omp_id, session_ref, lane}`, `session_ref` = that exact transcript), and writes the dispatch packet. The JSON result in the log names the packet. The session dir must lie inside `~/.omp/agent/sessions` (real path).
 
 ## Hand-off and close
 
@@ -50,6 +51,6 @@ mmbridge aps lane start <card> --omp-id <task id> --lane <name> --json \
    mmbridge aps lane end <card> --omp-id <task id> --by <manager>
    ```
 
-   This refuses with `APS-H08` until the task's yield output (`<session dir>/<task id>.md`) exists. It refuses with `APS-H10` when the yield has no `report.json`; pass `--abandon` to abandon the run instead.
+   This refuses with `APS-H08` until the task's yield output (`<transcript dir>/<task id>.md`, next to the transcript recorded at start) exists. It refuses with `APS-H10` when the yield has no `report.json`; pass `--abandon` to abandon the run instead.
 
 `mmbridge aps audit` lists live omp subagents that have no worker run as `UNRECORDED_LANE`. Use `--no-omp-sessions` to skip that scan, or `--omp-live-min <n>` to change the liveness window.

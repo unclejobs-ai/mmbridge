@@ -1,24 +1,16 @@
-import { type Dirent, closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, join, relative } from 'node:path';
+import { closeSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
+import { basename, relative } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuditLane } from '@mmbridge/aps';
-import { expandGlob } from './aps-collect-probe.js';
 import { sessionModel } from './aps-lanes.js';
+import { ompSessionsRoot, patternTranscripts, subagentTranscripts } from './aps-omp-transcripts.js';
 import { importAps } from './helpers.js';
 
 /** A subagent transcript written to within this many minutes may still be running (APS audit D3). */
 export const DEFAULT_OMP_LIVE_MIN = 10;
 const TAIL_BYTES = 64 * 1024;
-/** Subagent transcripts sit in `<root>/<cwd-slug>/<parent-session>/` and nest one directory per spawning subagent. */
-const MAX_SUBAGENT_DEPTH = 4;
 
 export type OmpSessionState = 'working' | 'idle' | 'parked' | 'unknown';
-
-/** Same root as the pointer-mode `session_ref` glob (`ompSessionGlob`). */
-export function ompSessionsRoot(): string {
-  return join(homedir(), '.omp', 'agent', 'sessions');
-}
 
 /** First (`from: 'head'`) or last `bytes` of a file; null when unreadable. */
 function readSlice(file: string, bytes: number, from: 'head' | 'tail'): string | null {
@@ -79,46 +71,22 @@ function sessionCwd(file: string): string | null {
   return null;
 }
 
-function entries(dir: string): Dirent[] {
-  try {
-    return readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
+/** Task transcripts (see `subagentTranscripts`) modified at or after `since`. */
+export function recentSubagentSessions(root: string, since: number): Array<{ file: string; mtime: number }> {
+  const found: Array<{ file: string; mtime: number }> = [];
+  for (const file of subagentTranscripts(root)) {
+    try {
+      const mtime = statSync(file).mtimeMs;
+      if (mtime >= since) found.push({ file, mtime });
+    } catch {}
   }
+  return found;
 }
 
 /**
- * Every subagent transcript (any `.jsonl` inside a parent session directory) modified at or after `since`.
- * `_`-prefixed names are omp-internal sessions (`__advisor`), not task lanes.
+ * Real paths of the transcripts tied to a live ledger run: its exact `session_ref`, or the single match of a
+ * pointer-mode pattern. An ambiguous pattern ties no file, so its candidates stay visible as unrecorded.
  */
-export function recentSubagentSessions(root: string, since: number): Array<{ file: string; mtime: number }> {
-  const found: Array<{ file: string; mtime: number }> = [];
-  for (const slug of entries(root)) {
-    if (!slug.isDirectory()) continue;
-    for (const parent of entries(join(root, slug.name))) {
-      if (!parent.isDirectory()) continue;
-      const pending: Array<[string, number]> = [[join(root, slug.name, parent.name), 1]];
-      for (let next = pending.pop(); next; next = pending.pop()) {
-        const [dir, depth] = next;
-        for (const entry of entries(dir)) {
-          const path = join(dir, entry.name);
-          if (entry.isDirectory()) {
-            if (depth < MAX_SUBAGENT_DEPTH) pending.push([path, depth + 1]);
-            continue;
-          }
-          if (!entry.isFile() || !entry.name.endsWith('.jsonl') || /^[._]/.test(entry.name)) continue;
-          try {
-            const mtime = statSync(path).mtimeMs;
-            if (mtime >= since) found.push({ file: path, mtime });
-          } catch {}
-        }
-      }
-    }
-  }
-  return found.sort((a, b) => a.file.localeCompare(b.file));
-}
-
-/** Transcripts owned by a live ledger run: its `session_ref` file, or every match of a pointer-mode glob. */
 export function recordedSessionFiles(db: DatabaseSync): Set<string> {
   const files = new Set<string>();
   if (Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0) < 2) return files;
@@ -129,8 +97,11 @@ export function recordedSessionFiles(db: DatabaseSync): Set<string> {
     )
     .all() as unknown as Array<{ session_ref: string }>;
   for (const { session_ref: ref } of rows) {
-    if (ref.includes('*')) for (const path of expandGlob(ref)) files.add(path);
-    else if (ref.endsWith('.jsonl')) files.add(ref);
+    const matches = ref.includes('*') ? patternTranscripts(ref) : ref.endsWith('.jsonl') ? [ref] : [];
+    if (matches.length !== 1) continue;
+    try {
+      files.add(realpathSync(matches[0]));
+    } catch {}
   }
   return files;
 }
@@ -148,7 +119,12 @@ export async function ompSessionLanes(
   const aps = await importAps();
   const lanes: AuditLane[] = [];
   for (const { file, mtime: lastOutputAt } of recentSubagentSessions(root, now - liveMs)) {
-    if (recorded.has(file) || ompSessionState(file) !== 'working') continue;
+    if (ompSessionState(file) !== 'working') continue;
+    let real = file;
+    try {
+      real = realpathSync(file);
+    } catch {}
+    if (recorded.has(real)) continue;
     const model = sessionModel(file);
     const { tier, provider } = aps.classifyModel(model);
     lanes.push({

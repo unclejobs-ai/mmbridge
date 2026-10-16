@@ -6,7 +6,6 @@ import { ApsInputError, type Row, type UsageByModel } from '@mmbridge/aps';
 import { pidAlive } from './aps-adopt.js';
 import {
   type LaunchInfo,
-  expandGlob,
   isFile,
   launchInfo,
   probeKind,
@@ -16,6 +15,7 @@ import {
 } from './aps-collect-probe.js';
 import { confirmPaneEnded, getPane } from './aps-herdr.js';
 import { newestSession } from './aps-lanes.js';
+import { patternTranscripts } from './aps-omp-transcripts.js';
 import { type ApsCommandOptions, emit, parseDuration, required } from './aps-shared.js';
 import { exitWithError, importAps, importCore } from './helpers.js';
 
@@ -165,7 +165,7 @@ function transcriptPath(run: Row, launch: LaunchInfo, opts: CollectRunOptions): 
     candidates.push(join(opts.ompSessionDir, `${detail.omp_id}.jsonl`));
   const ref = typeof detail.session_ref === 'string' ? detail.session_ref : '';
   if (ref.includes('*')) {
-    const matches = expandGlob(ref).filter(isFile);
+    const matches = patternTranscripts(ref).filter(isFile);
     if (matches.length === 1) candidates.push(matches[0]);
     else if (matches.length > 1) ambiguous = true;
   } else if (ref && typeof detail.pid === 'number') {

@@ -3,7 +3,8 @@ import { dirname, resolve } from 'node:path';
 import { ApsInputError, type AuditLane, type AuditReport, type VisionVerdict } from '@mmbridge/aps';
 import { closePane, confirmPaneEnded } from './aps-herdr.js';
 import { applyLedgerRecording, herdrLanes, ledgerLanes, liveRunPids, recentVisionVerdicts } from './aps-lanes.js';
-import { DEFAULT_OMP_LIVE_MIN, ompSessionLanes, ompSessionsRoot, recordedSessionFiles } from './aps-omp-lanes.js';
+import { DEFAULT_OMP_LIVE_MIN, ompSessionLanes, recordedSessionFiles } from './aps-omp-lanes.js';
+import { ompSessionsRoot } from './aps-omp-transcripts.js';
 import { probeQuota } from './aps-quota.js';
 import { exitWithError, importAps, importCore, jsonOutput } from './helpers.js';
 

@@ -1,13 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ApsInputError } from '@mmbridge/aps';
 import { launchInfo, sessionClose } from './aps-collect-probe.js';
 import { collectRun } from './aps-collect.js';
-import { contract, dispatchExitCode, ompSessionGlob, reportSchema } from './aps-dispatch.js';
-import { resolveSessionRef, sessionModel } from './aps-lanes.js';
+import { contract, dispatchExitCode, reportSchema } from './aps-dispatch.js';
+import { sessionModel } from './aps-lanes.js';
+import {
+  findTaskTranscripts,
+  ompSessionsRoot,
+  patternTranscripts,
+  sessionDirInsideRoot,
+} from './aps-omp-transcripts.js';
 import { type ApsCommandOptions, choice, emit, required } from './aps-shared.js';
 import { exitWithError, importAps, importCore } from './helpers.js';
 
@@ -20,8 +26,8 @@ export interface ApsLaneOptions extends ApsCommandOptions {
 
 /** Same alphabet as `dispatch --omp-id`; a lane name is the worker identity (D6), so it gets the same rule. */
 const TASK_ID = /^[A-Za-z0-9._@-]{1,64}$/;
-/** How long `lane start` waits for a just-spawned task transcript to name its model when none is given. */
-const MODEL_WAIT_MS = 20_000;
+/** How long `lane start` waits for a just-spawned task's transcript (and its model, when none is given). */
+const TRANSCRIPT_WAIT_MS = 20_000;
 
 function validated(value: unknown, flag: string): string {
   const text = required(value, flag).trim();
@@ -29,10 +35,12 @@ function validated(value: unknown, flag: string): string {
   return text;
 }
 
+/** `--omp-session-dir` as a real path; it must be an existing directory inside the omp sessions root. */
 function sessionDirFlag(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
-  if (!isAbsolute(value)) throw new ApsInputError('--omp-session-dir must be an absolute directory');
-  return value;
+  const real = isAbsolute(value) ? sessionDirInsideRoot(value) : null;
+  if (!real) throw new ApsInputError(`--omp-session-dir must be an existing directory inside ${ompSessionsRoot()}`);
+  return real;
 }
 
 export async function runApsLaneCommand(action: string, id: string | undefined, options: ApsLaneOptions) {
@@ -51,8 +59,9 @@ export async function runApsLaneCommand(action: string, id: string | undefined, 
 }
 
 /**
- * Records an omp task lane that is already running: reuse the open agent named after the lane (or create it),
- * start the card, and write the pointer-mode run (`launched` with `{omp_id, session_ref}`) plus its packet.
+ * Records an omp task lane that is already running: reuse the idle open agent named after the lane (or create it),
+ * start the card, and write the run (`launched` with `{omp_id, session_ref, lane}`, `session_ref` = the task's
+ * exact transcript) plus its packet.
  */
 export async function laneStart(id: string | undefined, options: ApsLaneOptions): Promise<Record<string, unknown>> {
   const aps = await importAps();
@@ -61,7 +70,6 @@ export async function laneStart(id: string | undefined, options: ApsLaneOptions)
   const ompId = validated(options.ompId, 'omp-id');
   const lane = validated(options.lane, 'lane');
   const sessionDir = sessionDirFlag(options.ompSessionDir);
-  const sessionRef = sessionDir ? join(sessionDir, `${ompId}.jsonl`) : ompSessionGlob(ompId);
   const layer = choice(options.layer, 'layer', ['L2', 'L3'], 'L3');
   const projectDir = resolve(options.projectDir ?? process.cwd());
   const worktree = options.worktree === undefined ? projectDir : options.worktree;
@@ -94,19 +102,43 @@ export async function laneStart(id: string | undefined, options: ApsLaneOptions)
     if (aps.getLiveRun(ledger, cardId)) throw new Error('APS-N01: card already has a live run');
     if (card.state !== 'issued' && card.state !== 'revise')
       throw new ApsInputError(`card ${cardId} must be issued or revise`);
-    const findAgent = () =>
-      ledger
+    // A lane name is one worker: reuse its open agent only while that agent holds no other live card, so ending
+    // or abandoning this card can never close or return someone else's work.
+    const laneAgent = () => {
+      const agent = ledger
         .prepare(
           "SELECT id,model FROM agents WHERE name=? AND project IS ? AND status<>'closed' ORDER BY started_at DESC, id DESC LIMIT 1",
         )
         .get(lane, project);
-    let model = options.model?.trim() || String(findAgent()?.model ?? '');
-    for (const deadline = Date.now() + MODEL_WAIT_MS; !model && Date.now() < deadline; await delay(500)) {
-      const file = resolveSessionRef(sessionRef);
-      model = (file && sessionModel(file)) || '';
+      if (!agent) return undefined;
+      const busy = ledger
+        .prepare("SELECT id,state FROM cards WHERE assignee=? AND state IN ('working','reported') ORDER BY id LIMIT 1")
+        .get(agent.id);
+      if (busy)
+        throw new ApsInputError(
+          `lane ${lane} is busy: agent ${String(agent.id)} holds ${String(busy.id)} (${String(busy.state)}); end that lane first or pick another --lane`,
+        );
+      return agent;
+    };
+    let model = options.model?.trim() || String(laneAgent()?.model ?? '');
+    // The task was just spawned: wait for exactly one transcript to exist (and name its model if needed).
+    let transcripts: string[] = [];
+    for (const deadline = Date.now() + TRANSCRIPT_WAIT_MS; ; await delay(500)) {
+      transcripts = findTaskTranscripts(ompId, sessionDir);
+      if (transcripts.length > 1) break;
+      if (transcripts.length === 1 && !model) model = sessionModel(transcripts[0]) ?? '';
+      if ((transcripts.length === 1 && model) || Date.now() >= deadline) break;
     }
+    const where = sessionDir ?? ompSessionsRoot();
+    if (transcripts.length === 0)
+      throw new ApsInputError(`no omp transcript ${ompId}.jsonl under ${where} after ${TRANSCRIPT_WAIT_MS / 1000}s`);
+    if (transcripts.length > 1)
+      throw new ApsInputError(
+        `omp task ${ompId} is ambiguous under ${where}: ${transcripts.join(', ')}; pass --omp-session-dir`,
+      );
+    const sessionRef = transcripts[0];
     if (!model)
-      throw new ApsInputError(`--model is required: no model in ${sessionRef} after ${MODEL_WAIT_MS / 1000}s`);
+      throw new ApsInputError(`--model is required: no model in ${sessionRef} after ${TRANSCRIPT_WAIT_MS / 1000}s`);
     const provider = model.includes('/')
       ? model
           .split('/')[0]
@@ -117,7 +149,7 @@ export async function laneStart(id: string | undefined, options: ApsLaneOptions)
       if (aps.getLiveRun(ledger, cardId)) throw new Error('APS-N01: card already has a live run');
       const state = String(aps.getCard(ledger, cardId).state);
       if (state !== 'issued' && state !== 'revise') throw new ApsInputError(`card ${cardId} must be issued or revise`);
-      const existing = findAgent();
+      const existing = laneAgent();
       const agent = existing
         ? String(existing.id)
         : aps.newAgent(ledger, {
@@ -189,8 +221,8 @@ export async function laneEnd(id: string | undefined, options: ApsLaneOptions) {
   const cardId = required(id, 'card');
   const ompId = validated(options.ompId, 'omp-id');
   const by = required(options.by ?? process.env.APS_AGENT, 'by');
+  const flagDir = sessionDirFlag(options.ompSessionDir);
   const projectDir = resolve(options.projectDir ?? process.cwd());
-  const opts = { ompSessionDir: sessionDirFlag(options.ompSessionDir), abandon: Boolean(options.abandon), projectDir };
   const config = await core.loadConfig(projectDir);
   const db = aps.openApsDb(aps.resolveApsDbPath({ flag: options.db, configPath: config.aps?.dbPath }));
   try {
@@ -203,6 +235,26 @@ export async function laneEnd(id: string | undefined, options: ApsLaneOptions) {
       throw new ApsInputError(`live run ${runId} of ${cardId} is not omp task ${ompId}`);
     // collect closes the lane agent before its `closed` event; that event must come from someone still open.
     if (by === String(run.agent_id)) throw new ApsInputError('--by must be a manager session, not the lane agent');
+    // The yield output must sit next to the transcript recorded at launch, never in a directory picked now.
+    const ref = typeof launch.detail.session_ref === 'string' ? launch.detail.session_ref : '';
+    const realDir = (file: string) => {
+      try {
+        return realpathSync(dirname(file));
+      } catch {
+        return null;
+      }
+    };
+    if (flagDir !== undefined) {
+      const recorded = ref.includes('*') ? patternTranscripts(ref) : ref ? [ref] : [];
+      if (!recorded.some((file) => realDir(file) === flagDir))
+        throw new ApsInputError(`--omp-session-dir ${flagDir} does not hold the transcript recorded for run ${runId}`);
+    }
+    // Exact session_ref (lane start): collect derives `<transcript>.md` itself. Pattern (dispatch): the flag narrows.
+    const opts = {
+      ompSessionDir: ref.includes('*') ? flagDir : undefined,
+      abandon: Boolean(options.abandon),
+      projectDir,
+    };
     await sessionClose(run, launch, opts); // APS-H08 when the task has not yielded.
     return await collectRun(db, cardId, by, opts);
   } finally {

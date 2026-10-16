@@ -2,8 +2,9 @@ import { type Dirent, closeSync, existsSync, openSync, readSync, readdirSync, st
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuditLane, VisionVerdict } from '@mmbridge/aps';
-import { expandGlob, isFile } from './aps-collect-probe.js';
+import { isFile } from './aps-collect-probe.js';
 import { parseHerdrEnvelope } from './aps-herdr.js';
+import { patternTranscripts } from './aps-omp-transcripts.js';
 import { importAps, importCore } from './helpers.js';
 
 /** Devin panes do not expose their model; SWE-2 Max is the configured default (MODEL-ROUTING §0). */
@@ -99,18 +100,14 @@ export function newestSession(dir: string): string | null {
 }
 
 /**
- * Transcript behind a run's `session_ref`: a pointer-mode glob (any `<omp_id>.jsonl` under ~/.omp/agent/sessions)
- * resolves to its newest match, a `.jsonl` file to itself, a headless `--session-dir` to its newest transcript.
+ * Transcript behind a run's `session_ref`: a pointer-mode pattern resolves only when exactly one task transcript
+ * matches (task ids repeat across parent sessions), a `.jsonl` file to itself, a headless `--session-dir` to its
+ * newest transcript.
  */
 export function resolveSessionRef(ref: string): string | null {
   if (ref.includes('*')) {
-    let best: string | null = null;
-    let bestAt = Number.NEGATIVE_INFINITY;
-    for (const path of expandGlob(ref)) {
-      const at = mtime(path);
-      if (at !== null && at > bestAt && isFile(path)) [best, bestAt] = [path, at];
-    }
-    return best;
+    const matches = patternTranscripts(ref);
+    return matches.length === 1 ? matches[0] : null;
   }
   if (ref.endsWith('.jsonl')) return isFile(ref) ? ref : null;
   return newestSession(ref);

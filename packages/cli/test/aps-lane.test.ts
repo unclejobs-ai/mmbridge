@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
-import { openApsDb } from '@mmbridge/aps';
+import { addRunEvent, createRun, newAgent, openApsDb, startCard } from '@mmbridge/aps';
 
 const bin = resolve(import.meta.dirname, '../dist/bin/mmbridge.js');
 const usageFixture = resolve(import.meta.dirname, '../../aps/test/fixtures/omp-usage.json');
@@ -87,14 +87,54 @@ function fixture(t: TestContext) {
       violations: Array<{ code: string; lane: string | null }>;
     };
   };
-  return { home, worktree, env, db, git, sessionDir, sessions, cli, start, transcript, runEvents, audit };
+  /** A pointer-mode run as `aps dispatch --harness omp --omp-id` records it: `session_ref` is a pattern. */
+  const seedPointerRun = (cardId: string, ompId: string, model: string) => {
+    const worker = newAgent(db, { name: `w-${ompId}`, layer: 'L3', model, vendor: 'test', project: 'test' });
+    startCard(db, cardId, worker);
+    const run = `${cardId}-a1-pointer`;
+    createRun(db, {
+      id: run,
+      card_id: cardId,
+      attempt: 1,
+      agent_id: worker,
+      harness: 'omp',
+      kind: null,
+      model,
+      worktree,
+      branch: 'worker',
+      base_sha: git(['rev-parse', 'HEAD']),
+      packet_dir: join(home, 'dispatch', run),
+      created_by: 'mgr',
+    });
+    addRunEvent(db, run, 'launched', 'mgr', { omp_id: ompId, session_ref: join(sessions, '*', '*', `${ompId}.jsonl`) });
+    return run;
+  };
+  return {
+    home,
+    worktree,
+    env,
+    db,
+    git,
+    sessionDir,
+    sessions,
+    cli,
+    start,
+    transcript,
+    runEvents,
+    audit,
+    seedPointerRun,
+  };
 }
 
-test('lane start creates the lane agent once and reuses it by name', (t) => {
+test('lane start records the exact transcript and reuses an idle agent of that name', (t) => {
   const f = fixture(t);
-  const first = f.start(card, 'TaskA', ['--model', 'zai/glm-5.3', '--omp-session-dir', f.sessionDir]).value;
-  assert.equal(first.reused_agent, false);
+  const idle = newAgent(f.db, { name: 'lane-x', layer: 'L3', model: 'zai/glm-5.3', vendor: 'zai', project: 'test' });
+  f.transcript(join(f.sessionDir, 'TaskA.jsonl'));
+  const first = f.start(card, 'TaskA', ['--omp-session-dir', f.sessionDir]).value;
+  assert.equal(first.reused_agent, true);
+  assert.equal(first.agent, idle);
   assert.equal(first.by, first.agent);
+  assert.equal(first.model, 'zai/glm-5.3');
   assert.equal(first.session_ref, join(f.sessionDir, 'TaskA.jsonl'));
   assert.equal(first.base_sha, f.git(['rev-parse', 'HEAD']));
   assert.deepEqual(f.runEvents(first.run), ['intent', 'launched']);
@@ -105,34 +145,79 @@ test('lane start creates the lane agent once and reuses it by name', (t) => {
     ),
   );
   assert.deepEqual(launched, { omp_id: 'TaskA', session_ref: join(f.sessionDir, 'TaskA.jsonl'), lane: 'lane-x' });
-  const agent = f.db.prepare('SELECT name, vendor, model, project FROM agents WHERE id=?').get(first.agent);
-  assert.deepEqual({ ...agent }, { name: 'lane-x', vendor: 'zai', model: 'zai/glm-5.3', project: 'test' });
   const run = f.db.prepare('SELECT harness, kind FROM worker_runs WHERE id=?').get(first.run);
   assert.deepEqual({ ...run }, { harness: 'omp', kind: null });
   assert.match(readFileSync(join(first.packet, 'card.md'), 'utf8'), /## Collect contract/);
 
-  const second = f.start(card2, 'TaskB').value;
-  assert.equal(second.reused_agent, true);
-  assert.equal(second.agent, first.agent);
-  assert.equal(second.model, 'zai/glm-5.3');
-  assert.equal(f.db.prepare("SELECT count(*) AS n FROM agents WHERE name='lane-x'").get()?.n, 1);
-  assert.equal(f.db.prepare('SELECT state FROM cards WHERE id=?').get(card2)?.state, 'working');
-
-  assert.match(f.start(card, 'TaskC', ['--model', 'zai/glm-5.3'], 3).stderr, /APS-N01: card already has a live run/);
+  assert.match(f.start(card, 'TaskA', [], 3).stderr, /APS-N01: card already has a live run/);
   assert.match(f.start(card2, 'bad id', [], 2).stderr, /--omp-id must match/);
 });
 
-test('lane start reads the model from the task transcript', (t) => {
+test('lane start creates the agent, reads the model from the transcript, finds nested tasks', (t) => {
+  const f = fixture(t);
+  // Task spawned by task `Lead`: <parent session>/Lead/Lead.Child.jsonl.
+  mkdirSync(join(f.sessionDir, 'Lead'));
+  f.transcript(join(f.sessionDir, 'Lead', 'Lead.Child.jsonl'));
+  const started = f.start(card, 'Lead.Child').value;
+  assert.equal(started.reused_agent, false);
+  assert.equal(started.model, 'zai/glm-5.3');
+  assert.equal(started.session_ref, join(f.sessionDir, 'Lead', 'Lead.Child.jsonl'));
+  const agent = f.db.prepare('SELECT name, vendor, model, project FROM agents WHERE id=?').get(started.agent);
+  assert.deepEqual({ ...agent }, { name: 'lane-x', vendor: 'zai', model: 'zai/glm-5.3', project: 'test' });
+});
+
+test('lane start refuses ambiguous ids and session dirs outside the omp sessions root', (t) => {
+  const f = fixture(t);
+  const otherDir = join(f.sessions, '-other', '2026-10-17T00-00-01-000Z_parent');
+  mkdirSync(otherDir, { recursive: true });
+  f.transcript(join(f.sessionDir, 'TaskD.jsonl'));
+  f.transcript(join(otherDir, 'TaskD.jsonl'));
+  assert.match(f.start(card, 'TaskD', [], 2).stderr, /omp task TaskD is ambiguous .*pass --omp-session-dir/);
+  const outside = join(f.home, 'elsewhere');
+  mkdirSync(outside);
+  f.transcript(join(outside, 'TaskD.jsonl'));
+  assert.match(
+    f.start(card, 'TaskD', ['--omp-session-dir', outside], 2).stderr,
+    /must be an existing directory inside/,
+  );
+  symlinkSync(outside, join(f.sessions, '-link'));
+  assert.match(
+    f.start(card, 'TaskD', ['--omp-session-dir', join(f.sessions, '-link')], 2).stderr,
+    /must be an existing directory inside/,
+  );
+  assert.equal(f.db.prepare('SELECT state FROM cards WHERE id=?').get(card)?.state, 'issued');
+  assert.equal(
+    f.start(card, 'TaskD', ['--omp-session-dir', otherDir]).value.session_ref,
+    join(otherDir, 'TaskD.jsonl'),
+  );
+});
+
+test('a busy lane name is refused, so ending one card never touches another', (t) => {
+  const f = fixture(t);
+  f.transcript(join(f.sessionDir, 'TaskA.jsonl'));
+  f.transcript(join(f.sessionDir, 'TaskB.jsonl'));
+  const a = f.start(card, 'TaskA', ['--omp-session-dir', f.sessionDir]).value;
+  assert.match(
+    f.start(card2, 'TaskB', ['--omp-session-dir', f.sessionDir], 2).stderr,
+    /lane lane-x is busy: agent .* holds TS-C-0001 \(working\)/,
+  );
+  assert.equal(f.db.prepare('SELECT state FROM cards WHERE id=?').get(card2)?.state, 'issued');
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM worker_runs WHERE card_id=?').get(card2)?.n, 0);
+  writeFileSync(join(f.sessionDir, 'TaskA.md'), 'yielded\n');
+  const abandoned = f.cli(['aps', 'lane', 'end', card, '--omp-id', 'TaskA', '--by', 'mgr', '--abandon']).value;
+  assert.equal(abandoned.outcome, 'abandoned');
+  assert.equal(f.db.prepare('SELECT state FROM cards WHERE id=?').get(card)?.state, 'issued');
+  assert.deepEqual(f.runEvents(a.run), ['intent', 'launched', 'abandoned']);
+  assert.equal(f.db.prepare('SELECT status FROM agents WHERE id=?').get(a.agent)?.status, 'closed');
+  const b = f.start(card2, 'TaskB', ['--omp-session-dir', f.sessionDir]).value;
+  assert.equal(b.reused_agent, false);
+  assert.notEqual(b.agent, a.agent);
+});
+
+test('lane end refuses until the task yielded, binds to the recorded transcript, then collects', (t) => {
   const f = fixture(t);
   f.transcript(join(f.sessionDir, 'TaskA.jsonl'));
   const started = f.start(card, 'TaskA', ['--omp-session-dir', f.sessionDir]).value;
-  assert.equal(started.model, 'zai/glm-5.3');
-});
-
-test('lane end refuses until the task yielded, then collects the report', (t) => {
-  const f = fixture(t);
-  const started = f.start(card, 'TaskA', ['--model', 'zai/glm-5.3', '--omp-session-dir', f.sessionDir]).value;
-  f.transcript(join(f.sessionDir, 'TaskA.jsonl'));
   writeFileSync(
     join(started.packet, 'report.json'),
     `${JSON.stringify({
@@ -152,6 +237,15 @@ test('lane end refuses until the task yielded, then collects the report', (t) =>
     f.cli(['aps', 'lane', 'end', card, '--omp-id', 'TaskA', ...extra], status);
   assert.match(end(['--by', started.agent], 2).stderr, /--by must be a manager session/);
   assert.match(end(['--by', 'mgr', '--omp-id', 'TaskZ'], 2).stderr, /is not omp task TaskZ/);
+  // Another session's TaskA with a yield output must not satisfy this run.
+  const otherDir = join(f.sessions, '-other', '2026-10-17T00-00-01-000Z_parent');
+  mkdirSync(otherDir, { recursive: true });
+  f.transcript(join(otherDir, 'TaskA.jsonl'));
+  writeFileSync(join(otherDir, 'TaskA.md'), 'other yield\n');
+  assert.match(
+    end(['--by', 'mgr', '--omp-session-dir', otherDir], 2).stderr,
+    /does not hold the transcript recorded for run/,
+  );
   const yieldPath = join(f.sessionDir, 'TaskA.md').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   assert.match(
     end(['--by', 'mgr'], 3).stderr,
@@ -159,13 +253,13 @@ test('lane end refuses until the task yielded, then collects the report', (t) =>
   );
   assert.deepEqual(f.runEvents(started.run), ['intent', 'launched']);
   writeFileSync(join(f.sessionDir, 'TaskA.md'), 'yielded\n');
-  assert.equal(end(['--by', 'mgr'], 0).value.outcome, 'reported');
+  assert.equal(end(['--by', 'mgr', '--omp-session-dir', f.sessionDir], 0).value.outcome, 'reported');
   assert.deepEqual(f.runEvents(started.run), ['intent', 'launched', 'reported', 'closed']);
   assert.equal(f.db.prepare('SELECT state FROM cards WHERE id=?').get(card)?.state, 'closed_session');
   assert.equal(f.db.prepare('SELECT status FROM agents WHERE id=?').get(started.agent)?.status, 'closed');
 });
 
-test('audit reports live unrecorded omp subagents and resolves glob session refs', (t) => {
+test('audit reports live unrecorded omp subagents and ties pattern runs to one transcript', (t) => {
   const f = fixture(t);
   f.transcript(join(f.sessionDir, 'Foo.jsonl'));
   f.transcript(join(f.sessionDir, 'Idle.jsonl'), [
@@ -173,28 +267,57 @@ test('audit reports live unrecorded omp subagents and resolves glob session refs
   ]);
   f.transcript(join(f.sessionDir, 'Parked.jsonl'), [{ type: 'custom', customType: 'session_exit' }]);
   f.transcript(join(f.sessionDir, '__advisor.jsonl'));
-  // Recorded through a pointer-mode glob (no --omp-session-dir): its transcript is not an unrecorded lane.
+  // Pointer-mode pattern with one nested match: resolved for the model and not reported as unrecorded.
+  mkdirSync(join(f.sessionDir, 'Lead'));
+  f.transcript(join(f.sessionDir, 'Lead', 'Lead.Child.jsonl'));
+  const nested = f.seedPointerRun(card, 'Lead.Child', 'test/declared');
+  // The same task id in two parent sessions ties no file: both stay visible and the model is not guessed.
   const otherDir = join(f.sessions, '-other', '2026-10-17T00-00-01-000Z_parent');
   mkdirSync(otherDir, { recursive: true });
-  f.transcript(join(otherDir, 'TaskG.jsonl'));
-  const started = f.start(card, 'TaskG', ['--model', 'test/declared']).value;
-  assert.equal(started.session_ref, join(f.home, '.omp', 'agent', 'sessions', '*', '*', 'TaskG.jsonl'));
+  f.transcript(join(f.sessionDir, 'TaskD.jsonl'));
+  f.transcript(join(otherDir, 'TaskD.jsonl'));
+  const ambiguous = f.seedPointerRun(card2, 'TaskD', 'test/declared');
 
   const report = f.audit();
   const omp = report.lanes.filter((lane) => lane.source === 'omp');
   assert.deepEqual(
     omp.map((lane) => [lane.id, lane.recorded, lane.model]),
-    [['omp:Foo', false, 'zai/glm-5.3']],
+    [
+      ['omp:TaskD', false, 'zai/glm-5.3'],
+      ['omp:Foo', false, 'zai/glm-5.3'],
+      ['omp:TaskD', false, 'zai/glm-5.3'],
+    ],
   );
   assert.ok(
     report.violations.some((violation) => violation.code === 'UNRECORDED_LANE' && violation.lane === 'omp:Foo'),
   );
-  const ledgerLane = report.lanes.find((lane) => lane.id === started.run);
-  assert.equal(ledgerLane?.model, 'zai/glm-5.3');
+  assert.equal(report.lanes.find((lane) => lane.id === nested)?.model, 'zai/glm-5.3');
+  assert.equal(report.lanes.find((lane) => lane.id === ambiguous)?.model, 'test/declared');
 
   const skipped = f.audit(['--no-omp-sessions']);
   assert.deepEqual(
     skipped.lanes.filter((lane) => lane.source === 'omp'),
     [],
+  );
+});
+
+test('collect resolves a nested pointer-mode task and refuses an ambiguous one', (t) => {
+  const f = fixture(t);
+  mkdirSync(join(f.sessionDir, 'Lead'));
+  f.transcript(join(f.sessionDir, 'Lead', 'Lead.Child.jsonl'));
+  f.seedPointerRun(card, 'Lead.Child', 'test/declared');
+  const nestedYield = join(f.sessionDir, 'Lead', 'Lead.Child.md').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  assert.match(
+    f.cli(['aps', 'lane', 'end', card, '--omp-id', 'Lead.Child', '--by', 'mgr'], 3).stderr,
+    new RegExp(`APS-H08: omp task Lead.Child has no yield output at ${nestedYield}`),
+  );
+  const otherDir = join(f.sessions, '-other', '2026-10-17T00-00-01-000Z_parent');
+  mkdirSync(otherDir, { recursive: true });
+  f.transcript(join(f.sessionDir, 'TaskD.jsonl'));
+  f.transcript(join(otherDir, 'TaskD.jsonl'));
+  f.seedPointerRun(card2, 'TaskD', 'test/declared');
+  assert.match(
+    f.cli(['aps', 'lane', 'end', card2, '--omp-id', 'TaskD', '--by', 'mgr'], 3).stderr,
+    /APS-H08: omp task TaskD has no yield output at .*\(ambiguous; pass --omp-session-dir\)/,
   );
 });
