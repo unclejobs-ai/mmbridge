@@ -17,6 +17,8 @@ export interface CreateRunInput {
   base_sha: string;
   packet_dir: string;
   created_by: string;
+  /** `work` (default): the assignee's run (N01/N02). `verify`: an independent reviewer lane on the card (N05). */
+  role?: 'work' | 'verify';
 }
 export interface RunUsageInput {
   run_id: string;
@@ -38,7 +40,7 @@ export interface RunUsageInput {
 export function createRun(db: DatabaseSync, values: CreateRunInput): string {
   return transaction(db, () => {
     const id = values.id ?? randomUUID();
-    insertRow(db, 'worker_runs', { ...values, id, kind: values.kind ?? null });
+    insertRow(db, 'worker_runs', { ...values, id, kind: values.kind ?? null, role: values.role ?? 'work' });
     addRunEvent(db, id, 'intent', values.created_by);
     return id;
   });
@@ -59,10 +61,11 @@ export function addRunEvent(
   });
 }
 
+/** The card's live work run (verify runs are reviewer lanes and never block dispatch or collect). */
 export function getLiveRun(db: DatabaseSync, card: string): Row | undefined {
   return db
     .prepare(
-      "SELECT * FROM v_run_current WHERE card_id=? AND (status IS NULL OR status IN ('intent','launched','reported'))",
+      "SELECT * FROM v_run_current WHERE card_id=? AND role='work' AND (status IS NULL OR status IN ('intent','launched','reported'))",
     )
     .get(card);
 }

@@ -9,6 +9,7 @@ import {
   SHA,
   SHA2,
   SHOTS4,
+  cardState,
   closeAgent,
   merge,
   move,
@@ -70,6 +71,62 @@ test('cards: C01–C10', () => {
   rejects(db, 'C10', `UPDATE cards SET assignee='w2' WHERE id='${CARD}'`);
 });
 
+test('cards (0006): C11 direction_ref shape, C12 review cards retired, C09 freezes A1 fields', () => {
+  const db = seed();
+  const withFields = (id: string, fields: string, values: string) =>
+    `INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner,${fields})
+     VALUES('${id}','ss','c','research','S','scope','${AC2}','none',0,0,'mgr',${values})`;
+  rejects(db, 'C12', newCard({ kind: 'review' }));
+  for (const bad of [
+    'docs/plan.md',
+    `docs/plan.md@${'a'.repeat(39)}`,
+    `@${SHA}`,
+    `docs/plan.md@${'A'.repeat(40)}`,
+    `docs/my plan.md@${SHA}`,
+    'https://',
+    'https://#',
+    'http://?',
+    'https:///',
+    'https://:443/x',
+    'https://user:secret@example.test/x',
+    `https://#@${SHA}`,
+    'ftp://example.test/x',
+    'https://example.test/a b',
+  ])
+    rejects(db, 'C11', withFields('SS-C-0002', 'direction_ref', `'${bad}'`));
+  assert.throws(() => db.exec(withFields('SS-C-0002', 'review_budget', '4')), /CHECK constraint failed/);
+  assert.throws(() => db.exec(withFields('SS-C-0002', 'risk_tier', "'extreme'")), /CHECK constraint failed/);
+  assert.throws(() => db.exec(withFields('SS-C-0002', 'design_authority', "'two words'")), /CHECK constraint failed/);
+  db.exec(
+    withFields(
+      'SS-C-0002',
+      'direction_ref,design_authority,review_budget,risk_tier',
+      `'docs/aps/DESIGN.md@${SHA}','owner',1,'high'`,
+    ),
+  );
+  db.exec(withFields('SS-C-0003', 'direction_ref', `'docs/x.md@${'f'.repeat(64)}'`));
+  db.exec(withFields('SS-C-0004', 'direction_ref', "'https://github.com/o/r/issues/1'"));
+  db.exec(withFields('SS-C-0005', 'direction_ref', "'http://localhost:3000/plan?v=2#goal'"));
+  db.exec(withFields('SS-C-0006', 'direction_ref', "'https://www.npmjs.com/package/@scope/pkg'"));
+  const defaults = db.prepare("SELECT review_budget, risk_tier, direction_ref FROM cards WHERE id='SS-C-0001'").get();
+  assert.deepEqual({ ...defaults }, { review_budget: 2, risk_tier: 'normal', direction_ref: null });
+  // While issued the spec, the A1 fields included, is still editable (C09); C11/C12 also hold for edits.
+  db.exec(
+    `UPDATE cards SET review_budget=3, risk_tier='low', direction_ref='https://example.test/d' WHERE id='${CARD}'`,
+  );
+  for (const bad of ['nope', 'https://#', 'http://?', 'https:///'])
+    rejects(db, 'C11', `UPDATE cards SET direction_ref='${bad}' WHERE id='${CARD}'`);
+  rejects(db, 'C12', `UPDATE cards SET kind='review' WHERE id='${CARD}'`);
+  move(db, 'issued', 'working', 'w1');
+  for (const set of [
+    "direction_ref='https://example.test/other'",
+    "design_authority='someone'",
+    'review_budget=1',
+    "risk_tier='high'",
+  ])
+    rejects(db, 'C09', `UPDATE cards SET ${set} WHERE id='${CARD}'`);
+});
+
 test('transitions: T00–T05', () => {
   const db = seed();
   rejects(db, 'T00', tr('issued', 'working', 'w1', '', 'SS-C-0404'));
@@ -88,6 +145,8 @@ test('working: W01–W03', () => {
   rejects(db, 'W01', tr('issued', 'working', 'mgr', '', 'SS-C-0002'));
 
   const loop = seed();
+  // W03 is the hard cap; a budget of 3 keeps B01 (default budget 2) out of the way.
+  loop.exec(`UPDATE cards SET review_budget=3 WHERE id='${CARD}'`);
   const workers = ['w1', 'w2', 'w3', 'w4'];
   loop.exec(
     `INSERT INTO agents(id,name,layer,model,vendor) VALUES('w3','glm','L3','glm-5.3','zhipu'),('w4','ds','L3','ds-4.1','deepseek')`,
@@ -102,6 +161,68 @@ test('working: W01–W03', () => {
   }
   loop.exec(`UPDATE cards SET assignee='w4' WHERE id='${CARD}'`);
   rejects(loop, 'W03', tr('revise', 'working', 'w4'));
+});
+
+test('review budget: B01–B04; an override is no ship approval (same-sha re-report still needs D05 owner OK)', () => {
+  const db = seed({ needsOwner: 1 });
+  const latestRevise = "(SELECT max(id) FROM transitions WHERE to_state='revise')";
+  const overrideSql = (o: { attempt?: number; transition?: string; by?: string } = {}) =>
+    `INSERT INTO budget_overrides(card_id,attempt,revise_transition_id,recorded_by,note)
+     VALUES('${CARD}',${o.attempt ?? 2},${o.transition ?? latestRevise},'${o.by ?? 'l0'}','one more round')`;
+  toInspecting(db, 'w1');
+  review(db, 'revise');
+  move(db, 'inspecting', 'revise', 'mgr');
+  rejects(db, 'B02', overrideSql({ attempt: 2 }));
+  db.exec(`UPDATE cards SET assignee='w2' WHERE id='${CARD}'`);
+  toInspecting(db, 'w2', SHA2); // 1 revise round < budget 2 → rework allowed
+  rejects(db, 'B02', overrideSql());
+  // Round 2 reaches the default budget. Reviews themselves are never refused.
+  review(db, 'revise', SHA2);
+  review(db, 'revise', SHA2);
+  move(db, 'inspecting', 'revise', 'mgr');
+  db.exec("INSERT INTO agents(id,name,layer,model,vendor) VALUES('w3','glm','L3','glm-5.3','zhipu')");
+  db.exec(`UPDATE cards SET assignee='w3' WHERE id='${CARD}'`);
+  rejects(db, 'B01', tr('revise', 'working', 'w3'));
+  rejects(db, 'B02', overrideSql({ transition: "(SELECT min(id) FROM transitions WHERE to_state='revise')" }));
+  rejects(db, 'B03', overrideSql({ by: 'mgr' }));
+  db.exec("INSERT INTO agents(id,name,layer,model,vendor) VALUES('w1-owner','devin','L1','local','local')");
+  rejects(db, 'B04', overrideSql({ by: 'w1-owner' }));
+  db.exec(overrideSql());
+  rejects(db, 'L01', "UPDATE budget_overrides SET note='edited'");
+  rejects(db, 'L01', 'DELETE FROM budget_overrides');
+  rejects(db, 'L02', 'INSERT OR REPLACE INTO budget_overrides SELECT * FROM budget_overrides LIMIT 1');
+  db.exec(tr('revise', 'working', 'w3'));
+  assert.deepEqual([cardState(db).state, cardState(db).attempt], ['working', 3]);
+  // The rework re-reports the identical sha: the override must not count as the owner's ship approval (D05).
+  toInspecting(db, 'w3', SHA2);
+  review(db, 'accept', SHA2);
+  move(db, 'inspecting', 'accepted', 'mgr');
+  move(db, 'accepted', 'merge_wait', 'mgr');
+  merge(db, SHA2);
+  rejects(db, 'D05', tr('merge_wait', 'done', 'mgr'));
+  db.exec(ownerOkSql(SHA2));
+  db.exec(tr('merge_wait', 'done', 'mgr'));
+  assert.equal(cardState(db).state, 'done');
+});
+
+test('reopen: rejected → inspecting is a manager edge with a note and T06 needs a reported sha', () => {
+  const db = seed();
+  move(db, 'issued', 'rejected', 'mgr', 'not needed');
+  rejects(db, 'T06', tr('rejected', 'inspecting', 'mgr', 're-judge'));
+
+  const judged = seed();
+  toInspecting(judged);
+  review(judged, 'reject');
+  move(judged, 'inspecting', 'rejected', 'mgr', 'wrong call');
+  rejects(judged, 'T03', tr('rejected', 'inspecting', 'mgr'));
+  rejects(judged, 'T04', tr('rejected', 'inspecting', 'w1b', 'self re-judge'));
+  judged.exec(tr('rejected', 'inspecting', 'mgr', 're-judge: wrongly rejected'));
+  review(judged, 'accept');
+  move(judged, 'inspecting', 'accepted', 'mgr');
+  move(judged, 'accepted', 'merge_wait', 'mgr');
+  merge(judged);
+  move(judged, 'merge_wait', 'done', 'mgr');
+  assert.equal(cardState(judged).state, 'done');
 });
 
 test('reports: R01–R03, P01–P08', () => {

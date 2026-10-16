@@ -94,13 +94,33 @@ export function moveCard(db: DatabaseSync, id: string, to: string, by: string, n
     return { card: id, from, to, by, attempt: Number(getCard(db, id).attempt) };
   });
 }
+/** review_budget null/absent: 3 for risk_tier high, otherwise the column default (2). */
 export function issueCard(db: DatabaseSync, values: Row): Transition[] {
   return transaction(db, () => {
     const project = db.prepare('SELECT prefix,next_seq FROM projects WHERE id=?').get(values.project);
     if (!project) throw new ApsInputError(`project ${values.project} not found`);
     const id = `${project.prefix}-C-${String(project.next_seq).padStart(4, '0')}`;
-    insertRow(db, 'cards', { id, ...values });
+    const { review_budget: budget, ...rest } = values;
+    const reviewBudget = budget ?? (values.risk_tier === 'high' ? 3 : undefined);
+    insertRow(db, 'cards', { id, ...rest, ...(reviewBudget === undefined ? {} : { review_budget: reviewBudget }) });
     return [{ card: id, from: null, to: 'issued', by: String(values.layer_owner), attempt: 0 }];
+  });
+}
+/**
+ * Records the owner's decision to allow one more rework once the review budget is exhausted (B01). It answers the
+ * card's latest move to revise on the current attempt (B02); it is not an owner OK and never satisfies D05.
+ */
+export function recordBudgetOverride(db: DatabaseSync, id: string, by: string, note: string): number {
+  return transaction(db, () => {
+    const card = getCard(db, id);
+    const revise = db.prepare("SELECT max(id) AS id FROM transitions WHERE card_id=? AND to_state='revise'").get(id);
+    return insertRow(db, 'budget_overrides', {
+      card_id: id,
+      attempt: card.attempt,
+      revise_transition_id: revise?.id ?? null,
+      recorded_by: by,
+      note,
+    });
   });
 }
 export function newAgent(db: DatabaseSync, values: Row): string {
@@ -265,9 +285,11 @@ export function recordVision(db: DatabaseSync, id: string, by: string, values: R
     return values.verdict === 'fail' ? [moveCard(db, id, 'revise', by)] : { id: auditId };
   });
 }
+/** Checks integrity, foreign keys and that every trigger the applied migrations (≤ user_version) create exists. */
 export function doctor(db: DatabaseSync): { integrity: string[]; foreignKeys: Row[]; missingTriggers: string[] } {
+  const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
   const expected = new Set<string>();
-  for (const migration of listMigrations()) {
+  for (const migration of listMigrations().filter((m) => m.version <= version)) {
     const sql = readFileSync(join(APS_SQL_DIR, migration.file), 'utf8');
     for (const match of sql.matchAll(/\b(CREATE|DROP)\s+TRIGGER\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?([a-z0-9_]+)/gi)) {
       if (match[1].toUpperCase() === 'CREATE') expected.add(match[2]);

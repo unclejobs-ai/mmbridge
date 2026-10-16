@@ -5,7 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { APS_SQL_DIR, ApsInputError, addUsage, doctor, openApsDb, recordReview } from '../dist/index.js';
+import {
+  APS_SQL_DIR,
+  ApsInputError,
+  addUsage,
+  doctor,
+  listMigrations,
+  openApsDb,
+  recordReview,
+} from '../dist/index.js';
 import {
   CARD,
   ITEM,
@@ -33,6 +41,7 @@ const LEDGER_TABLES = [
   'briefings',
   'quota_samples',
   'card_links',
+  'budget_overrides',
 ];
 const DELETE_ONLY_TABLES = ['cards', 'agents', 'projects', 'feedback', 'pdca_runs'];
 /** table → a no-op SET clause (the lock fires before any change). */
@@ -42,21 +51,27 @@ const REFERENCE_TABLES: Record<string, string> = {
   defect_categories: 'description = description',
 };
 
-/** A done card with one row in every ledger table. */
+/** A done card with one row in every ledger table (one revise round, overridden, then reworked). */
 function populated(): DatabaseSync {
   const db = seed({ needsVision: 1, needsOwner: 1 });
   toInspecting(db);
+  review(db, 'revise');
+  move(db, 'inspecting', 'revise', 'mgr');
+  db.exec(`INSERT INTO budget_overrides(card_id,attempt,revise_transition_id,recorded_by,note)
+           VALUES('${CARD}',1,(SELECT max(id) FROM transitions WHERE to_state='revise'),'l0','one more round');
+           UPDATE cards SET assignee='w2' WHERE id='${CARD}'`);
+  toInspecting(db, 'w2');
   review(db, 'accept');
   db.exec(`INSERT INTO vision_audits(card_id,attempt,sha,auditor,screenshots_json,verdict)
-           VALUES('${CARD}',1,'${SHA}','viz','${SHOTS4}','pass');
+           VALUES('${CARD}',2,'${SHA}','viz','${SHOTS4}','pass');
            INSERT INTO owner_oks(card_id,sha,recorded_by,quote) VALUES('${CARD}','${SHA}','l0','OK');
            INSERT INTO defects(card_id,attempt,source,category,severity,description,opportunity_count,recorded_by)
-           VALUES('${CARD}',1,'ci','ci','minor','flaky lint',2,'mgr');
+           VALUES('${CARD}',2,'ci','ci','minor','flaky lint',2,'mgr');
            INSERT INTO briefings(level,author,period_from,period_to,body_md,metrics_json)
            VALUES('L2','mgr','2026-10-11T00:00Z','2026-10-11T02:00Z','# brief','{}');
            INSERT INTO quota_samples(vendor,account,metric,value) VALUES('anthropic','main','weekly_pct',41);
            INSERT INTO card_links(card_id,attempt,kind,ref,detail_json,by_agent)
-           VALUES('${CARD}',1,'context_node','node-1','{"parentId":null,"summary":"card","projectKey":"p"}','mgr');
+           VALUES('${CARD}',2,'context_node','node-1','{"parentId":null,"summary":"card","projectKey":"p"}','mgr');
            INSERT INTO feedback(from_agent,to_agent,kind,card_id,body) VALUES('w2','mgr','proposal','${CARD}','split it');
            INSERT INTO pdca_runs(scc_run_id,card_id,problem) VALUES('scc-1','${CARD}','rework rate');`);
   move(db, 'inspecting', 'accepted', 'mgr');
@@ -363,7 +378,9 @@ test('migrates a v3 ledger with rows to v5 without data loss; 0004/0005 take eff
   const file = join(dir, 'ledger.db');
   v3.prepare('VACUUM INTO ?').run(file);
   v3.close();
-  const migrated = openApsDb(file);
+  for (const name of ['0004_review_only_acceptance.sql', '0005_usage_provider_identity.sql'] as const)
+    copyFileSync(join(APS_SQL_DIR, name), join(dir, name));
+  const migrated = openApsDb(file, dir);
   t.after(() => migrated.close());
   assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 5);
   for (const table of rows) assert.deepEqual(migrated.prepare(`SELECT * FROM ${table.name}`).all(), table.rows);
@@ -392,4 +409,89 @@ test('migrates a v3 ledger with rows to v5 without data loss; 0004/0005 take eff
   });
   assert.ok(Number.isInteger(second));
   assert.equal(migrated.prepare('SELECT count(*) AS n FROM run_usage').get()?.n, 2);
+});
+
+test('migrates a v5 ledger with rows to v6 without data loss; A1 fields default, review cards stay readable', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aps-v5-v6-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const migration of listMigrations().filter((m) => m.version <= 5))
+    copyFileSync(join(APS_SQL_DIR, migration.file), join(dir, migration.file));
+  const v5 = seed({ sqlDir: dir });
+  // A review card issued before 0006 (C12 retires new ones only) and a live run of the main card.
+  v5.exec(`INSERT INTO cards(id,project,title,kind,size,scope,acceptance_json,forbidden,needs_owner,needs_vision,layer_owner,parent_card)
+    VALUES('SS-C-0002','ss','old review card','review','S','scope','[{"id":"AC1","text":"verdict recorded"}]','none',0,0,'mgr','${CARD}')`);
+  move(v5, 'issued', 'working', 'w1');
+  v5.exec(`INSERT INTO worker_runs(id,card_id,attempt,agent_id,harness,kind,model,worktree,branch,base_sha,packet_dir,created_by)
+    VALUES('run-1','${CARD}',1,'w1','herdr','omp','test-model','/w','fac/test','${SHA}','/packet','mgr');
+    INSERT INTO run_events(run_id,status,by_agent) VALUES('run-1','intent','mgr');`);
+  report(v5);
+  move(v5, 'working', 'reported', 'w1');
+  closeAgent(v5, 'w1');
+  move(v5, 'reported', 'closed_session', 'mgr');
+  move(v5, 'closed_session', 'inspecting', 'mgr');
+  review(v5, 'reject');
+  move(v5, 'inspecting', 'rejected', 'mgr');
+  const tables = v5.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
+  const rows = tables.map((table) => ({
+    name: String(table.name),
+    rows: v5.prepare(`SELECT * FROM ${table.name}`).all(),
+  }));
+  const schema = v5
+    .prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all();
+  assert.equal(v5.prepare('PRAGMA user_version').get()?.user_version, 5);
+  const file = join(dir, 'ledger.db');
+  v5.prepare('VACUUM INTO ?').run(file);
+  v5.close();
+  const migrated = openApsDb(file);
+  t.after(() => migrated.close());
+  assert.equal(migrated.prepare('PRAGMA user_version').get()?.user_version, 6);
+  const added: Record<string, Record<string, string | number | null>> = {
+    cards: { direction_ref: null, design_authority: null, review_budget: 2, risk_tier: 'normal' },
+    worker_runs: { role: 'work' },
+  };
+  for (const table of rows) {
+    const after = migrated
+      .prepare(`SELECT * FROM ${table.name}`)
+      .all()
+      .map((row) => ({ ...row }));
+    const before = table.rows.map((row) => ({ ...row, ...added[table.name] }));
+    if (table.name === 'state_edges') {
+      // 0006 adds exactly one edge: rejected → inspecting (manager, note required).
+      const edge = { from_state: 'rejected', to_state: 'inspecting', actor: 'manager', note_required: 1 };
+      assert.deepEqual(
+        after.filter((row) => row.from_state !== 'rejected' || row.to_state !== 'inspecting'),
+        before,
+      );
+      assert.deepEqual(
+        after.filter((row) => row.from_state === 'rejected' && row.to_state === 'inspecting'),
+        [edge],
+      );
+      continue;
+    }
+    assert.deepEqual(after, before, table.name);
+  }
+  // 0006 recreates these objects (and alters cards/worker_runs); every other schema object is untouched.
+  const recreated = [
+    'cards',
+    'worker_runs',
+    'v_run_current',
+    'trg_cards_ins',
+    'trg_cards_upd',
+    'trg_transitions_guard',
+    'trg_worker_runs_ins',
+    'trg_edges_ins',
+  ];
+  for (const object of schema) {
+    const name = String(object.name);
+    if (recreated.includes(name)) continue;
+    assert.deepEqual(migrated.prepare('SELECT type,name,sql FROM sqlite_master WHERE name=?').get(name), object);
+  }
+  assert.deepEqual(doctor(migrated), { integrity: ['ok'], foreignKeys: [], missingTriggers: [] });
+  assert.equal(migrated.prepare("SELECT role FROM v_run_current WHERE run_id='run-1'").get()?.role, 'work');
+  assert.equal(migrated.prepare('SELECT count(*) AS n FROM budget_overrides').get()?.n, 0);
+  // The wrongly rejected card can be re-judged on its reported sha.
+  migrated.exec(`INSERT INTO transitions(card_id,from_state,to_state,by_agent,note)
+    VALUES('${CARD}','rejected','inspecting','mgr','re-judge')`);
+  assert.equal(cardState(migrated).state, 'inspecting');
 });
