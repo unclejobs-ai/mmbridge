@@ -49,6 +49,11 @@ test('classifyModel maps provider/model selectors to tiers', () => {
   assert.deepEqual(classifyModel('anthropic/claude-opus-5-5:medium'), { tier: 'premium', provider: 'anthropic' });
   assert.deepEqual(classifyModel('openai-codex/gpt-6.1-sol'), { tier: 'premium', provider: 'openai-codex' });
   assert.deepEqual(classifyModel('swe-2-max'), { tier: 'L3', provider: 'devin' });
+  assert.deepEqual(classifyModel('zai/glm-5.3-flash:high'), { tier: 'L3', provider: 'zai' });
+  assert.deepEqual(classifyModel('cursor/grok-4.7-500k-fast:high'), { tier: 'L3', provider: 'cursor' });
+  assert.deepEqual(classifyModel('cursor/muse-wonder-1.0:high'), { tier: 'L3', provider: 'cursor' });
+  assert.deepEqual(classifyModel('cursor/claude-opus-5-5'), { tier: 'premium', provider: 'cursor' });
+  assert.deepEqual(classifyModel('cursor/gemini-4-argon:high'), { tier: 'unknown', provider: 'cursor' });
   assert.deepEqual(classifyModel('opencode-go/deepseek-v4.1-flash:high'), { tier: 'L3', provider: 'opencode-go' });
   assert.deepEqual(classifyModel('google-antigravity/gemini-3.8-flash'), {
     tier: 'L3',

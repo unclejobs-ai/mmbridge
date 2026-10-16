@@ -99,9 +99,11 @@ const DEFAULT_MIN_L3_RATIO = 0.6;
 /** A provider with this fraction or less left is treated as exhausted. */
 const EXHAUSTED_REMAINING_FRACTION = 0.01;
 
+// Fable stays premium so a stray Fable lane is still flagged (10/17: never run Fable 5.1 alone in omp).
 const PREMIUM_MODEL = /opus|fable|astra|gpt-[0-9.]+-sol|(^|[^a-z])sol([^a-z]|$)/;
-// MODEL-ROUTING §0/§3.1: Sonnet is mid-tier and Gemini Pro is the Sol/Opus fallback; neither counts as L3.
-const L3_MODEL = /swe-|gemini-[0-9.]+-flash|deepseek|grok|glm|kimi|qwen|luna|haiku/;
+// 10/17 L3 = glm, glm-flash, Cursor grok-fast, plus the muse trial. Older cheap models stay L3 for past ledger rows.
+// Sonnet is mid-tier and Gemini Pro/Argon are judgment models; none of them counts as L3.
+const L3_MODEL = /swe-|gemini-[0-9.]+-flash|deepseek|grok|glm|muse|kimi|qwen|luna|haiku/;
 const MECHANICAL_TITLE =
   /i18n|국제화|번역|rename|리네임|typo|lint|format|문서|docs?\b|changelog|test gap|커버리지|coverage|mechanical|기계/;
 

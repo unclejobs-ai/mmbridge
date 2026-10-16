@@ -36,58 +36,25 @@ const worker = (
   // Frozen so callers cannot mutate the shared defaults; WorkerSpec keeps a mutable type for parsed registries.
   Object.freeze({ id, tier, vendor, provider, harness, model, agent, roles: Object.freeze(roles) as WorkerRole[] });
 
-/** Order = MODEL-ROUTING §0 preference and fallback order within a tier. */
+/**
+ * 10/17 routing (orchestration-protocol §5). Order = preference and fallback order within a tier.
+ * `agent` names the omp definition in `~/.omp/agent/agents/`; its `model` line matches `model` here.
+ * L3 holds the only auto-dispatched mech workers. L2 never takes mech: Opus/Sol/Astra do not get mech cards.
+ */
 export const DEFAULT_WORKERS: readonly WorkerSpec[] = Object.freeze([
-  worker('devin-swe2', 'L3', 'devin', 'devin', 'devin', 'swe-2-max', null, ['mech']),
-  worker(
-    'gemini-flash',
-    'L3',
-    'google',
-    'google-antigravity',
-    'omp',
-    'google-antigravity/gemini-3.8-flash',
-    'w-gemini',
-    ['mech'],
-  ),
-  worker(
-    'deepseek-flash',
-    'L3',
-    'deepseek',
-    'opencode-go',
-    'omp',
-    'opencode-go/deepseek-v4.1-flash:high',
-    'w-deepseek',
-    ['mech'],
-  ),
-  worker('grok', 'L3', 'xai', 'xai-oauth', 'omp', 'xai-oauth/grok-4.7:high', 'w-grok', ['mech']),
   worker('glm', 'L3', 'zai', 'zai', 'omp', 'zai/glm-5.3:high', 'w-glm', ['mech']),
-  worker('kimi', 'L3', 'moonshot', 'opencode-go', 'omp', 'opencode-go/kimi-k3', null, ['mech']),
-  worker('qwen', 'L3', 'alibaba', 'opencode-go', 'omp', 'opencode-go/qwen3.8-max', null, ['mech']),
-  // MODEL-ROUTING §0.1: Opus-class review/design runs on Devin Fusion first; Anthropic opus-med is the fallback.
-  worker(
-    'opus-fusion',
-    'L2',
-    'devin',
-    'devin',
-    'omp',
-    'devin/fusion-claude-opus-5-5-medium-sidekick-swe-2-high',
-    'w-opus-med',
-    ['review', 'design'],
-  ),
-  worker('sol', 'L2', 'openai', 'openai-codex', 'omp', 'openai-codex/gpt-6.1-sol:high', 'w-sol', [
-    'mech',
-    'review',
+  worker('cursor-grok', 'L3', 'cursor', 'cursor', 'omp', 'cursor/grok-4.7-500k-fast:high', 'w-cursor-grok', ['mech']),
+  worker('glmflash', 'L3', 'zai', 'zai', 'omp', 'zai/glm-5.3-flash:high', 'w-glmflash', ['mech']),
+  // Code review: GPT Codex, so the reviewer is a different model family from the Opus author.
+  worker('sol', 'L2', 'openai', 'openai-codex', 'omp', 'openai-codex/gpt-6.1-sol:high', 'w-sol', ['review']),
+  worker('astra', 'L2', 'openai', 'openai-codex', 'omp', 'openai-codex/gpt-6-astra:high', 'w-astra', ['review']),
+  // UI implementation/design runs on Opus high or above; the DESIGN_OK visual verdict on Opus xhigh.
+  worker('opus-high', 'L2', 'anthropic', 'anthropic', 'omp', 'anthropic/claude-opus-5-5:high', 'w-opus-high', [
     'design',
   ]),
-  worker('opus-med', 'L2', 'anthropic', 'anthropic', 'omp', 'anthropic/claude-opus-5-5:medium', 'w-opus-med', [
-    'mech',
-    'review',
-    'design',
-  ]),
-  worker('qa-vision', 'L2', 'anthropic', 'anthropic', 'omp', 'anthropic/claude-opus-5-5:medium', 'w-qa-vision', [
+  worker('opus-xhigh', 'L2', 'anthropic', 'anthropic', 'omp', 'anthropic/claude-opus-5-5:xhigh', 'w-opus-xhigh', [
     'vision',
   ]),
-  worker('astra-vision', 'L2', 'openai', 'openai-codex', 'omp', 'openai-codex/gpt-6-astra:high', 'w-astra', ['vision']),
 ]);
 
 export interface RankInput {

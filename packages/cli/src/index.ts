@@ -596,7 +596,7 @@ export async function main(): Promise<void> {
       ['--workspace <workspace>', 'herdr workspace ID or label (default: card project)'],
       ['--permission-mode <mode>', 'Harness-specific permission mode'],
       ['--omp-id <id>', 'omp task agent ID (pointer mode); omit for a headless `omp -p` run'],
-      ['--omp-agent <name>', 'omp agent definition appended to a headless omp run (e.g. w-gemini)'],
+      ['--omp-agent <name>', 'omp agent definition appended to a headless omp run (e.g. w-glm)'],
       ['--dry-run', 'Print packet and spawn argv without writes'],
       ['--auto', 'Pick the worker from the registry by quota, vendor load and tier (APS §14)'],
       ['--tier <tier>', '--auto: L3 (default) or L2'],
