@@ -207,7 +207,7 @@ Every SQL guard in §5.1 is a SQLite trigger, so it holds under raw SQL; the TS 
 | H10 | `aps collect` report probe | `APS-H10: session ended without report.json (<evidence>)` | `pane_not_found` (or exit-file/dead pid/yield-missing end proof) with no `report.json` → exit 3; `--abandon` records `abandoned` and returns the card to issued |
 | H11 | `aps merge --pr` | `APS-H11: PR head <head> is not the reviewed sha <sha>` | fake `gh` returns a `headRefOid` other than the reported sha → exit 3, no merges row |
 | H12 | `aps merge --pr` | `APS-H12: PR #<n> is <state>, not MERGED` | fake `gh` returns `state: OPEN` → exit 3, no merges row |
-| H13 | `aps merge --pr` | `APS-H13: merge commit <sha> is not on origin/<base>` (or `PR #<n> has no merge commit`) | `mergeCommit` absent from `origin/<base>` after `git fetch` → exit 3 |
+| H13 | `aps merge --pr` | `APS-H13: merge commit <sha> is not on origin/<base>` (or `PR #<n> has no merge commit`, or `cannot verify merge commit <sha> on origin/<base>: git fetch origin <base> failed (…)`) | `mergeCommit` absent from `origin/<base>` after `git fetch` → exit 3; fetch failure with the commit in the cached tracking ref → exit 3, no merges row |
 | K10 | every `aps` invocation, before the command, in its own committed transaction | `APS-K10: feedback <id> unanswered for > <N> min; escalated` (warning on stderr immediately, sets `escalated=1, escalated_at`; not a rejection) | feedback with `created_at` 31 min ago; successful command and failing commands (exit 2/3) preserve escalation and print the warning |
 
 TS may pre-check for friendlier wording, but whenever SQL rejects, the CLI must print the trigger text unchanged.

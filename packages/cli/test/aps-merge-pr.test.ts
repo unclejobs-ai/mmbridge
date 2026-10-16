@@ -156,7 +156,7 @@ process.stdout.write(fs.readFileSync(${JSON.stringify(ghFixture)}, 'utf8'));
       db.close();
     }
   }
-  return { home, ghLog, head, squash, run, mergeWait, gh, merge, ledger };
+  return { home, ghLog, head, squash, git, run, mergeWait, gh, merge, ledger };
 }
 
 test('aps merge --pr records a squash merge of the reviewed head, then reruns idempotently into done', (t) => {
@@ -219,6 +219,22 @@ test('aps merge --pr refuses a merge commit that is not on origin/<base> (H13)',
   const id = f.mergeWait();
   f.gh({ mergeCommit: { oid: f.head } });
   assert.equal(f.merge(id, [], 3).stderr.trim(), `[mmbridge] APS-H13: merge commit ${f.head} is not on origin/main`);
+  assert.deepEqual(f.ledger(id), { state: 'merge_wait', merges: [] });
+});
+
+test('aps merge --pr refuses when git fetch fails even if the cached origin/<base> has the merge commit (H13)', (t) => {
+  const f = fixture(t);
+  const id = f.mergeWait();
+  f.gh({});
+  f.git(['update-ref', 'refs/remotes/origin/main', f.squash]);
+  f.git(['remote', 'set-url', 'origin', join(f.home, 'missing-origin.git')]);
+  const refused = f.merge(id, ['--done'], 3);
+  assert.match(
+    refused.stderr,
+    new RegExp(
+      `\\[mmbridge\\] APS-H13: cannot verify merge commit ${f.squash} on origin/main: git fetch origin main failed`,
+    ),
+  );
   assert.deepEqual(f.ledger(id), { state: 'merge_wait', merges: [] });
 });
 

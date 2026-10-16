@@ -139,8 +139,8 @@ export async function runApsMergePrCommand(
     const git = (args: string[]) => core.runCommand('git', args, { cwd: projectDir, timeoutMs: 60_000 });
     const fetched = await git(['fetch', '-q', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`]);
     if (!fetched.ok)
-      process.stderr.write(
-        `[mmbridge] warning: git fetch origin ${base} failed (${fetched.stderr.trim()}); checking the local origin/${base}\n`,
+      throw new Error(
+        `APS-H13: cannot verify merge commit ${merged} on origin/${base}: git fetch origin ${base} failed (${fetched.stderr.trim() || `exit ${fetched.code}`})`,
       );
     const target = await git(['rev-parse', '--verify', `refs/remotes/origin/${base}^{commit}`]);
     const targetSha = target.stdout.trim();
