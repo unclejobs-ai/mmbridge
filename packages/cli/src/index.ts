@@ -671,7 +671,7 @@ export async function main(): Promise<void> {
       ['--vendor <vendor>', 'Vendor for a new agent (default: model provider)'],
       ['--worktree <path>', 'Absolute git worktree of the lane (default: --project-dir)'],
       ['--branch <branch>', 'Checked-out worktree branch'],
-      ['--omp-session-dir <dir>', 'Parent session artifacts dir holding <omp-id>.jsonl'],
+      ['--omp-session-dir <dir>', 'Required: parent session artifacts dir holding <omp-id>.jsonl'],
     ],
     laneLoader,
   );

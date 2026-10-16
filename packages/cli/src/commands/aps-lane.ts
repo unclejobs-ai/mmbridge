@@ -36,8 +36,7 @@ function validated(value: unknown, flag: string): string {
 }
 
 /** `--omp-session-dir` as a real path; it must be an existing directory inside the omp sessions root. */
-function sessionDirFlag(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
+function sessionDirFlag(value: string): string {
   const real = isAbsolute(value) ? sessionDirInsideRoot(value) : null;
   if (!real) throw new ApsInputError(`--omp-session-dir must be an existing directory inside ${ompSessionsRoot()}`);
   return real;
@@ -69,7 +68,8 @@ export async function laneStart(id: string | undefined, options: ApsLaneOptions)
   const cardId = required(id, 'card');
   const ompId = validated(options.ompId, 'omp-id');
   const lane = validated(options.lane, 'lane');
-  const sessionDir = sessionDirFlag(options.ompSessionDir);
+  // Required: the task's parent session dir is the only place its transcript may be bound from (no root-wide search).
+  const sessionDir = sessionDirFlag(required(options.ompSessionDir, 'omp-session-dir'));
   const layer = choice(options.layer, 'layer', ['L2', 'L3'], 'L3');
   const projectDir = resolve(options.projectDir ?? process.cwd());
   const worktree = options.worktree === undefined ? projectDir : options.worktree;
@@ -121,7 +121,7 @@ export async function laneStart(id: string | undefined, options: ApsLaneOptions)
       return agent;
     };
     let model = options.model?.trim() || String(laneAgent()?.model ?? '');
-    // The task was just spawned: wait for exactly one transcript to exist (and name its model if needed).
+    // The task was just spawned: wait for exactly one transcript in its parent session dir (and its model if needed).
     let transcripts: string[] = [];
     for (const deadline = Date.now() + TRANSCRIPT_WAIT_MS; ; await delay(500)) {
       transcripts = findTaskTranscripts(ompId, sessionDir);
@@ -129,13 +129,12 @@ export async function laneStart(id: string | undefined, options: ApsLaneOptions)
       if (transcripts.length === 1 && !model) model = sessionModel(transcripts[0]) ?? '';
       if ((transcripts.length === 1 && model) || Date.now() >= deadline) break;
     }
-    const where = sessionDir ?? ompSessionsRoot();
     if (transcripts.length === 0)
-      throw new ApsInputError(`no omp transcript ${ompId}.jsonl under ${where} after ${TRANSCRIPT_WAIT_MS / 1000}s`);
-    if (transcripts.length > 1)
       throw new ApsInputError(
-        `omp task ${ompId} is ambiguous under ${where}: ${transcripts.join(', ')}; pass --omp-session-dir`,
+        `no omp transcript ${ompId}.jsonl under ${sessionDir} after ${TRANSCRIPT_WAIT_MS / 1000}s`,
       );
+    if (transcripts.length > 1)
+      throw new ApsInputError(`omp task ${ompId} is ambiguous under ${sessionDir}: ${transcripts.join(', ')}`);
     const sessionRef = transcripts[0];
     if (!model)
       throw new ApsInputError(`--model is required: no model in ${sessionRef} after ${TRANSCRIPT_WAIT_MS / 1000}s`);
@@ -221,7 +220,7 @@ export async function laneEnd(id: string | undefined, options: ApsLaneOptions) {
   const cardId = required(id, 'card');
   const ompId = validated(options.ompId, 'omp-id');
   const by = required(options.by ?? process.env.APS_AGENT, 'by');
-  const flagDir = sessionDirFlag(options.ompSessionDir);
+  const flagDir = options.ompSessionDir === undefined ? undefined : sessionDirFlag(options.ompSessionDir);
   const projectDir = resolve(options.projectDir ?? process.cwd());
   const config = await core.loadConfig(projectDir);
   const db = aps.openApsDb(aps.resolveApsDbPath({ flag: options.db, configPath: config.aps?.dbPath }));

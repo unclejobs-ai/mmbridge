@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { addRunEvent, createRun, newAgent, openApsDb, startCard } from '@mmbridge/aps';
 
 const bin = resolve(import.meta.dirname, '../dist/bin/mmbridge.js');
@@ -149,8 +150,45 @@ test('lane start records the exact transcript and reuses an idle agent of that n
   assert.deepEqual({ ...run }, { harness: 'omp', kind: null });
   assert.match(readFileSync(join(first.packet, 'card.md'), 'utf8'), /## Collect contract/);
 
-  assert.match(f.start(card, 'TaskA', [], 3).stderr, /APS-N01: card already has a live run/);
+  assert.match(
+    f.start(card, 'TaskA', ['--omp-session-dir', f.sessionDir], 3).stderr,
+    /APS-N01: card already has a live run/,
+  );
   assert.match(f.start(card2, 'bad id', [], 2).stderr, /--omp-id must match/);
+});
+
+test('lane start requires the parent session dir and ignores a stale same-id transcript elsewhere', async (t) => {
+  const f = fixture(t);
+  const stale = join(f.sessions, '-worker-tree', '2026-10-16T00-00-00-000Z_p0');
+  mkdirSync(stale, { recursive: true });
+  f.transcript(join(stale, 'TaskA.jsonl'));
+  assert.match(f.start(card, 'TaskA', [], 2).stderr, /--omp-session-dir is required/);
+  assert.equal(f.db.prepare('SELECT state FROM cards WHERE id=?').get(card)?.state, 'issued');
+  // The new task's transcript appears only after lane start began waiting for it.
+  const child = spawn(
+    process.execPath,
+    [
+      bin,
+      ...['aps', 'lane', 'start', card, '--omp-id', 'TaskA', '--lane', 'lane-x'],
+      ...['--omp-session-dir', f.sessionDir, '--db', f.env.APS_DB, '--json'],
+    ],
+    { env: f.env, cwd: f.worktree },
+  );
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk;
+  });
+  const exited = new Promise<number | null>((done) => child.on('close', done));
+  await delay(1500);
+  f.transcript(join(f.sessionDir, 'TaskA.jsonl'));
+  assert.equal(await exited, 0, stderr);
+  assert.equal(JSON.parse(stdout).session_ref, join(f.sessionDir, 'TaskA.jsonl'));
 });
 
 test('lane start creates the agent, reads the model from the transcript, finds nested tasks', (t) => {
@@ -158,7 +196,7 @@ test('lane start creates the agent, reads the model from the transcript, finds n
   // Task spawned by task `Lead`: <parent session>/Lead/Lead.Child.jsonl.
   mkdirSync(join(f.sessionDir, 'Lead'));
   f.transcript(join(f.sessionDir, 'Lead', 'Lead.Child.jsonl'));
-  const started = f.start(card, 'Lead.Child').value;
+  const started = f.start(card, 'Lead.Child', ['--omp-session-dir', f.sessionDir]).value;
   assert.equal(started.reused_agent, false);
   assert.equal(started.model, 'zai/glm-5.3');
   assert.equal(started.session_ref, join(f.sessionDir, 'Lead', 'Lead.Child.jsonl'));
@@ -170,9 +208,14 @@ test('lane start refuses ambiguous ids and session dirs outside the omp sessions
   const f = fixture(t);
   const otherDir = join(f.sessions, '-other', '2026-10-17T00-00-01-000Z_parent');
   mkdirSync(otherDir, { recursive: true });
-  f.transcript(join(f.sessionDir, 'TaskD.jsonl'));
+  const otherDir2 = join(f.sessions, '-other', '2026-10-17T00-00-02-000Z_parent');
+  mkdirSync(otherDir2, { recursive: true });
   f.transcript(join(otherDir, 'TaskD.jsonl'));
-  assert.match(f.start(card, 'TaskD', [], 2).stderr, /omp task TaskD is ambiguous .*pass --omp-session-dir/);
+  f.transcript(join(otherDir2, 'TaskD.jsonl'));
+  assert.match(
+    f.start(card, 'TaskD', ['--omp-session-dir', join(f.sessions, '-other')], 2).stderr,
+    /omp task TaskD is ambiguous under /,
+  );
   const outside = join(f.home, 'elsewhere');
   mkdirSync(outside);
   f.transcript(join(outside, 'TaskD.jsonl'));

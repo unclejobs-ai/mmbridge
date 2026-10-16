@@ -42,12 +42,11 @@ export function subagentTranscripts(root = ompSessionsRoot()): string[] {
   return found.sort();
 }
 
-/** Transcripts named `<ompId>.jsonl` inside one parent session directory (`scope`) or anywhere under the root. */
-export function findTaskTranscripts(ompId: string, scope?: string): string[] {
+/** Transcripts named `<ompId>.jsonl` inside one parent session directory (`scope`), nested task dirs included. */
+export function findTaskTranscripts(ompId: string, scope: string): string[] {
   const name = `${ompId}.jsonl`;
   const found: string[] = [];
-  if (scope) walk(scope, 1, found);
-  else found.push(...subagentTranscripts());
+  walk(scope, 1, found);
   return found.filter((path) => basename(path) === name).sort();
 }
 
