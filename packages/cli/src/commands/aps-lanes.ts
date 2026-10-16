@@ -2,6 +2,7 @@ import { type Dirent, closeSync, existsSync, openSync, readSync, readdirSync, st
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuditLane, VisionVerdict } from '@mmbridge/aps';
+import { expandGlob, isFile } from './aps-collect-probe.js';
 import { parseHerdrEnvelope } from './aps-herdr.js';
 import { importAps, importCore } from './helpers.js';
 
@@ -97,6 +98,24 @@ export function newestSession(dir: string): string | null {
   return best;
 }
 
+/**
+ * Transcript behind a run's `session_ref`: a pointer-mode glob (any `<omp_id>.jsonl` under ~/.omp/agent/sessions)
+ * resolves to its newest match, a `.jsonl` file to itself, a headless `--session-dir` to its newest transcript.
+ */
+export function resolveSessionRef(ref: string): string | null {
+  if (ref.includes('*')) {
+    let best: string | null = null;
+    let bestAt = Number.NEGATIVE_INFINITY;
+    for (const path of expandGlob(ref)) {
+      const at = mtime(path);
+      if (at !== null && at > bestAt && isFile(path)) [best, bestAt] = [path, at];
+    }
+    return best;
+  }
+  if (ref.endsWith('.jsonl')) return isFile(ref) ? ref : null;
+  return newestSession(ref);
+}
+
 function pidAlive(pid: number | null): boolean {
   if (!pid) return false;
   try {
@@ -161,7 +180,7 @@ export async function ledgerLanes(db: DatabaseSync, herdr: AuditLane[]): Promise
       pane.title = `${row.card_id} ${pane.title ?? ''}`.trim();
       continue;
     }
-    const session = row.harness === 'omp' && row.session_ref ? newestSession(row.session_ref) : null;
+    const session = row.harness === 'omp' && row.session_ref ? resolveSessionRef(row.session_ref) : null;
     const model = (session && sessionModel(session)) || (row.harness === 'devin' ? `devin/${row.model}` : row.model);
     const { tier, provider } = aps.classifyModel(model);
     const exited = existsSync(join(row.packet_dir, 'exit'));

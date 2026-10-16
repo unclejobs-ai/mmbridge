@@ -62,11 +62,16 @@ function requireOnPath(binary: string): void {
   throw new ApsInputError(`${binary} is not on PATH`);
 }
 
-function contract(run: string, card: string, attempt: number, packet: string, branch: string): string {
+/** Pointer-mode transcript glob: task tools write `<parent-session-dir>/<omp_id>.jsonl` under any session dir. */
+export function ompSessionGlob(ompId: string): string {
+  return join(homedir(), '.omp', 'agent', 'sessions', '*', '*', `${ompId}.jsonl`);
+}
+
+export function contract(run: string, card: string, attempt: number, packet: string, branch: string): string {
   return `\n## Collect contract\nThis section supersedes the manual reporting steps above. Do not run aps report or close-session yourself.\nRun: ${run}\nCard: ${card}\nAttempt: ${attempt}\nBranch: ${branch}\nPacket: ${packet}\n\nWhen done, write ${join(packet, 'report.md')} in COMPLETION-REPORT form (CARD, RESULT, BRANCH/SHA, FILES, EVIDENCE, RISKS, STATUS, CLOSED). Write report.json.tmp, then atomically rename it to report.json in this packet directory, following report.schema.json. Then exit your session (omp task workers: yield). Collect closes the recorded herdr pane; do not close someone else's pane.\n\nreport.json fields: run, card, attempt, status (DONE|DONE_WITH_CONCERNS|BLOCKED), sha (40/64 lowercase hex), branch, pr (URL or null), files (paths), evidence (one {ac, command, output, ok, artifact?} per acceptance criterion), risks (required for DONE_WITH_CONCERNS), blocked (required iff BLOCKED; "BLOCKED: <cause> <tried command>"). Report only exercised evidence.\n`;
 }
 
-function reportSchema(run: string, card: string, attempt: number, branch: string) {
+export function reportSchema(run: string, card: string, attempt: number, branch: string) {
   const text = { type: 'string' };
   const nonempty = { type: 'string', minLength: 1, pattern: '\\S' };
   return {
@@ -461,10 +466,7 @@ export async function dispatchCard(id: string | undefined, options: ApsDispatchO
         step = 'omp task prompt';
         // Task tools inherit the parent's session directory, which need not be the worker worktree.
         // Collect must resolve this glob unambiguously or require --omp-session-dir.
-        launch = {
-          omp_id: ompId,
-          session_ref: join(homedir(), '.omp', 'agent', 'sessions', '*', '*', `${ompId}.jsonl`),
-        };
+        launch = { omp_id: ompId, session_ref: ompSessionGlob(ompId as string) };
         log({ step, ompPrompt, ...launch });
       } else {
         step = `${harness} spawn`;

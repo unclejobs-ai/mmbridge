@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { ApsInputError, type AuditLane, type AuditReport, type VisionVerdict } from '@mmbridge/aps';
 import { closePane, confirmPaneEnded } from './aps-herdr.js';
 import { applyLedgerRecording, herdrLanes, ledgerLanes, liveRunPids, recentVisionVerdicts } from './aps-lanes.js';
+import { DEFAULT_OMP_LIVE_MIN, ompSessionLanes, ompSessionsRoot, recordedSessionFiles } from './aps-omp-lanes.js';
 import { probeQuota } from './aps-quota.js';
 import { exitWithError, importAps, importCore, jsonOutput } from './helpers.js';
 
@@ -21,6 +22,10 @@ export interface ApsAuditOptions {
   closeIdle?: boolean;
   ps?: boolean;
   ignorePid?: string;
+  /** `--no-omp-sessions` sets false: skip omp subagent transcript discovery (D3). */
+  ompSessions?: boolean;
+  /** Minutes since the last transcript write for an omp subagent to count as live. Default 10. */
+  ompLiveMin?: string;
 }
 
 /** Exit code when the audit ran but found violations (distinct from 1 = audit failed). */
@@ -144,6 +149,12 @@ export async function runAudit(options: ApsAuditOptions, now = Date.now()): Prom
   let ledger: string | null = null;
   let visionVerdicts: VisionVerdict[] = [];
   let runPids: number[] = [];
+  const ompLiveText = options.ompLiveMin ?? String(DEFAULT_OMP_LIVE_MIN);
+  if (!/^[1-9]\d*$/.test(ompLiveText))
+    throw new ApsInputError('--omp-live-min must be an integer number of minutes >= 1');
+  const ompLiveMs = Number(ompLiveText) * 60_000;
+  const scanOmp = options.ompSessions !== false;
+  let recordedOmp = new Set<string>();
   if (existsSync(dbPath)) {
     const db = aps.openApsDbReadOnly(dbPath);
     try {
@@ -154,10 +165,18 @@ export async function runAudit(options: ApsAuditOptions, now = Date.now()): Prom
       if (version >= 2) runPids = liveRunPids(db);
       visionVerdicts = recentVisionVerdicts(db, now);
       ledger = `${dbPath} (v${version})`;
+      if (scanOmp) recordedOmp = recordedSessionFiles(db);
     } finally {
       db.close();
     }
   } else errors.push(`ledger not found at ${dbPath}`);
+  let ompProbe = 'skipped';
+  if (scanOmp) {
+    const root = ompSessionsRoot();
+    const omp = await ompSessionLanes(recordedOmp, now, ompLiveMs, root);
+    lanes = [...lanes, ...omp];
+    ompProbe = `${root} (${omp.length} unrecorded live)`;
+  }
   if (options.ps) {
     try {
       lanes = [...lanes, ...aps.lanesFromPs({ ps: await readPs(), runPids, ignorePids, selfPid: process.pid })];
@@ -196,6 +215,7 @@ export async function runAudit(options: ApsAuditOptions, now = Date.now()): Prom
     '',
     `- quota: ${quota.source ?? 'unavailable'}`,
     `- ledger: ${ledger ?? 'unavailable'}`,
+    `- omp sessions: ${ompProbe}`,
     ...errors.map((error) => `- warning: ${error}`),
   ];
   const auto = options.closeIdle ? renderAutoClosed(closed) : '';

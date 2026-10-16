@@ -654,6 +654,38 @@ export async function main(): Promise<void> {
       return { runApsCommand: runApsCollectCommand };
     },
   );
+  const apsLane = apsCmd.command('lane').description('omp task lanes that record themselves');
+  const laneLoader = async () => {
+    const { runApsLaneCommand } = await import('./commands/aps-lane.js');
+    return { runApsCommand: runApsLaneCommand };
+  };
+  addAps(
+    apsLane,
+    'start <card>',
+    'lane-start',
+    [
+      ['--omp-id <id>', 'omp task agent ID'],
+      ['--lane <name>', 'Lane name = agent name; an open agent with it is reused'],
+      ['--model <model>', 'Worker model (default: reused agent, else the task transcript)'],
+      ['--layer <layer>', 'L2|L3 for a new agent (default L3)'],
+      ['--vendor <vendor>', 'Vendor for a new agent (default: model provider)'],
+      ['--worktree <path>', 'Absolute git worktree of the lane (default: --project-dir)'],
+      ['--branch <branch>', 'Checked-out worktree branch'],
+      ['--omp-session-dir <dir>', 'Parent session artifacts dir holding <omp-id>.jsonl'],
+    ],
+    laneLoader,
+  );
+  addAps(
+    apsLane,
+    'end <card>',
+    'lane-end',
+    [
+      ['--omp-id <id>', 'omp task agent ID of the live run'],
+      ['--omp-session-dir <dir>', 'Resolve an ambiguous omp transcript dir'],
+      ['--abandon', 'Abandon a run that yielded without report.json'],
+    ],
+    laneLoader,
+  );
   const foremanFlags: [string, string][] = [
     ['--repo <path>', 'Absolute git repo; per-card worktrees go to <repo>.foreman/<card>'],
     ['--max <n>', 'Max live lanes for this parent (default 6)'],
@@ -682,6 +714,8 @@ export async function main(): Promise<void> {
     ['--close-idle', 'Close IDLE_OPEN sessions (herdr pane close, then close-session). Requires --by'],
     ['--ps', 'Also scan omp/grok/claude/devin processes with no herdr pane'],
     ['--ignore-pid <pids>', 'Comma-separated pids to skip in the --ps scan'],
+    ['--no-omp-sessions', 'Skip omp subagent transcript discovery (D3)'],
+    ['--omp-live-min <minutes>', 'omp subagent transcript written within this long counts as live (default 10)'],
   ];
   const auditLoader = async () => {
     const { runApsAuditCommand } = await import('./commands/aps-audit.js');
