@@ -19,90 +19,109 @@ test('DEFAULT_WORKERS is frozen and passes its own registry validation', () => {
   assert.deepEqual(parseWorkerRegistry(JSON.parse(JSON.stringify(DEFAULT_WORKERS))), DEFAULT_WORKERS);
 });
 
-test('rankWorkers: default ordering (L3 mech -> devin-swe2 first)', () => {
-  const res = rankWorkers(DEFAULT_WORKERS, {
-    tier: 'L3',
-    role: 'mech',
-    quota: [],
-    vendorLoad: {},
-  });
+const ids = (workers: readonly WorkerSpec[]) => workers.map((w) => w.id);
+const blocked = (provider: string, reason: string): ProviderQuota => ({
+  provider,
+  source: 'omp',
+  windows: [],
+  remainingFraction: 0,
+  blocked: true,
+  reason,
+});
+
+test('DEFAULT_WORKERS: L3 mech order is glm -> cursor-grok -> glmflash and nothing else auto-dispatches mech', () => {
+  const res = rankWorkers(DEFAULT_WORKERS, { tier: 'L3', role: 'mech', quota: [], vendorLoad: {} });
   assert.strictEqual(res.skipped.length, 0);
-  assert.strictEqual(res.candidates[0]?.id, 'devin-swe2');
-  assert.deepEqual(
-    res.candidates.map((c) => c.id),
-    ['devin-swe2', 'gemini-flash', 'deepseek-flash', 'grok', 'glm', 'kimi', 'qwen'],
-  );
+  assert.deepEqual(ids(res.candidates), ['glm', 'cursor-grok', 'glmflash']);
+  assert.deepEqual(ids(DEFAULT_WORKERS.filter((w) => w.roles.includes('mech'))), ['glm', 'cursor-grok', 'glmflash']);
 });
 
-test('rankWorkers: vendor spread (devin load 2, google 0 -> gemini-flash first, devin-swe2 after zero-load)', () => {
+test('DEFAULT_WORKERS: L2 never takes mech and L3 only takes mech', () => {
+  for (const w of DEFAULT_WORKERS) {
+    if (w.tier === 'L2') assert.ok(!w.roles.includes('mech'), `${w.id} is L2 with a mech role`);
+    else assert.deepEqual([...w.roles], ['mech'], `${w.id} is L3 with a non-mech role`);
+  }
+  const res = rankWorkers(DEFAULT_WORKERS, { tier: 'L2', role: 'mech', quota: [], vendorLoad: {} });
+  assert.deepEqual(res.candidates, []);
+});
+
+test('DEFAULT_WORKERS: L2 review is GPT Codex, design and vision are Opus high or above', () => {
+  const rank = (role: 'review' | 'design' | 'vision') =>
+    rankWorkers(DEFAULT_WORKERS, { tier: 'L2', role, quota: [], vendorLoad: {} }).candidates;
+  const review = rank('review');
+  assert.deepEqual(ids(review), ['sol', 'astra']);
+  for (const w of review) assert.strictEqual(w.provider, 'openai-codex');
+  for (const w of [...rank('design'), ...rank('vision')]) {
+    assert.match(w.model, /^anthropic\/claude-opus-5-5:(high|xhigh|max)$/, w.id);
+  }
+  assert.deepEqual(ids(rank('design')), ['opus-high']);
+  assert.deepEqual(ids(rank('vision')), ['opus-xhigh']);
+  assert.match(rank('vision')[0]?.model ?? '', /:(xhigh|max)$/);
+});
+
+test('DEFAULT_WORKERS: harness, agent and model agree and retired routes are gone', () => {
+  const retiredAgent = /^w-(opus-med|qa-vision|gemini|deepseek|fable)|^w-opus-api/;
+  const retiredProvider = /^(devin|opencode-go|openrouter|google-antigravity|xai-oauth)$/;
+  for (const w of DEFAULT_WORKERS) {
+    assert.strictEqual(w.harness, 'omp', w.id);
+    assert.ok(w.agent !== null && !retiredAgent.test(w.agent), `${w.id} agent ${w.agent}`);
+    assert.ok(!retiredProvider.test(w.provider), `${w.id} provider ${w.provider}`);
+    assert.ok(w.model.startsWith(`${w.provider}/`), `${w.id} model ${w.model} is not on provider ${w.provider}`);
+    assert.ok(!/fable|fusion/.test(w.model), `${w.id} model ${w.model}`);
+  }
+});
+
+test('rankWorkers: vendor spread moves a loaded vendor behind zero-load workers, registry order otherwise', () => {
+  const res = rankWorkers(DEFAULT_WORKERS, { tier: 'L3', role: 'mech', quota: [], vendorLoad: { zai: 2 } });
+  assert.deepEqual(ids(res.candidates), ['cursor-grok', 'glm', 'glmflash']);
+});
+
+test('rankWorkers: quota block skips every worker on that provider with reason', () => {
   const res = rankWorkers(DEFAULT_WORKERS, {
     tier: 'L3',
     role: 'mech',
-    quota: [],
-    vendorLoad: { devin: 2 },
-  });
-  assert.strictEqual(res.candidates[0]?.id, 'gemini-flash');
-  const ids = res.candidates.map((c) => c.id);
-  const zeroLoadIds = ['gemini-flash', 'deepseek-flash', 'grok', 'glm', 'kimi', 'qwen'];
-  assert.deepEqual(ids.slice(0, 6), zeroLoadIds);
-  assert.strictEqual(ids[6], 'devin-swe2');
-});
-
-test('rankWorkers: quota block skip with reason', () => {
-  const quota: ProviderQuota[] = [
-    {
-      provider: 'devin',
-      source: 'omp',
-      windows: [],
-      remainingFraction: 0,
-      blocked: true,
-      reason: '7 days exhausted',
-    },
-  ];
-  const res = rankWorkers(DEFAULT_WORKERS, {
-    tier: 'L3',
-    role: 'mech',
-    quota,
+    quota: [blocked('zai', '5 Hours exhausted')],
     vendorLoad: {},
   });
-  assert.strictEqual(res.candidates[0]?.id, 'gemini-flash');
-  assert.deepEqual(res.skipped, [{ id: 'devin-swe2', reason: 'quota: 7 days exhausted' }]);
+  assert.deepEqual(ids(res.candidates), ['cursor-grok']);
+  assert.deepEqual(res.skipped, [
+    { id: 'glm', reason: 'quota: 5 Hours exhausted' },
+    { id: 'glmflash', reason: 'quota: 5 Hours exhausted' },
+  ]);
+});
+
+test('rankWorkers: cursor quota block falls through to the zai workers', () => {
+  const res = rankWorkers(DEFAULT_WORKERS, {
+    tier: 'L3',
+    role: 'mech',
+    quota: [blocked('cursor', 'Other Models: 0% left')],
+    vendorLoad: {},
+  });
+  assert.deepEqual(ids(res.candidates), ['glm', 'glmflash']);
+  assert.deepEqual(res.skipped, [{ id: 'cursor-grok', reason: 'quota: Other Models: 0% left' }]);
 });
 
 test('rankWorkers: ignoreQuota keeps blocked worker', () => {
-  const quota: ProviderQuota[] = [
-    {
-      provider: 'devin',
-      source: 'omp',
-      windows: [],
-      remainingFraction: 0,
-      blocked: true,
-      reason: '7 days exhausted',
-    },
-  ];
   const res = rankWorkers(DEFAULT_WORKERS, {
     tier: 'L3',
     role: 'mech',
-    quota,
+    quota: [blocked('zai', '5 Hours exhausted')],
     vendorLoad: {},
     ignoreQuota: true,
   });
-  assert.strictEqual(res.candidates[0]?.id, 'devin-swe2');
+  assert.deepEqual(ids(res.candidates), ['glm', 'cursor-grok', 'glmflash']);
   assert.strictEqual(res.skipped.length, 0);
 });
 
-test('rankWorkers: only-chain order + unknown id skipped', () => {
+test('rankWorkers: only-chain order + unknown id and wrong-tier id skipped', () => {
   const res = rankWorkers(DEFAULT_WORKERS, {
     tier: 'L3',
     role: 'mech',
     quota: [],
     vendorLoad: {},
-    only: ['glm', 'unknown-id', 'gemini-flash', 'sol'],
+    only: ['glmflash', 'unknown-id', 'glm', 'sol'],
   });
-  assert.deepEqual(
-    res.candidates.map((c) => c.id),
-    ['glm', 'gemini-flash'],
-  );
+  assert.deepEqual(ids(res.candidates), ['glmflash', 'glm']);
   assert.deepEqual(res.skipped, [
     { id: 'unknown-id', reason: 'not a L3 mech worker' },
     { id: 'sol', reason: 'not a L3 mech worker' },
@@ -115,30 +134,10 @@ test('rankWorkers: exclude drops worker', () => {
     role: 'mech',
     quota: [],
     vendorLoad: {},
-    exclude: ['devin-swe2', 'grok'],
+    exclude: ['glm'],
   });
-  assert.deepEqual(
-    res.candidates.map((c) => c.id),
-    ['gemini-flash', 'deepseek-flash', 'glm', 'kimi', 'qwen'],
-  );
-  assert.deepEqual(res.skipped, [
-    { id: 'devin-swe2', reason: 'excluded' },
-    { id: 'grok', reason: 'excluded' },
-  ]);
-});
-
-test('rankWorkers: L2 vision -> [qa-vision, astra-vision]', () => {
-  const res = rankWorkers(DEFAULT_WORKERS, {
-    tier: 'L2',
-    role: 'vision',
-    quota: [],
-    vendorLoad: {},
-  });
-  assert.deepEqual(
-    res.candidates.map((c) => c.id),
-    ['qa-vision', 'astra-vision'],
-  );
-  assert.strictEqual(res.skipped.length, 0);
+  assert.deepEqual(ids(res.candidates), ['cursor-grok', 'glmflash']);
+  assert.deepEqual(res.skipped, [{ id: 'glm', reason: 'excluded' }]);
 });
 
 test('parseWorkerRegistry: happy path for array and {workers:[...]}', () => {

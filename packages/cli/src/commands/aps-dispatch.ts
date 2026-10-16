@@ -27,7 +27,7 @@ export interface ApsDispatchOptions extends ApsCommandOptions {
   workspace?: string;
   permissionMode?: string;
   ompId?: string;
-  /** omp agent definition appended as system prompt for headless omp runs (e.g. w-gemini). */
+  /** omp agent definition appended as system prompt for headless omp runs (e.g. w-glm). */
   ompAgent?: string;
   dryRun?: boolean;
 }
