@@ -486,10 +486,11 @@ the overlay sets `retry.usageAwareFallback: false` and empty `fallbackChains`
 for the model, so a usage-limited lane exits instead of silently switching
 models, and the ledger model stays the model that worked. `session_ref` is the
 session directory (omp nests one level per cwd). Omp task (`--omp-id`) metadata
-records `omp_id` and the expected transcript glob
+records `omp_id` and the expected transcript pattern
 `~/.omp/agent/sessions/*/*/<omp-id>.jsonl`: task sessions inherit the parent
-directory, not necessarily the worker worktree; collection must reject an
-ambiguous match or require `--omp-session-dir`.
+directory, not necessarily the worker worktree. Collect and audit resolve it to
+every `<omp-id>.jsonl` under the sessions root, nested task-of-task transcripts
+included; collection must reject an ambiguous match or require `--omp-session-dir`.
 
 JSON output contains run/agent/card/attempt/packet/harness, launch fields,
 `pane`, `pid` or `ompPrompt` as applicable, and the next collect command.
@@ -679,3 +680,13 @@ lane failing does not stop the others. Any close failure exits 1. The markdown g
 One transaction: an `issued` card is `startCard`'d for `--agent`; it must then be `working` with that assignee. A live run is `APS-N01`. Run id is `<card>-a<attempt>-adopt-<yyyymmddHHMMSS>`. Harness defaults to `herdr` when `--pane` is set, else `omp`; herdr kind defaults to `omp` and is stored only for herdr; model defaults to the agent model; `base_sha` is `--base-sha` or `git merge-base HEAD origin/main`, else `main`. `createRun` writes `intent`, then `launched` `{adopted:true,pid,pane_id,session_ref}`, and `<ledger dir>/dispatch/<run>/adopt.json` stores the same facts.
 
 Collect and foreman leave an adopted run `running` while its pid is alive or its pane is present, and never mark it `failed` in that state. Once both are gone, a report already recorded for the attempt takes the normal close path; otherwise the run event is `blocked` (card stays `working`) and the outcome is `blocked` with message `adopted lane ended without report; record aps report`.
+
+### 12.7 `aps lane start|end` (omp task lanes, T1)
+
+`mmbridge aps lane start <card> --omp-id <id> --lane <name> --omp-session-dir <dir> [--model <m>] [--layer L2|L3] [--vendor <v>] [--worktree <abs>] [--branch <b>] [--by <agent>]` records an omp task subagent that is already running. The lane name is the identity: the newest open agent with `name = <lane>` in the card's project is reused only while it holds no `working`/`reported` card; otherwise the start is refused (`lane <name> is busy: agent <id> holds <card> (<state>)`), so one lane agent never carries two live cards and ending or abandoning one card cannot close or return another. One is created only if none exists. `--by` defaults to `APS_AGENT`, else the lane agent itself. `--omp-session-dir` is required (the task's parent session directory; missing is exit 2, there is no root-wide search, so a stale same-id transcript of another session can never be bound) and must be an existing directory whose real path is inside the real `~/.omp/agent/sessions` root (symlinks out and outside dirs are refused). The task transcript `<id>.jsonl` is searched under that dir, nested task-of-task transcripts (`<parent>/<A>/<A>.<B>.jsonl`) included, for up to 20 s: none is refused, more than one is refused as ambiguous. One transaction starts the card (issued/revise → working; a live run is `APS-N01`), writes the run `<card>-a<attempt>-lane-<yyyymmddHHMMSS>` (`harness=omp`), and appends `launched` `{omp_id, session_ref, lane}` with `session_ref` = that exact transcript path. The worktree defaults to `--project-dir`; its branch must be checked out, and `base_sha` is its HEAD. The model is `--model`, else the reused agent's model, else the model named by the transcript. The packet is identical to dispatch (`card.md` with the collect contract, `report.schema.json`, `dispatch.json`).
+
+`mmbridge aps lane end <card> --omp-id <id> --by <manager> [--omp-session-dir <dir>] [--abandon]` requires the card's live run to have `launched.omp_id = <id>`, and `--by` to be someone other than the lane agent. The yield output is bound to the transcript recorded at launch: `--omp-session-dir` (same root rule as start) must be the real directory of that transcript (for a dispatch pattern, of one of its matches), else it is refused. It refuses with `APS-H08` until `<transcript dir>/<id>.md` exists, then runs `collectRun` (§12.2). A missing `report.json` is `APS-H10`.
+
+`integrations/omp/aps-task-hook.ts` is an opt-in, fail-silent omp post hook. It runs `lane start` for each task result whose assignment has an `APS-CARD:` line. Install steps and the line convention are in `integrations/omp/README.md`. Rollback: remove the hook file.
+
+Audit (§12.5) resolves an omp run's `session_ref` to a transcript for model and last output (D1): an exact path is used as is; a dispatch pattern resolves through the same nested search as collect and counts only when it has a single match (ambiguous → none, model stays the declared one). It also scans `~/.omp/agent/sessions/<slug>/<parent>/**/<id>.jsonl` (D3): a transcript written within `--omp-live-min` (default 10) whose last turn is still working is a lane `omp:<id>` (`source: omp`, `recorded: false`, so `UNRECORDED_LANE`), unless a live run's `session_ref` resolves to exactly that file; every candidate of an ambiguous pattern stays reported. `session_exit` = parked and an ended assistant turn = idle; neither is reported, nor are `_`-prefixed omp-internal transcripts (`__advisor`). `--no-omp-sessions` turns the scan off; the footer shows `omp sessions: <root> (<n> unrecorded live)`.

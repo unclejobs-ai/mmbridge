@@ -2,7 +2,9 @@ import { type Dirent, closeSync, existsSync, openSync, readSync, readdirSync, st
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuditLane, VisionVerdict } from '@mmbridge/aps';
+import { isFile } from './aps-collect-probe.js';
 import { parseHerdrEnvelope } from './aps-herdr.js';
+import { patternTranscripts } from './aps-omp-transcripts.js';
 import { importAps, importCore } from './helpers.js';
 
 /** Devin panes do not expose their model; SWE-2 Max is the configured default (MODEL-ROUTING §0). */
@@ -97,6 +99,20 @@ export function newestSession(dir: string): string | null {
   return best;
 }
 
+/**
+ * Transcript behind a run's `session_ref`: a pointer-mode pattern resolves only when exactly one task transcript
+ * matches (task ids repeat across parent sessions), a `.jsonl` file to itself, a headless `--session-dir` to its
+ * newest transcript.
+ */
+export function resolveSessionRef(ref: string): string | null {
+  if (ref.includes('*')) {
+    const matches = patternTranscripts(ref);
+    return matches.length === 1 ? matches[0] : null;
+  }
+  if (ref.endsWith('.jsonl')) return isFile(ref) ? ref : null;
+  return newestSession(ref);
+}
+
 function pidAlive(pid: number | null): boolean {
   if (!pid) return false;
   try {
@@ -161,7 +177,7 @@ export async function ledgerLanes(db: DatabaseSync, herdr: AuditLane[]): Promise
       pane.title = `${row.card_id} ${pane.title ?? ''}`.trim();
       continue;
     }
-    const session = row.harness === 'omp' && row.session_ref ? newestSession(row.session_ref) : null;
+    const session = row.harness === 'omp' && row.session_ref ? resolveSessionRef(row.session_ref) : null;
     const model = (session && sessionModel(session)) || (row.harness === 'devin' ? `devin/${row.model}` : row.model);
     const { tier, provider } = aps.classifyModel(model);
     const exited = existsSync(join(row.packet_dir, 'exit'));

@@ -10,9 +10,9 @@ export interface ModelClass {
 }
 
 export interface AuditLane {
-  /** herdr pane id, ledger run id, or `pid:<n>`. */
+  /** herdr pane id, ledger run id, `pid:<n>`, or `omp:<task id>` (omp subagent transcript with no live run). */
   id: string;
-  source: 'herdr' | 'ledger' | 'process';
+  source: 'herdr' | 'ledger' | 'process' | 'omp';
   /** Harness/agent program: omp, pi, devin, grok, claude, codex, ... */
   harness: string;
   /** `provider/model` when known. */

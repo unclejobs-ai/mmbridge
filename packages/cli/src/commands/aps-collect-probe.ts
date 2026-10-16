@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Row } from '@mmbridge/aps';
 import { closePane, confirmPaneEnded, getPane } from './aps-herdr.js';
+import { patternTranscripts } from './aps-omp-transcripts.js';
 
 export interface ProbeOptions {
   ompSessionDir?: string;
@@ -81,30 +82,6 @@ export function isFile(path: string): boolean {
   }
 }
 
-export function expandGlob(pattern: string): string[] {
-  const segments = pattern.split('/').filter((segment) => segment.length > 0);
-  let paths = [pattern.startsWith('/') ? '/' : '.'];
-  for (const segment of segments) {
-    if (!segment.includes('*')) {
-      paths = paths.map((path) => join(path, segment));
-      continue;
-    }
-    const rx = new RegExp(`^${segment.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`);
-    const next: string[] = [];
-    for (const path of paths) {
-      let names: string[];
-      try {
-        names = readdirSync(path);
-      } catch {
-        continue;
-      }
-      for (const name of names) if (rx.test(name)) next.push(join(path, name));
-    }
-    paths = next;
-  }
-  return paths;
-}
-
 function yieldPaths(
   detail: Record<string, unknown>,
   opts: ProbeOptions,
@@ -118,7 +95,7 @@ function yieldPaths(
     : sessionRef || `${ompId}.md`;
   const dirs = [
     ...new Set(
-      (sessionRef.includes('*') ? expandGlob(sessionRef) : sessionRef ? [sessionRef] : [])
+      (sessionRef.includes('*') ? patternTranscripts(sessionRef) : sessionRef ? [sessionRef] : [])
         .filter(isFile)
         .map((path) => dirname(path)),
     ),
