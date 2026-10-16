@@ -388,20 +388,25 @@ function auto(f: { home: string; worktree: string; env: NodeJS.ProcessEnv }, ext
     registry,
     JSON.stringify([
       spec('glm', 'zai', 'zai', 'zai/glm-5.3:high'),
-      spec('gemini-flash', 'google', 'google-antigravity', 'google-antigravity/gemini-3.8-flash'),
+      spec('cursor-grok', 'cursor', 'cursor', 'cursor/grok-4.7-500k-fast:high'),
     ]),
   );
+  // The shared fixture keeps cursor Other Models exhausted because aps package tests expect that; this
+  // private copy lowers it so --auto quota-skips only glm and can still pick cursor-grok.
+  const usage = JSON.parse(readFileSync(usageFixture, 'utf8'));
+  for (const report of usage.reports)
+    if (report.provider === 'cursor')
+      for (const limit of report.limits)
+        if (limit.id === 'cursor:usd:individual-api') {
+          limit.amount.used = 0;
+          limit.amount.usedFraction = 0;
+          limit.amount.remainingFraction = 1;
+          limit.status = 'ok';
+        }
+  const quotaJson = join(f.home, 'omp-usage.json');
+  writeFileSync(quotaJson, JSON.stringify(usage));
   const args = [bin, 'aps', 'dispatch', card, '--db', String(f.env.APS_DB), '--worktree', f.worktree, '--auto'];
-  args.push(
-    '--workers',
-    'glm,gemini-flash',
-    '--workers-file',
-    registry,
-    '--quota-json',
-    usageFixture,
-    '--json',
-    ...extra,
-  );
+  args.push('--workers', 'glm,cursor-grok', '--workers-file', registry, '--quota-json', quotaJson, '--json', ...extra);
   const result = spawnSync(process.execPath, args, { env: f.env, cwd: f.home, encoding: 'utf8', timeout: 30_000 });
   assert.equal(result.status, status, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(result.stdout);
@@ -411,8 +416,8 @@ test('--auto skips a quota-blocked provider and writes nothing on --dry-run', (t
   const f = fixture(t);
   const value = auto(f, ['--dry-run']);
   assert.deepEqual(value.skipped, [{ id: 'glm', reason: 'quota: ZAI 5 Hours Token Quota: 0% left' }]);
-  assert.equal(value.worker, 'gemini-flash');
-  assert.equal(value.launched.model, 'google-antigravity/gemini-3.8-flash');
+  assert.equal(value.worker, 'cursor-grok');
+  assert.equal(value.launched.model, 'cursor/grok-4.7-500k-fast:high');
   assert.equal(f.db.prepare('SELECT count(*) AS n FROM worker_runs').get()?.n, 0);
   assert.equal(f.db.prepare('SELECT count(*) AS n FROM quota_samples').get()?.n, 0);
 });
@@ -424,7 +429,7 @@ test('--auto falls back when a worker exits with a usage limit and records it in
     value.attempts.map((attempt: { worker: string; result: string }) => [attempt.worker, attempt.result]),
     [
       ['glm', 'fallback'],
-      ['gemini-flash', 'launched'],
+      ['cursor-grok', 'launched'],
     ],
   );
   assert.match(value.attempts[0].reason, /^usage-limit: .*Usage limit reached/);
@@ -442,8 +447,8 @@ test('--auto falls back when a worker exits with a usage limit and records it in
     ['zai/glm-5.3:high', 'intent', null],
     ['zai/glm-5.3:high', 'launched', null],
     ['zai/glm-5.3:high', 'failed', 'usage-limit'],
-    ['google-antigravity/gemini-3.8-flash', 'intent', null],
-    ['google-antigravity/gemini-3.8-flash', 'launched', null],
+    ['cursor/grok-4.7-500k-fast:high', 'intent', null],
+    ['cursor/grok-4.7-500k-fast:high', 'launched', null],
   ]);
   const cardRow = f.db.prepare('SELECT state, attempt FROM cards').get();
   assert.deepEqual([cardRow?.state, cardRow?.attempt], ['working', 2]);
