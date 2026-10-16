@@ -107,6 +107,44 @@ test('N02 refuses run for non-working card', (t) => {
   rejects(db, 'N02', runSql(RUN, 1, 'w2'));
 });
 
+test('verify runs (0006): N05 reviewable card, attempt and independence; N01 per reviewer; work run unaffected', async (t) => {
+  const db = seed();
+  t.after(() => db.close());
+  const verifySql = (id: string, agent: string, attempt = 1) =>
+    `INSERT INTO worker_runs(id,card_id,attempt,agent_id,harness,kind,model,worktree,branch,base_sha,packet_dir,created_by,role)
+     VALUES('${id}','${CARD}',${attempt},'${agent}','herdr','omp','test-model','/sandbox','fac/test','${SHA}','/packet','mgr','verify')`;
+  rejects(db, 'N05', verifySql('v-early', 'rev'));
+  move(db, 'issued', 'working', 'w1');
+  await commandTransaction(db, async () => createRun(db, values));
+  db.exec(eventSql('launched'));
+  rejects(db, 'N05', verifySql('v-working', 'rev'));
+  report(db);
+  move(db, 'working', 'reported', 'w1');
+  closeAgent(db, 'w1');
+  move(db, 'reported', 'closed_session', 'mgr');
+  move(db, 'closed_session', 'inspecting', 'mgr');
+  rejects(db, 'N05', verifySql('v-attempt', 'rev', 2));
+  rejects(db, 'N05', verifySql('v-self', 'w1b'));
+  // An independent reviewer lane coexists with the still-live work run; the work run stays the card's live run.
+  await commandTransaction(db, async () => createRun(db, { ...values, id: 'v-1', agent_id: 'rev', role: 'verify' }));
+  rejects(db, 'N01', verifySql('v-2', 'rev'));
+  db.exec(verifySql('v-3', 'w2'));
+  assert.equal(getLiveRun(db, CARD)?.run_id, RUN);
+  assert.deepEqual(
+    db
+      .prepare('SELECT run_id, role FROM v_run_current WHERE card_id=? ORDER BY run_id')
+      .all(CARD)
+      .map((row) => ({ ...row })),
+    [
+      { run_id: RUN, role: 'work' },
+      { run_id: 'v-1', role: 'verify' },
+      { run_id: 'v-3', role: 'verify' },
+    ],
+  );
+  // A work run is still one per card even while verify runs are live (w1 is closed, so a live agent asks).
+  rejects(db, 'N01', runSql('run-2', 1, 'w1b'));
+});
+
 test('N03 refuses backward event', async (t) => {
   const db = await workingRun();
   t.after(() => db.close());

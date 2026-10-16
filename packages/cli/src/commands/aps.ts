@@ -83,6 +83,13 @@ export async function runApsCommand(
           parent_card: options.parent ?? null,
           body_md: options.body ? fileText(options.body) : '',
           source_ref: options.sourceRef ?? null,
+          direction_ref: options.directionRef ?? null,
+          design_authority: options.designAuthority ?? null,
+          review_budget:
+            options.reviewBudget === undefined
+              ? null
+              : Number(choice(options.reviewBudget, 'review-budget', ['1', '2', '3'])),
+          risk_tier: choice(options.riskTier, 'risk-tier', ['low', 'normal', 'high'], 'normal'),
         });
         const core = await importCore();
         const git = await core.runCommand('git', ['rev-parse', '--is-inside-work-tree'], { cwd: projectDir });
@@ -150,6 +157,8 @@ export async function runApsCommand(
         return aps.transaction(db, () => [aps.moveCard(db, cardId, 'issued', by, required(options.note, 'note'))]);
       case 'reject':
         return aps.transaction(db, () => [aps.moveCard(db, cardId, 'rejected', by, required(options.note, 'note'))]);
+      case 'reopen':
+        return aps.transaction(db, () => [aps.moveCard(db, cardId, 'inspecting', by, required(options.note, 'note'))]);
       case 'done':
         return aps.transaction(db, () => [aps.moveCard(db, cardId, 'done', by)]);
       case 'report': {
@@ -286,6 +295,8 @@ export async function runApsCommand(
             source_ref: options.sourceRef ?? null,
           }),
         }));
+      case 'budget-override':
+        return { id: aps.recordBudgetOverride(db, cardId, by, required(options.note, 'note')) };
       case 'merge': {
         if (Boolean(options.mergedSha) === Boolean(options.appliedRef))
           throw new InputError('specify exactly one of --merged-sha or --applied-ref');

@@ -433,7 +433,7 @@ async function closeOnlyRun(aps: Aps, db: DatabaseSync, cardId: string, by: stri
     throw new ApsInputError(`card ${cardId} is still working; collect it without --close-only`);
   const run = db
     .prepare(
-      "SELECT * FROM v_run_current WHERE card_id=? AND status='launched' ORDER BY since DESC, run_id DESC LIMIT 1",
+      "SELECT * FROM v_run_current WHERE card_id=? AND role='work' AND status='launched' ORDER BY since DESC, run_id DESC LIMIT 1",
     )
     .get(cardId);
   if (!run) return { card: cardId, run: null, outcome: 'pending', code: 2, message: 'no launched run' };
@@ -553,7 +553,9 @@ export async function runApsCollectCommand(
     };
     if (options.all) {
       const rows = db
-        .prepare("SELECT card_id FROM v_run_current WHERE status IN ('launched','reported') ORDER BY since, run_id")
+        .prepare(
+          "SELECT card_id FROM v_run_current WHERE role='work' AND status IN ('launched','reported') ORDER BY since, run_id",
+        )
         .all();
       const outcomes: CollectOutcome[] = [];
       for (const row of rows) outcomes.push(await collectRun(ledger, String(row.card_id), by, opts));

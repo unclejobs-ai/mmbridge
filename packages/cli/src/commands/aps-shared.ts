@@ -29,6 +29,10 @@ export interface ApsCommandOptions {
   parent?: string;
   body?: string;
   sourceRef?: string;
+  directionRef?: string;
+  designAuthority?: string;
+  reviewBudget?: string;
+  riskTier?: string;
   asPrompt?: boolean;
   state?: string;
   sha?: string;
