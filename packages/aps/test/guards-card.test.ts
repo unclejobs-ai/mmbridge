@@ -84,6 +84,12 @@ test('cards (0006): C11 direction_ref shape, C12 review cards retired, C09 freez
     `docs/plan.md@${'A'.repeat(40)}`,
     `docs/my plan.md@${SHA}`,
     'https://',
+    'https://#',
+    'http://?',
+    'https:///',
+    'https://:443/x',
+    'https://user:secret@example.test/x',
+    `https://#@${SHA}`,
     'ftp://example.test/x',
     'https://example.test/a b',
   ])
@@ -100,13 +106,16 @@ test('cards (0006): C11 direction_ref shape, C12 review cards retired, C09 freez
   );
   db.exec(withFields('SS-C-0003', 'direction_ref', `'docs/x.md@${'f'.repeat(64)}'`));
   db.exec(withFields('SS-C-0004', 'direction_ref', "'https://github.com/o/r/issues/1'"));
+  db.exec(withFields('SS-C-0005', 'direction_ref', "'http://localhost:3000/plan?v=2#goal'"));
+  db.exec(withFields('SS-C-0006', 'direction_ref', "'https://www.npmjs.com/package/@scope/pkg'"));
   const defaults = db.prepare("SELECT review_budget, risk_tier, direction_ref FROM cards WHERE id='SS-C-0001'").get();
   assert.deepEqual({ ...defaults }, { review_budget: 2, risk_tier: 'normal', direction_ref: null });
   // While issued the spec, the A1 fields included, is still editable (C09); C11/C12 also hold for edits.
   db.exec(
     `UPDATE cards SET review_budget=3, risk_tier='low', direction_ref='https://example.test/d' WHERE id='${CARD}'`,
   );
-  rejects(db, 'C11', `UPDATE cards SET direction_ref='nope' WHERE id='${CARD}'`);
+  for (const bad of ['nope', 'https://#', 'http://?', 'https:///'])
+    rejects(db, 'C11', `UPDATE cards SET direction_ref='${bad}' WHERE id='${CARD}'`);
   rejects(db, 'C12', `UPDATE cards SET kind='review' WHERE id='${CARD}'`);
   move(db, 'issued', 'working', 'w1');
   for (const set of [

@@ -143,15 +143,22 @@ CREATE TRIGGER trg_cards_ins BEFORE INSERT ON cards BEGIN
   SELECT RAISE(ABORT, 'APS-C06: assignee and parent_card must exist')
    WHERE (NEW.assignee IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agents WHERE id = NEW.assignee))
       OR (NEW.parent_card IS NOT NULL AND NOT EXISTS (SELECT 1 FROM cards WHERE id = NEW.parent_card));
-  -- <path>@<full sha> pins a design document at a commit; an http(s) URL names an external direction.
+  -- <path>@<full sha> pins a design document at a commit; an http(s) URL names an external direction. A URL needs an
+  -- authority (text up to the first / ? #) that starts with a letter or digit and holds only host and port characters:
+  -- an empty host (https://#, http://?, https:///) is refused, and so is userinfo, which never belongs in the ledger.
   SELECT RAISE(ABORT, 'APS-C11: direction_ref must be <path>@<full 40- or 64-hex sha> or an http(s) URL, without whitespace')
    WHERE NEW.direction_ref IS NOT NULL
      AND (NEW.direction_ref GLOB '*[ ' || char(9, 10, 13) || ']*'
-          OR NOT ((NEW.direction_ref GLOB 'https://?*' OR NEW.direction_ref GLOB 'http://?*')
-                  OR (length(NEW.direction_ref) > 41 AND substr(NEW.direction_ref, -41, 1) = '@'
-                      AND substr(NEW.direction_ref, -40) NOT GLOB '*[^0-9a-f]*')
-                  OR (length(NEW.direction_ref) > 65 AND substr(NEW.direction_ref, -65, 1) = '@'
-                      AND substr(NEW.direction_ref, -64) NOT GLOB '*[^0-9a-f]*')));
+          OR NOT (((NEW.direction_ref GLOB 'https://*' OR NEW.direction_ref GLOB 'http://*')
+                   AND (SELECT authority GLOB '[A-Za-z0-9]*' AND authority NOT GLOB '*[^A-Za-z0-9.:-]*'
+                        FROM (SELECT substr(rest, 1, instr(replace(replace(rest, '?', '/'), '#', '/') || '/', '/') - 1)
+                                     AS authority
+                              FROM (SELECT substr(NEW.direction_ref, instr(NEW.direction_ref, '://') + 3) AS rest))))
+                  OR (NEW.direction_ref NOT GLOB '*://*'
+                      AND ((length(NEW.direction_ref) > 41 AND substr(NEW.direction_ref, -41, 1) = '@'
+                            AND substr(NEW.direction_ref, -40) NOT GLOB '*[^0-9a-f]*')
+                        OR (length(NEW.direction_ref) > 65 AND substr(NEW.direction_ref, -65, 1) = '@'
+                            AND substr(NEW.direction_ref, -64) NOT GLOB '*[^0-9a-f]*')))));
 END;
 
 -- ───────────── cards update: 0001 body; C09 freezes the A1 fields; C11/C12 also hold for edits while issued ─────────────
@@ -185,11 +192,16 @@ CREATE TRIGGER trg_cards_upd BEFORE UPDATE ON cards BEGIN
   SELECT RAISE(ABORT, 'APS-C11: direction_ref must be <path>@<full 40- or 64-hex sha> or an http(s) URL, without whitespace')
    WHERE NEW.direction_ref IS NOT OLD.direction_ref AND NEW.direction_ref IS NOT NULL
      AND (NEW.direction_ref GLOB '*[ ' || char(9, 10, 13) || ']*'
-          OR NOT ((NEW.direction_ref GLOB 'https://?*' OR NEW.direction_ref GLOB 'http://?*')
-                  OR (length(NEW.direction_ref) > 41 AND substr(NEW.direction_ref, -41, 1) = '@'
-                      AND substr(NEW.direction_ref, -40) NOT GLOB '*[^0-9a-f]*')
-                  OR (length(NEW.direction_ref) > 65 AND substr(NEW.direction_ref, -65, 1) = '@'
-                      AND substr(NEW.direction_ref, -64) NOT GLOB '*[^0-9a-f]*')));
+          OR NOT (((NEW.direction_ref GLOB 'https://*' OR NEW.direction_ref GLOB 'http://*')
+                   AND (SELECT authority GLOB '[A-Za-z0-9]*' AND authority NOT GLOB '*[^A-Za-z0-9.:-]*'
+                        FROM (SELECT substr(rest, 1, instr(replace(replace(rest, '?', '/'), '#', '/') || '/', '/') - 1)
+                                     AS authority
+                              FROM (SELECT substr(NEW.direction_ref, instr(NEW.direction_ref, '://') + 3) AS rest))))
+                  OR (NEW.direction_ref NOT GLOB '*://*'
+                      AND ((length(NEW.direction_ref) > 41 AND substr(NEW.direction_ref, -41, 1) = '@'
+                            AND substr(NEW.direction_ref, -40) NOT GLOB '*[^0-9a-f]*')
+                        OR (length(NEW.direction_ref) > 65 AND substr(NEW.direction_ref, -65, 1) = '@'
+                            AND substr(NEW.direction_ref, -64) NOT GLOB '*[^0-9a-f]*')))));
 END;
 
 -- ───────────── transitions: 0001 body + T06 (reopen) + B01 (review budget) ─────────────
