@@ -9,8 +9,8 @@ const testDir = fileURLToPath(new URL('./', import.meta.url));
 const designDoc = readFileSync(fileURLToPath(new URL('../../../docs/aps/DESIGN.md', import.meta.url)), 'utf8');
 const messages = guardMessages();
 
-test('the DDL defines the 89 guard codes the catalogue documents', () => {
-  assert.equal(messages.size, 89);
+test('the DDL defines the 97 guard codes the catalogue documents', () => {
+  assert.equal(messages.size, 97);
 });
 
 test('every guard code has an executed rejection test', () => {

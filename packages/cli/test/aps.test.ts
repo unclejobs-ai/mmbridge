@@ -254,7 +254,7 @@ test('H01 fails closed on herdr server_not_running on stderr', (t) => {
 
 test('aps init/project add/agent new: persisted records, generated IDs, text output', (t) => {
   const f = fixture(t);
-  assert.equal(f.run(['init']).value.user_version, 5);
+  assert.equal(f.run(['init']).value.user_version, 6);
   const result = f.run(
     ['agent', 'new', '--name', 'New Worker', '--layer', 'L3', '--model', 'test', '--vendor', 'test'],
     0,
@@ -744,6 +744,60 @@ test('return/reject manager transitions preserve notes', (t) => {
   f.run(['reject', id, '--note', 'cancel']);
   assert.equal(f.run(['card', 'show', id]).value.history.at(-1).note, 'cancel');
 });
+test('card new records the A1 fields; review cards are retired (APS-C12)', (t) => {
+  const f = fixture(t);
+  const fields = (id: string) => {
+    const card = f.run(['card', 'show', id]).value;
+    return [card.direction_ref, card.design_authority, card.review_budget, card.risk_tier];
+  };
+  assert.deepEqual(fields(f.card()), [null, null, 2, 'normal']);
+  const direction = `docs/aps/DESIGN.md@${SHA}`;
+  const high = f.card(['--risk-tier', 'high', '--direction-ref', direction, '--design-authority', 'owner']);
+  assert.deepEqual(fields(high), [direction, 'owner', 3, 'high']);
+  assert.deepEqual(fields(f.card(['--risk-tier', 'high', '--review-budget', '1'])), [null, null, 1, 'high']);
+  const base = ['card', 'new', '--project', 'test', '--title', 'T', '--size', 'S', '--scope', 'CLI'];
+  const rest = ['--acceptance', f.acceptance, '--forbidden', 'none', '--owner', f.manager];
+  assert.match(f.run([...base, '--kind', 'mech', '--review-budget', '4', ...rest], 2).stderr, /review-budget/);
+  assert.match(f.run([...base, '--kind', 'mech', '--risk-tier', 'extreme', ...rest], 2).stderr, /risk-tier/);
+  assert.match(f.run([...base, '--kind', 'mech', '--direction-ref', 'plan.md', ...rest], 3).stderr, /APS-C11:/);
+  assert.match(f.run([...base, '--kind', 'review', ...rest], 3).stderr, /APS-C12:/);
+});
+test('reopen re-judges a rejected card: note required, then the normal review path', (t) => {
+  const f = fixture(t);
+  const id = f.inspecting();
+  const items = f.file('items.json', [{ severity: 'major', category: 'test', text: 'Wrong call' }]);
+  f.run(['review', id, '--verdict', 'reject', '--items', items]);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'rejected');
+  assert.match(f.run(['reopen', id], 2).stderr, /note/);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'rejected');
+  const [move] = f.run(['reopen', id, '--note', 're-judge: wrongly rejected']).value;
+  assert.deepEqual([move.from, move.to], ['rejected', 'inspecting']);
+  assert.equal(f.run(['card', 'show', id]).value.history.at(-1).note, 're-judge: wrongly rejected');
+  f.run(['review', id, '--verdict', 'accept']);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'merge_wait');
+  const unreported = f.card();
+  f.run(['reject', unreported, '--note', 'not needed']);
+  assert.match(f.run(['reopen', unreported, '--note', 'retry'], 3).stderr, /APS-T06:/);
+});
+test('budget-override: note required, revise only, then the exhausted card can be reworked (APS-B01/B02)', (t) => {
+  const f = fixture(t);
+  const id = f.inspecting(['--review-budget', '1']);
+  assert.match(f.run(['budget-override', id], 2).stderr, /note/);
+  assert.match(f.run(['budget-override', id, '--note', 'too early'], 3).stderr, /APS-B02:/);
+  const items = f.file('items.json', [{ severity: 'major', category: 'test', text: 'Missing test' }]);
+  f.run(['review', id, '--verdict', 'revise', '--items', items]);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'revise');
+  const next = f.run(['agent', 'new', '--name', 'worker2', '--layer', 'L2', '--model', 'sol', '--vendor', 'test']).value
+    .id;
+  assert.match(f.run(['start', id, '--assignee', next], 3).stderr, /APS-B01:/);
+  assert.equal(f.run(['card', 'show', id]).value.state, 'revise');
+  assert.ok(f.run(['budget-override', id, '--note', 'owner: one more round']).value.id);
+  const [move] = f.run(['start', id, '--assignee', next]).value;
+  assert.deepEqual([move.from, move.to, move.attempt], ['revise', 'working', 2]);
+  const db = openApsDb(f.dbPath);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM owner_oks').get()?.n, 0, 'an override is not an owner OK');
+  db.close();
+});
 test('todo-render writes ordered Korean state tables atomically', (t) => {
   const f = fixture(t);
   const id = f.card();
@@ -861,7 +915,7 @@ test('TS guards H02/H04 and newer schema refuse without mutation', async (t) => 
   const newer = openApsDb(f.dbPath);
   newer.exec('PRAGMA user_version=99');
   newer.close();
-  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v5\)/);
+  assert.match(f.run(['init'], 3).stderr, /APS-U01: ledger schema v99 is newer than this build \(max v6\)/);
 });
 test('missing actor and unreadable JSON are input errors', (t) => {
   const f = fixture(t);

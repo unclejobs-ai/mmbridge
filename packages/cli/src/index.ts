@@ -560,7 +560,7 @@ export async function main(): Promise<void> {
   addAps(apsCard, 'new', 'card-new', [
     ['--project <id>', 'Ledger project'],
     ['--title <title>', 'Goal'],
-    ['--kind <kind>', 'mech|design|review|vision|research'],
+    ['--kind <kind>', 'mech|design|vision|research (review cards retired: APS-C12)'],
     ['--size <size>', 'S|M|L'],
     ['--scope <scope>', 'Scope'],
     ['--acceptance <file>', 'Acceptance JSON file'],
@@ -572,6 +572,10 @@ export async function main(): Promise<void> {
     ['--parent <card>', 'Parent card'],
     ['--body <file>', 'Details markdown'],
     ['--source-ref <ref>', 'Source reference'],
+    ['--direction-ref <ref>', 'Direction document <path>@<full sha> or http(s) URL'],
+    ['--design-authority <who>', 'Who decides design questions (agent name or owner)'],
+    ['--review-budget <n>', 'Revise rounds before an owner decision: 1|2|3 (default 2; 3 when --risk-tier high)'],
+    ['--risk-tier <tier>', 'low|normal|high (default normal)'],
   ]);
   addAps(apsCard, 'show <id>', 'card-show', [['--as-prompt', 'Worker prompt']]);
   addAps(apsCard, 'list', 'card-list', [
@@ -697,6 +701,7 @@ export async function main(): Promise<void> {
   }
   addAps(apsCmd, 'return <card>', 'return', [['--note <text>', 'Return reason']]);
   addAps(apsCmd, 'reject <card>', 'reject', [['--note <text>', 'Rejection reason']]);
+  addAps(apsCmd, 'reopen <card>', 'reopen', [['--note <text>', 'Why the rejection is re-judged']]);
   addAps(apsCmd, 'done <card>', 'done', []);
   addAps(apsCmd, 'report <card>', 'report', [
     ['--sha <sha>', 'Reported commit'],
@@ -731,6 +736,9 @@ export async function main(): Promise<void> {
   addAps(apsCmd, 'owner-ok <card>', 'owner-ok', [
     ['--quote <text>', 'Owner quote'],
     ['--source-ref <ref>', 'Source reference'],
+  ]);
+  addAps(apsCmd, 'budget-override <card>', 'budget-override', [
+    ['--note <text>', "Owner's decision allowing one more rework past the review budget (state revise)"],
   ]);
   addAps(
     apsCmd,
