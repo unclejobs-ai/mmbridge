@@ -732,14 +732,30 @@ export async function main(): Promise<void> {
     ['--quote <text>', 'Owner quote'],
     ['--source-ref <ref>', 'Source reference'],
   ]);
-  addAps(apsCmd, 'merge <card>', 'merge', [
-    ['--merged-sha <sha>', 'Merged commit'],
-    ['--applied-ref <ref>', 'Applied non-git change'],
-    ['--target <target>', 'Merge/apply target'],
-    ['--gate', 'Record gate'],
-    ['--base-ref <ref>', 'Gate base ref'],
-    ['--project <id>', 'Require the card to belong to this project (default: config aps.project)'],
-  ]);
+  addAps(
+    apsCmd,
+    'merge <card>',
+    'merge',
+    [
+      ['--merged-sha <sha>', 'Merged commit'],
+      ['--applied-ref <ref>', 'Applied non-git change'],
+      ['--target <target>', 'Merge/apply target'],
+      ['--gate', 'Record gate'],
+      ['--base-ref <ref>', 'Gate base ref'],
+      ['--project <id>', 'Require the card to belong to this project (default: config aps.project)'],
+      ['--pr <number>', 'GitHub PR merged at exactly the reviewed sha (squash ok); records merge:<pr>@<head>'],
+      ['--repo <owner/name>', '--pr: GitHub repository (default: gh repo of --project-dir)'],
+      ['--done', '--pr: then move merge_wait→done when the done guards pass'],
+    ],
+    async () => {
+      const { runApsCommand } = await import('./commands/aps.js');
+      const { runApsMergePrCommand } = await import('./commands/aps-merge-pr.js');
+      return {
+        runApsCommand: (action, id, options) =>
+          options.pr ? runApsMergePrCommand(action, id, options) : runApsCommand(action, id, options),
+      };
+    },
+  );
   addAps(apsCmd, 'todo-render', 'todo-render', [
     ['--out <path>', 'Atomically write markdown'],
     ['--project <id>', 'Filter project'],
